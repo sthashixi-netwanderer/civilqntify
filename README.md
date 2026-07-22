@@ -17,7 +17,7 @@ Built for civil engineers, concrete technology specialists, and quantity surveyo
 ### 2. Particle Size Distribution (PSD) & Grading Band Analysis
 - Automated sieve analysis and fineness modulus calculations.
 - Grading band compliance checking (IS 383 Zones I–IV, ACI/ASTM C33, DOE bands).
-- Interactive PSD grading curve visualizer using Matplotlib embedded in PySide6.
+- Interactive PSD grading curve visualizer using Matplotlib embedded in PyQt6.
 
 ### 3. Structural Material Quantification
 - Calculates required cement, fine aggregate, coarse aggregate, water, and rebar for:
@@ -47,8 +47,8 @@ Built for civil engineers, concrete technology specialists, and quantity surveyo
 
 ```
 civilqntify/
-├── app/                        # PySide6 GUI Application
-│   ├── main.py                 # PySide6 GUI entry point
+├── app/                        # PyQt6 GUI Application
+│   ├── main.py                 # PyQt6 GUI entry point
 │   ├── pricing/                # Google Sheets live pricing integration
 │   ├── resources/              # App icons, SVG assets, and styling resources
 │   ├── styles.py               # Dark/Light modern theme stylesheet tokens

@@ -62,6 +62,12 @@ hiddenimports = [
     "app.pricing",
     "app.pricing.price_sheet_service",
     "app.pricing.price_sheet_worker",
+    # PyQt6 GUI framework:
+    "PyQt6",
+    "PyQt6.QtCore",
+    "PyQt6.QtGui",
+    "PyQt6.QtWidgets",
+    "PyQt6.QtSvg",
     # Optional live-pricing dependency (only needed if configured in Settings):
     "gspread",
 ]
