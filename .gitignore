@@ -1,0 +1,54 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+ENV/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Testing & Linting
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# IDEs and Tools
+.claude/
+.creep/
+.zcode/
+.idea/
+.vscode/
+*.swp
+*~
+
+# Temporary & Lock files
+.~lock.*
+*.bak
+
+# Databases & local state
+agentdb.rvf*
+ruvector.db
+civilqntify_history.json
+history/*.json
+
+# OS files
+.DS_Store
+Thumbs.db

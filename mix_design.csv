@@ -1,0 +1,12 @@
+Parameter,Value,Unit
+Code,ACI 211.1-91,
+Target Mean Strength,30.9,MPa
+W/C Ratio,0.50,
+Water,190.0,kg/m³
+Cement,380.0,kg/m³
+SCM,0.0,kg/m³
+Total Cementitious,380.0,kg/m³
+Fine Aggregate,784.5,kg/m³
+Coarse Aggregate,1008.0,kg/m³
+Total Aggregate,1792.5,kg/m³
+Air Content,2.0,%

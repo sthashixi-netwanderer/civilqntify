@@ -1,0 +1,282 @@
+"""Concrete Mix Design Module — ACI 211.1 and IS 10262:2019.
+
+A pure-Python library for calculating concrete mix proportions per
+international structural codes.
+
+Usage:
+    from concrete_mix import design_mix, MixDesignInput
+
+    result = design_mix(
+        code="is10262",
+        target_strength_mpa=25.0,
+        slump_mm=50.0,
+    )
+    print(result.cement_kg, result.water_kg)
+"""
+
+from concrete_mix.engine.proportioner import design_mix, get_code_implementation
+from concrete_mix.estimators.carbon import carbon_savings_vs_opc, estimate_carbon
+from concrete_mix.estimators.cost import MaterialPrices, estimate_cost
+from concrete_mix.export.csv_export import export_to_csv
+from concrete_mix.export.json_export import export_to_json
+from concrete_mix.export.pdf_report import generate_pdf_report
+from concrete_mix.export.text_report import generate_report
+from concrete_mix.models.materials import (
+    SCM,
+    Admixture,
+    Cement,
+    CementType,
+    CoarseAggregate,
+    FineAggregate,
+    SCMType,
+)
+from concrete_mix.models.mix_input import MixDesignInput
+from concrete_mix.models.mix_result import CalculationStep, MixDesignResult
+
+from concrete_mix.validation.validators import validate_mix_input
+
+# Mapping from Ghana cement grades to calculation codes
+GHANA_CEMENT_MAP = {
+    "GRADE_32_5R": {"is10262": "OPC_33", "aci211": "TYPE_I"},
+    "GRADE_42_5R": {"is10262": "OPC_43", "aci211": "TYPE_III"},
+    "GRADE_42_5N": {"is10262": "OPC_43", "aci211": "TYPE_I"},
+    "GRADE_52_5N": {"is10262": "OPC_53", "aci211": "TYPE_I"},
+}
+
+
+def map_cement_type(ghana_code: str, standard: str) -> str:
+    """Map Ghana cement grade to the calculation code for the given standard.
+
+    Args:
+        ghana_code: Ghana cement grade code (e.g., "GRADE_42_5R")
+        standard: Design standard ("is10262" or "aci211")
+
+    Returns:
+        The calculation code for the specified standard
+    """
+    if ghana_code in GHANA_CEMENT_MAP:
+        return GHANA_CEMENT_MAP[ghana_code].get(standard, ghana_code)
+    return ghana_code
+
+
+def design_mix_simple(
+    code: str,
+    target_strength_mpa: float,
+    slump_mm: float,
+    nmsa: int = 20,
+    characteristic_strength_mpa: float | None = None,
+    ca_volume_fraction_override: float | None = None,
+    cement_type: str = "OPC_43",
+    cement_sg: float = 3.15,
+    fine_agg_sg: float = 2.65,
+    fine_agg_fm: float = 2.70,
+    fine_agg_grading_zone: str | None = None,
+    fine_agg_absorption: float = 1.0,
+    fine_agg_moisture: float = 0.0,
+    coarse_agg_sg: float = 2.70,
+    coarse_agg_absorption: float = 0.5,
+    coarse_agg_moisture: float = 0.0,
+    coarse_agg_bulk_density: float = 1600.0,
+    aggregate_shape: str = "gravel",
+    fine_agg_shape: str | None = None,
+    air_entrained: bool = False,
+    exposure_class: str | None = None,
+    concrete_type: str = "reinforced",
+    scm_replacement_percent: float = 0.0,
+    scm_type: str = "fly_ash",
+    scm_sg: float = 2.20,
+    admixture_type: str = "",
+    admixture_dosage: float = 1.0,
+    admixture_water_reduction: float = 0.0,
+    volume_m3: float = 1.0,
+    has_production_data: bool = True,
+    sulfate_exposure_class: str = "S0",
+    w_c_ratio: float | None = None,
+    defective_percent: float = 5.0,
+    age_days: int = 28,
+    min_cement_kg: float | None = None,
+    max_cement_kg: float | None = None,
+    fine_agg_pct_passing_600um: float | None = None,
+    std_deviation: float | None = None,
+    margin_mpa: float | None = None,
+) -> MixDesignResult:
+    """Simplified API for quick mix design calculations.
+
+    Args:
+        code: "aci211", "is10262", or "doe"
+        target_strength_mpa: Required compressive strength (MPa)
+        slump_mm: Required slump (mm)
+        nmsa: Nominal max aggregate size (mm), default 20
+        cement_type: Cement type string ("OPC_43", "OPC_53", "TYPE_I", etc.)
+        cement_sg: Cement specific gravity, default 3.15
+        fine_agg_sg: Fine aggregate specific gravity, default 2.65
+        fine_agg_fm: Fineness Modulus (ACI method), default 2.70
+        fine_agg_grading_zone: Grading zone (IS method), e.g. "II"
+        fine_agg_absorption: Fine aggregate absorption (%), default 1.0
+        fine_agg_moisture: Fine aggregate free moisture (%), default 0.0
+        coarse_agg_sg: Coarse aggregate specific gravity, default 2.70
+        coarse_agg_absorption: Coarse aggregate absorption (%), default 0.5
+        coarse_agg_moisture: Coarse aggregate free moisture (%), default 0.0
+        coarse_agg_bulk_density: Dry rodded bulk density (kg/m³), default 1600
+        aggregate_shape: Coarse aggregate shape (IS/DOE), default "gravel"
+        fine_agg_shape: Fine aggregate shape (DOE only). If None, uses aggregate_shape.
+            DOE uses weighted formula W = 2/3 Wf + 1/3 Wc when types differ.
+        air_entrained: Air-entrained concrete (ACI only)
+        exposure_class: IS 456 exposure class
+        scm_replacement_percent: SCM replacement % (0 = no SCM)
+        scm_type: SCM type ("fly_ash", "ggbfs", "silica_fume")
+        scm_sg: SCM specific gravity (default depends on scm_type)
+        admixture_type: Admixture type string (e.g. "superplasticizer")
+        admixture_dosage: Admixture dosage (% by weight of cement)
+        admixture_water_reduction: Water reduction from admixture (%)
+        volume_m3: Target volume (default 1.0)
+        has_production_data: Whether ≥30 test results exist (ACI only) / ≥20 results exist (DOE)
+        sulfate_exposure_class: ACI 318 sulfate class ("S0"-""S3")
+        w_c_ratio: Water-cement ratio manual override (or durability limit for DOE)
+        defective_percent: Percentage of defectives (DOE only)
+        age_days: Age in days for target strength (DOE only)
+        min_cement_kg: Minimum cement content (DOE only)
+        max_cement_kg: Maximum cement content (DOE only)
+        fine_agg_pct_passing_600um: Fine aggregate % passing 600µm (DOE only)
+        std_deviation: User-provided standard deviation in MPa (DOE only).
+            If provided, overrides automatic calculation from Figure 3.
+
+    Returns:
+        MixDesignResult with all proportions
+    """
+    from concrete_mix.models.materials import (
+        SCM,
+        Admixture,
+        AggregateShape,
+        Cement,
+        CementType,
+        CoarseAggregate,
+        FineAggregate,
+        SCMType,
+    )
+
+    # Resolve cement type
+    try:
+        ct = CementType(cement_type)
+    except ValueError:
+        ct = CementType.OPC_43
+
+    scm_type_enum = (
+        SCMType(scm_type)
+        if scm_type in ("fly_ash", "ggbfs", "silica_fume", "metakaolin")
+        else SCMType.FLY_ASH
+    )
+
+    scms = ()
+    if scm_replacement_percent > 0:
+        scms = (
+            SCM(
+                type=scm_type_enum,
+                specific_gravity=scm_sg,
+                replacement_percent=scm_replacement_percent,
+            ),
+        )
+
+    admixture = None
+    if admixture_type and admixture_type != "":
+        admixture = Admixture(
+            type=admixture_type,
+            dosage_percent=admixture_dosage,
+            water_reduction_percent=admixture_water_reduction,
+        )
+    elif admixture_water_reduction > 0:
+        admixture = Admixture(water_reduction_percent=admixture_water_reduction)
+
+    # Resolve aggregate shape
+    try:
+        agg_shape = AggregateShape(aggregate_shape)
+    except ValueError:
+        agg_shape = AggregateShape.GRAVEL
+
+    # Resolve fine aggregate shape (DOE: separate from coarse)
+    if fine_agg_shape is not None:
+        try:
+            fa_agg_shape = AggregateShape(fine_agg_shape)
+        except ValueError:
+            fa_agg_shape = agg_shape
+    else:
+        fa_agg_shape = agg_shape  # Default to coarse aggregate shape
+
+    fa = FineAggregate(
+        specific_gravity=fine_agg_sg,
+        absorption_percent=fine_agg_absorption,
+        moisture_content_percent=fine_agg_moisture,
+        fineness_modulus=fine_agg_fm,
+        grading_zone=fine_agg_grading_zone,
+        pct_passing_600um=fine_agg_pct_passing_600um,
+        shape=fa_agg_shape,
+    )
+    ca = CoarseAggregate(
+        specific_gravity=coarse_agg_sg,
+        nominal_max_size_mm=nmsa,
+        absorption_percent=coarse_agg_absorption,
+        moisture_content_percent=coarse_agg_moisture,
+        bulk_density_kg_m3=coarse_agg_bulk_density,
+        shape=agg_shape,
+    )
+
+    inp = MixDesignInput(
+        code=code,
+        target_strength_mpa=target_strength_mpa,
+        characteristic_strength_mpa=characteristic_strength_mpa,
+        ca_volume_fraction_override=ca_volume_fraction_override,
+        slump_mm=slump_mm,
+        cement=Cement(type=ct, specific_gravity=cement_sg),
+        fine_aggregate=fa,
+        coarse_aggregate=ca,
+        scms=scms,
+        admixture=admixture,
+        exposure_class=exposure_class,
+        concrete_type=concrete_type,
+        air_entrained=air_entrained,
+        volume_m3=volume_m3,
+        has_production_data=has_production_data,
+        sulfate_exposure_class=sulfate_exposure_class,
+        w_c_ratio=w_c_ratio,
+        defective_percent=defective_percent,
+        age_days=age_days,
+        min_cement_kg=min_cement_kg,
+        max_cement_kg=max_cement_kg,
+        std_deviation=std_deviation,
+        margin_mpa=margin_mpa,
+    )
+
+    res = design_mix(inp)
+    object.__setattr__(res, "_input", inp)
+    return res
+
+
+__all__ = [
+    # Main API
+    "design_mix",
+    "design_mix_simple",
+    "get_code_implementation",
+    # Models
+    "MixDesignInput",
+    "MixDesignResult",
+    "CalculationStep",
+    # Materials
+    "Cement",
+    "CementType",
+    "FineAggregate",
+    "CoarseAggregate",
+    "SCM",
+    "SCMType",
+    "Admixture",
+    # Estimators
+    "MaterialPrices",
+    "estimate_cost",
+    "estimate_carbon",
+    "carbon_savings_vs_opc",
+    # Export
+    "export_to_csv",
+    "export_to_json",
+    "generate_report",
+    # Validation
+    "validate_mix_input",
+]

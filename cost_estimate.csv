@@ -1,0 +1,27 @@
+CivilQntify - Cost Estimate Report
+
+Project,the civl
+Location,ho
+Client,kkls
+Date,2026-06-04
+
+SUMMARY
+Material Cost / m³,GH₵ 755.69
+Total Material Cost,"GH₵ 7,934.71"
+Total Project Cost,"GH₵ 13,959.76"
+Cost / Bag of Concrete,GH₵ 114.42
+
+MATERIAL COST BREAKDOWN
+Material,Qty,Unit,Unit Price (GH₵),Total Cost (GH₵)
+Cement,122.00,bags,32.00,"3,904.00"
+Fine Aggregate,2.70,m³,405.00,"1,093.90"
+Coarse Aggregate,6.62,m³,430.00,"2,844.45"
+Water,2.31,1000L,40.00,92.36
+
+PROJECT SUMMARY
+Material Cost,"GH₵ 7,934.71"
+Labour & Transport,"GH₵ 3,454.50"
+Overhead & Profit (19%),"GH₵ 2,163.95"
+Subtotal,"GH₵ 13,553.17"
+Contingency (3%),GH₵ 406.59
+GRAND TOTAL,"GH₵ 13,959.76"

@@ -1,0 +1,468 @@
+
+================================================================================
+SECTION 1: DESIGN STANDARD
+================================================================================
+
+STANDARD
+--------
+Description: Selects the calculation method for mix design.
+
+Options:
+  - ACI 211.1 (American Concrete Institute)
+    Standard: ACI 211.1-91 "Standard Practice for Selecting Proportions
+    for Normal, Heavyweight, and Mass Concrete"
+    
+  - IS 10262 (Bureau of Indian Standards)
+    Standard: IS 10262:2019 "Code of Practice for Concrete Mix Design
+    - An Additional Standard IS 456"
+
+Note: Selecting a standard changes available options and calculation
+      methodology. Some fields are standard-specific.
+
+================================================================================
+SECTION 2: MIX PARAMETERS
+================================================================================
+
+TARGET STRENGTH (MPa)
+---------------------
+Description: The characteristic compressive strength of concrete at 28 days.
+
+ACI 211.1:
+  - Called "Specified Compressive Strength" (f'c)
+  - Range: Typically 17-70 MPa (2500-10000 psi)
+  - Default: 25.0 MPa
+  - Used to calculate required average strength (f'cr) with overdesign
+
+IS 10262:
+  - Called "Characteristic Compressive Strength" (fck)
+  - Range: Typically 10-80 MPa
+  - Default: 25.0 MPa
+  - Target mean strength: f'ck + 1.65s (where s = standard deviation)
+
+SLUMP (mm)
+----------
+Description: Measure of workability/consistency of fresh concrete.
+
+  - Lower values = stiffer, less workable mix
+  - Higher values = more fluid, easier to place
+
+Typical ranges:
+  - 25-50 mm:  Foundation concrete, road pavement
+  - 50-100 mm: General structural concrete
+  - 75-150 mm: Beams, columns, thin sections
+  - 100-150 mm: Pumped concrete, heavily reinforced sections
+  - 150-200 mm: Tremie concrete, underwater placement
+
+Default: 75 mm
+
+NMSA (Nominal Maximum Size of Aggregate)
+----------------------------------------
+Description: The largest aggregate size that will pass through most of
+the aggregate particles.
+
+Options:
+  - 10 mm: Thin sections, heavily reinforced areas, pumps
+  - 20 mm: General structural concrete (most common)
+  - 40 mm: Mass concrete, foundations, gravity dams
+
+Rule: NMSA should not exceed:
+  - 1/5 the narrowest dimension between sides of forms
+  - 1/3 the depth of slabs
+  - 3/4 the clear spacing between reinforcing bars
+
+Default: 20 mm
+
+VOLUME (m³)
+-----------
+Description: Total volume of concrete to be designed.
+
+  - Enter the total quantity of concrete needed for the project
+  - All material quantities will be scaled to this volume
+  - Enter 1.0 for per-cubic-meter design
+
+Default: 1.0 m³
+
+================================================================================
+SECTION 3: CEMENT
+================================================================================
+
+TYPE
+----
+Description: Type of Portland cement or blended cement to be used.
+
+ACI 211.1 Options:
+  - TYPE_I: General purpose (OPC)
+  - TYPE_II: Moderate sulfate resistance
+  - TYPE_III: High early strength
+  - TYPE_IV: Low heat of hydration
+  - TYPE_V: High sulfate resistance
+
+IS 10262 Options:
+  - OPC_33: Ordinary Portland Cement 33 grade (IS 269)
+  - OPC_43: Ordinary Portland Cement 43 grade (IS 8112) [Default]
+  - OPC_53: Ordinary Portland Cement 53 grade (IS 12269)
+  - PPC: Portland Pozzolana Cement (IS 1489)
+  - PSC: Portland Slag Cement (IS 455)
+
+Note: Cement type affects strength development and durability properties.
+
+SPECIFIC GRAVITY
+----------------
+Description: Ratio of cement density to water density (25°C).
+
+  - Typical range: 2.80 - 3.50
+  - OPC: Usually 3.14 - 3.15
+  - PPC: Usually 2.80 - 2.90
+  - PSC: Usually 2.85 - 2.95
+
+Used in: Absolute volume calculations
+
+Default: 3.15
+
+================================================================================
+SECTION 4: FINE AGGREGATE (SAND)
+================================================================================
+
+SPECIFIC GRAVITY
+----------------
+Description: Ratio of fine aggregate density to water density.
+
+  - Typical range: 2.20 - 3.00
+  - Natural sand: 2.50 - 2.70
+  - Manufactured sand: 2.60 - 2.90
+
+Used in: Absolute volume calculations
+
+Default: 2.65
+
+FINENESS MODULUS (ACI 211.1 only)
+---------------------------------
+Description: An empirical figure obtained by adding the total percentages
+of the sample of an aggregate retained on each of a specified series of
+sieves, and dividing the sum by 100.
+
+  - Lower FM = finer sand
+  - Higher FM = coarser sand
+
+Typical ranges:
+  - Fine sand: 2.2 - 2.6
+  - Medium sand: 2.6 - 2.9
+  - Coarse sand: 2.9 - 3.2
+
+Used in: ACI Table 6.3.6 - Choosing mixing water and air content
+
+Default: 2.70
+
+GRADING ZONE (IS 10262 only)
+----------------------------
+Description: Classification of fine aggregate based on particle size
+distribution as per IS 383.
+
+  - Zone I: Coarse sand
+  - Zone II: Medium sand (most common) [Default]
+  - Zone III: Fine sand
+  - Zone IV: Very fine sand
+
+Used in: IS Table 2 - Determination of coarse aggregate proportion
+
+Note: Grading zone affects the proportion of fine to coarse aggregate.
+
+ABSORPTION (%)
+--------------
+Description: The amount of water absorbed by aggregate to reach Saturated
+Surface Dry (SSD) condition.
+
+  - Clean sand: 0.5 - 2.0%
+  - Typical: 1.0%
+
+Used in: Moisture correction calculations
+  - If aggregate absorption > free moisture: aggregate absorbs water
+  - If aggregate absorption < free moisture: aggregate contributes water
+
+Default: 1.0%
+
+FREE MOISTURE (%)
+-----------------
+Description: Surface moisture content on fine aggregate (excess over SSD).
+
+  - Positive: Wet aggregate (contributes water to mix)
+  - Zero: SSD condition
+  - Negative: Dry aggregate (absorbs water from mix)
+
+Typical range: -2% to +5%
+
+Default: 0.0% (SSD condition)
+
+================================================================================
+SECTION 5: COARSE AGGREGATE
+================================================================================
+
+SPECIFIC GRAVITY
+----------------
+Description: Ratio of coarse aggregate density to water density.
+
+  - Typical range: 2.20 - 3.20
+  - Gravel: 2.60 - 2.80
+  - Crushed stone: 2.70 - 2.90
+
+Used in: Absolute volume calculations
+
+Default: 2.70
+
+ABSORPTION (%)
+--------------
+Description: Amount of water absorbed by coarse aggregate to reach SSD.
+
+  - Gravel: 0.2 - 1.0%
+  - Crushed stone: 0.5 - 2.0%
+
+Default: 0.5%
+
+FREE MOISTURE (%)
+-----------------
+Description: Surface moisture on coarse aggregate (excess over SSD).
+
+  - Same interpretation as fine aggregate
+  - Typically lower than fine aggregate moisture
+
+Default: 0.0% (SSD condition)
+
+BULK DENSITY (kg/m³)
+--------------------
+Description: Dry rodded unit weight (DRUW) of coarse aggregate - mass of
+aggregate that fills a container of known volume, rodded in standard manner.
+
+  - Typical range: 1400 - 1800 kg/m³
+  - Gravel: 1500 - 1700 kg/m³
+  - Crushed stone: 1400 - 1600 kg/m³
+
+Used in: ACI Method - Determining coarse aggregate volume per m³
+  (ACI Table 6.3.6)
+
+Default: 1600 kg/m³
+
+AGGREGATE SHAPE (IS 10262 only)
+-------------------------------
+Description: Shape classification of coarse aggregate.
+
+Options:
+  - Gravel: Rounded or partially rounded natural aggregate
+  - Crushed: Angular, mechanically crushed aggregate [Default]
+
+Used in: IS Table 6 - Selection of fine aggregate proportion
+  - Crushed aggregate requires more fines for same workability
+
+Note: Affects water demand and workability.
+
+================================================================================
+SECTION 6: ACI OPTIONS (ACI 211.1 only)
+================================================================================
+
+AIR-EN TRAINED CONCRETE
+------------------------
+Description: Check if concrete will be air-entrained (contains deliberate
+air voids for freeze-thaw resistance).
+
+  - Unchecked: Normal concrete with entrapped air only
+  - Checked: Air-entrained concrete with deliberate air bubbles
+
+When checked:
+  - Uses ACI Table 6.3.3 for air-entrained concrete
+  - Typically 3-8% air content depending on exposure
+  - Improves workability and freeze-thaw durability
+
+SULFATE EXPOSURE
+----------------
+Description: Classifies sulfate exposure severity per ACI 318.
+
+Options:
+  - S0 — None: No sulfate exposure [Default]
+  - S1 — Moderate: Soil with 0.1-0.2% SO4, water with 150-1500 ppm SO4
+  - S2 — Severe: Soil with 0.2-2.0% SO4, water with 1500-10000 ppm SO4
+  - S3 — Very Severe: Soil with >2.0% SO4, water with >10000 ppm SO4
+
+Used in: ACI Table 6.3.4(b) - Maximum w/c ratio for sulfate exposure
+
+HAS PRODUCTION DATA (≥30 tests)
+-------------------------------
+Description: Indicates if sufficient field test data is available for
+standard deviation calculation.
+
+  - Checked (default): Standard deviation σ = 3.5 MPa (assumed)
+  - Unchecked: σ = 5.5 MPa (higher overdesign for limited data)
+
+Used in: ACI Table 5.3.1.2 - Required average compressive strength
+
+================================================================================
+SECTION 7: IS OPTIONS (IS 10262 only)
+================================================================================
+
+EXPOSURE CLASS (IS 456)
+------------------------
+Description: Environmental exposure classification per IS 456:2000.
+
+Options:
+  - None: No exposure classification
+  - Mild: Concrete surfaces protected against weather/aggressive exposure
+  - Moderate: Concrete surfaces sheltered from severe rain/freezing
+    Concrete in foundations, basement walls, etc.
+  - Severe: Concrete surfaces exposed to severe rain, alternating wetting/drying
+    Concrete in coastal areas, water tanks
+  - Very Severe: Concrete surfaces exposed to sea water, aggressive soils/waters
+    Concrete in immersion/tidal/splash zones
+  - Extreme: Concrete surfaces in aggressive industrial environments
+    Concrete in sea water, chemical plants
+
+Used in: IS Table 4 - Minimum cement content, maximum w/c ratio
+
+Note: Affects minimum cement content and maximum w/c ratio requirements.
+
+================================================================================
+SECTION 8: SUPPLEMENTARY CEMENTITIOUS MATERIAL (SCM)
+================================================================================
+
+SCM TYPE
+--------
+Description: Type of supplementary cementitious material to partially
+replace Portland cement.
+
+Options:
+  - None: No SCM replacement [Default]
+  - Fly Ash: Class F or Class C fly ash from coal combustion
+  - GGBFS: Ground Granulated Blast Furnace Slag (from iron production)
+  - Silica Fume: Ultra-fine particles from silicon/silicon alloy production
+
+Benefits:
+  - Improved durability
+  - Reduced heat of hydration
+  - Lower carbon footprint
+  - Enhanced workability (fly ash)
+  - Higher strength (silica fume)
+
+REPLACEMENT (%)
+---------------
+Description: Percentage of cement replaced by SCM (by weight).
+
+  - Fly Ash: Typically 15-35% (IS 456 allows up to 35%)
+  - GGBFS: Typically 30-70%
+  - Silica Fume: Typically 5-15%
+
+Default: 0% (no replacement)
+
+Note: SCM replacement affects:
+  - Strength development rate
+  - Heat of hydration
+  - Durability properties
+  - Specific gravity of cementitious blend
+
+SPECIFIC GRAVITY
+----------------
+Description: Specific gravity of the SCM material.
+
+Typical values:
+  - Fly Ash: 2.00 - 2.50 (default: 2.20)
+  - GGBFS: 2.80 - 3.00 (default: 2.90)
+  - Silica Fume: 2.10 - 2.30 (default: 2.20)
+
+Used in: Absolute volume calculations for blended cement
+
+================================================================================
+SECTION 9: ADMIXTURE
+================================================================================
+
+TYPE
+----
+Description: Chemical admixture to modify concrete properties.
+
+Options:
+  - None: No chemical admixture [Default]
+  - Superplasticizer: High-range water reducer (HRWR)
+    - Reduces water by 12-30%
+    - Enables high-strength, self-consolidating concrete
+  - Plasticizer: Mid-range water reducer (MRWR)
+    - Reduces water by 8-15%
+    - Improves workability without changing w/c
+  - Retarder: Delays setting time
+    - Useful for hot weather, long transport times
+  - Accelerator: Speeds up setting/strength gain
+    - Used in cold weather, emergency repairs
+  - Air-Entraining: Creates stable air bubbles
+    - Improves freeze-thaw resistance
+
+DOSAGE (% by wt. cement)
+------------------------
+Description: Amount of admixture as percentage of cementitious material weight.
+
+Typical ranges:
+  - Superplasticizer: 0.5 - 2.0%
+  - Plasticizer: 0.2 - 0.5%
+  - Retarder: 0.1 - 0.4%
+  - Accelerator: 1.0 - 4.0%
+
+Default: 1.0%
+
+WATER REDUCTION (%)
+-------------------
+Description: Percentage reduction in mixing water achievable with the
+admixture while maintaining workability.
+
+Typical values:
+  - Superplasticizer: 15 - 30%
+  - Plasticizer: 8 - 15%
+  - Other types: 0%
+
+Used in: Adjusting water content for target w/c ratio
+
+Default: 0% (no water reduction)
+
+================================================================================
+NOTES
+================================================================================
+
+1. FIELD VISIBILITY
+   - ACI Options group: Visible only when ACI 211.1 is selected
+   - IS Options group: Visible only when IS 10262 is selected
+   - Fineness Modulus: Visible only for ACI 211.1
+   - Grading Zone: Visible only for IS 10262
+   - Aggregate Shape: Visible only for IS 10262
+
+2. DEFAULT VALUES
+   Defaults are based on typical materials in Ghana/West Africa region.
+   Adjust according to local material test results.
+
+3. MATERIAL TESTING
+   For accurate mix design, obtain:
+   - Cement test certificate (type, specific gravity)
+   - Aggregate sieve analysis (gradation)
+   - Aggregate specific gravity test (SSD and OD)
+   - Aggregate absorption test
+   - Aggregate moisture content (field)
+   - Bulk density test (coarse aggregate)
+
+4. CALCULATION OUTPUT
+   After clicking "Calculate Mix Design", the app generates:
+   - Mix proportions per m³ (cement, water, aggregates)
+   - W/C ratio determination
+   - Absolute volume verification
+   - Material quantities for specified volume
+
+================================================================================
+STANDARDS REFERENCE
+================================================================================
+
+ACI 211.1-91:
+  "Standard Practice for Selecting Proportions for Normal, Heavyweight,
+  and Mass Concrete"
+  American Concrete Institute, 2002
+
+IS 10262:2019:
+  "Code of Practice for Concrete Mix Design"
+  Bureau of Indian Standards, 2019
+
+IS 456:2000:
+  "Plain and Reinforced Concrete - Code of Practice"
+  Bureau of Indian Standards, 2000
+
+IS 383:2016:
+  "Coarse and Fine Aggregates for Concrete - Specification"
+  Bureau of Indian Standards, 2016
