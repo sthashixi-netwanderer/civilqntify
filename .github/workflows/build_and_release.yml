@@ -1,0 +1,205 @@
+name: Build and Release CivilQntify
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  # ------------------------------------------------------------------
+  # Job 1: Build Standalone Windows Executable (.exe)
+  # ------------------------------------------------------------------
+  build-windows:
+    name: Build Windows Executable (.exe)
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Build Standalone Windows Executable
+        run: |
+          pyinstaller civilqntify.spec
+
+      - name: Rename and Stage Windows Binary
+        shell: bash
+        run: |
+          mkdir -p win_dist
+          cp dist/CivilQntify-Standalone.exe win_dist/CivilQntify.exe
+
+      - name: Upload Windows Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-exe
+          path: win_dist/CivilQntify.exe
+
+  # ------------------------------------------------------------------
+  # Job 2: Build Linux Packages (.deb & .rpm)
+  # ------------------------------------------------------------------
+  build-linux:
+    name: Build Linux Packages (.deb & .rpm)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install System Packaging Tools (Ruby, RPM, FPM)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ruby ruby-dev rubygems build-essential rpm alien
+          sudo gem install --no-document fpm
+
+      - name: Install Python Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Build Linux Binary Bundle
+        run: |
+          pyinstaller civilqntify.spec
+
+      - name: Package .deb and .rpm with FPM
+        run: |
+          # Determine package version
+          VERSION="1.0.0"
+          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+          fi
+          echo "Packaging version: $VERSION"
+
+          # Prepare Linux install root directory structure
+          STAGE_DIR="pkg_stage"
+          mkdir -p ${STAGE_DIR}/usr/bin
+          mkdir -p ${STAGE_DIR}/usr/lib/civilqntify
+          mkdir -p ${STAGE_DIR}/usr/share/applications
+
+          # Copy PyInstaller directory bundle
+          cp -r dist/CivilQntify/* ${STAGE_DIR}/usr/lib/civilqntify/
+          chmod +x ${STAGE_DIR}/usr/lib/civilqntify/CivilQntify
+
+          # Create executable wrapper script in /usr/bin
+          cat << 'EOF' > ${STAGE_DIR}/usr/bin/civilqntify
+#!/bin/sh
+exec /usr/lib/civilqntify/CivilQntify "$@"
+EOF
+          chmod +x ${STAGE_DIR}/usr/bin/civilqntify
+
+          # Desktop launcher menu item
+          cat << EOF > ${STAGE_DIR}/usr/share/applications/civilqntify.desktop
+[Desktop Entry]
+Name=CivilQntify
+Comment=Concrete Mix Design & Structural Material Quantification Desktop App
+Exec=/usr/bin/civilqntify
+Terminal=false
+Type=Application
+Categories=Engineering;Science;Utility;
+EOF
+
+          # Build Debian (.deb) package
+          fpm -s dir -t deb \
+            -n civilqntify \
+            -v "$VERSION" \
+            --architecture amd64 \
+            --description "CivilQntify - Concrete Mix Design & Material Quantification" \
+            --url "https://github.com/${{ github.repository }}" \
+            --license "MIT" \
+            -C ${STAGE_DIR} .
+
+          # Build RedHat/Fedora (.rpm) package
+          fpm -s dir -t rpm \
+            -n civilqntify \
+            -v "$VERSION" \
+            --architecture x86_64 \
+            --description "CivilQntify - Concrete Mix Design & Material Quantification" \
+            --url "https://github.com/${{ github.repository }}" \
+            --license "MIT" \
+            -C ${STAGE_DIR} .
+
+          mkdir -p linux_pkgs
+          mv civilqntify_${VERSION}_amd64.deb linux_pkgs/
+          mv civilqntify-${VERSION}-1.x86_64.rpm linux_pkgs/
+
+      - name: Upload Linux Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-pkgs
+          path: linux_pkgs/*
+
+  # ------------------------------------------------------------------
+  # Job 3: Create GitHub Release & Upload Binaries
+  # ------------------------------------------------------------------
+  release:
+    name: Publish Release & Upload Binaries
+    needs: [build-windows, build-linux]
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Download Windows Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-exe
+          path: release_assets/
+
+      - name: Download Linux Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: linux-pkgs
+          path: release_assets/
+
+      - name: Determine Release Tag and Name
+        id: release_info
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            TAG_NAME="${GITHUB_REF_NAME}"
+            RELEASE_NAME="CivilQntify ${TAG_NAME}"
+          else
+            TAG_NAME="v1.0.0-latest"
+            RELEASE_NAME="CivilQntify Release (Latest)"
+          fi
+          echo "tag_name=${TAG_NAME}" >> $GITHUB_OUTPUT
+          echo "release_name=${RELEASE_NAME}" >> $GITHUB_OUTPUT
+
+      - name: Publish or Update GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.release_info.outputs.tag_name }}
+          name: ${{ steps.release_info.outputs.release_name }}
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          files: |
+            release_assets/CivilQntify.exe
+            release_assets/*.deb
+            release_assets/*.rpm
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

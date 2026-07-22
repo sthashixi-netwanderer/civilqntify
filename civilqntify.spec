@@ -88,7 +88,31 @@ a = Analysis(
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 
-exe = EXE(
+# ── Standalone Executable (.exe) ─────────────────────────────────────
+exe_standalone = EXE(
+    pyz,
+    a.scripts,
+    a.binaries,
+    a.zipfiles,
+    a.datas,
+    [],
+    name="CivilQntify-Standalone",
+    debug=False,
+    bootloader_ignore_signals=False,
+    strip=False,
+    upx=True,
+    upx_exclude=[],
+    runtime_tmpdir=None,
+    console=False,  # windowed mode (no console window)
+    disable_windowed_traceback=False,
+    argv_emulation=False,
+    target_arch=None,
+    codesign_identity=None,
+    entitlements_file=None,
+)
+
+# ── Directory Bundle (for Linux .deb/.rpm packaging) ────────────────
+exe_dir = EXE(
     pyz,
     a.scripts,
     [],
@@ -98,7 +122,7 @@ exe = EXE(
     bootloader_ignore_signals=False,
     strip=False,
     upx=True,
-    console=False,  # windowed mode (no console window)
+    console=False,
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
@@ -107,7 +131,7 @@ exe = EXE(
 )
 
 coll = COLLECT(
-    exe,
+    exe_dir,
     a.binaries,
     a.zipfiles,
     a.datas,
@@ -116,3 +140,4 @@ coll = COLLECT(
     upx_exclude=[],
     name="CivilQntify",
 )
+
