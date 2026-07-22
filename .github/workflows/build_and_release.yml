@@ -105,21 +105,21 @@ jobs:
 
           # Create executable wrapper script in /usr/bin
           cat << 'EOF' > ${STAGE_DIR}/usr/bin/civilqntify
-#!/bin/sh
-exec /usr/lib/civilqntify/CivilQntify "$@"
-EOF
+          #!/bin/sh
+          exec /usr/lib/civilqntify/CivilQntify "$@"
+          EOF
           chmod +x ${STAGE_DIR}/usr/bin/civilqntify
 
           # Desktop launcher menu item
           cat << EOF > ${STAGE_DIR}/usr/share/applications/civilqntify.desktop
-[Desktop Entry]
-Name=CivilQntify
-Comment=Concrete Mix Design & Structural Material Quantification Desktop App
-Exec=/usr/bin/civilqntify
-Terminal=false
-Type=Application
-Categories=Engineering;Science;Utility;
-EOF
+          [Desktop Entry]
+          Name=CivilQntify
+          Comment=Concrete Mix Design & Structural Material Quantification Desktop App
+          Exec=/usr/bin/civilqntify
+          Terminal=false
+          Type=Application
+          Categories=Engineering;Science;Utility;
+          EOF
 
           # Build Debian (.deb) package
           fpm -s dir -t deb \
