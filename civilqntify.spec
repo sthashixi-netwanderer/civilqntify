@@ -13,64 +13,37 @@ block_cipher = None
 # ── Paths ────────────────────────────────────────────────────────────
 ROOT = os.path.abspath(SPECPATH)
 
-# ──_datas: bundle resource files alongside the app ──────────────────
-# The styles module resolves paths relative to its own __file__, so we
-# add the resources folder at the same relative location (app/resources).
-datas = [
-    (os.path.join(ROOT, "app", "resources"), os.path.join("app", "resources")),
-]
+# ── datas: bundle resource files & library data alongside the app ───
+datas = (
+    [
+        (os.path.join(ROOT, "app", "resources"), os.path.join("app", "resources")),
+    ]
+    + collect_data_files("matplotlib", includes=["*.json", "*.png", "*.svg", "*.ttf"])
+    + collect_data_files("reportlab", includes=["*.png", "*.jpg", "*.ttf", "*.pfb"])
+)
 
-# ──hiddenimports: ensure all local packages are found ───────────────
-hiddenimports = [
-    "concrete_mix",
-    "concrete_mix.codes",
-    "concrete_mix.codes.aci211",
-    "concrete_mix.codes.is10262",
-    "concrete_mix.codes.doe",
-    "concrete_mix.codes.base",
-    "concrete_mix.engine",
-    "concrete_mix.estimators",
-    "concrete_mix.export",
-    "concrete_mix.models",
-    "concrete_mix.utils",
-    "concrete_mix.validation",
-    "material_quantify",
-    "material_quantify.engine",
-    "material_quantify.models",
-    "history",
-    "history.db",
-    "history.serializers",
-    "app",
-    "app.main",
-    "app.styles",
-    "app.unit_preferences",
-    "app.widgets",
-    "app.widgets.concrete_tab",
-    "app.widgets.material_quantify_tab",
-    "app.widgets.cost_estimation_tab",
-    "app.widgets.history_tab",
-    "app.widgets.history_detail_dialog",
-    "app.widgets.report_preview_dialog",
-    "app.widgets.settings_dialog",
-    "app.widgets.info_button",
-    "app.widgets.result_panel",
-    "app.widgets.quant_result_panel",
-    "app.widgets.cost_result_panel",
-    "app.workers",
-    "app.workers.mix_design_worker",
-    "app.workers.quantification_worker",
-    "app.pricing",
-    "app.pricing.price_sheet_service",
-    "app.pricing.price_sheet_worker",
-    # PyQt6 GUI framework:
-    "PyQt6",
-    "PyQt6.QtCore",
-    "PyQt6.QtGui",
-    "PyQt6.QtWidgets",
-    "PyQt6.QtSvg",
-    # Optional live-pricing dependency (only needed if configured in Settings):
-    "gspread",
-]
+# ── hiddenimports: dynamically collect all local & library submodules 
+hiddenimports = (
+    collect_submodules("app")
+    + collect_submodules("concrete_mix")
+    + collect_submodules("material_quantify")
+    + collect_submodules("history")
+    + collect_submodules("PyQt6")
+    + [
+        "matplotlib",
+        "matplotlib.backends.backend_qtagg",
+        "matplotlib.backends.backend_qt5agg",
+        "reportlab",
+        "reportlab.lib",
+        "reportlab.platypus",
+        "reportlab.pdfgen",
+        "requests",
+        "gspread",
+        "sqlite3",
+        "json",
+        "csv",
+    ]
+)
 
 a = Analysis(
     [os.path.join(ROOT, "main.py")],
@@ -146,4 +119,3 @@ coll = COLLECT(
     upx_exclude=[],
     name="CivilQntify",
 )
-

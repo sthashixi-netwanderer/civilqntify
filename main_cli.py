@@ -9,11 +9,20 @@ Full interactive workflow:
 Run:  python main_cli.py
 """
 
-from __future__ import annotations
-
+import os
 import sys
 
+# Ensure project root & PyInstaller temp directory (_MEIPASS) are in sys.path
+if getattr(sys, "frozen", False):
+    base_dir = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
+else:
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+
+if base_dir not in sys.path:
+    sys.path.insert(0, base_dir)
+
 from concrete_mix import design_mix_simple, generate_report, validate_mix_input, MixDesignResult
+
 from concrete_mix.codes.tables.is_tables import (
     WATER_CONTENT,
     CA_VOLUME_FRACTION,
