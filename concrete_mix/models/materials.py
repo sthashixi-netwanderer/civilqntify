@@ -164,9 +164,9 @@ class CoarseAggregate:
             raise ValueError(
                 f"Coarse aggregate specific gravity {self.specific_gravity} outside valid range [2.2, 3.2]"
             )
-        if self.nominal_max_size_mm not in (10, 20, 40):
+        if self.nominal_max_size_mm not in (10, 19, 20, 40):
             raise ValueError(
-                f"Nominal max size {self.nominal_max_size_mm}mm not supported. Use 10, 20, or 40"
+                f"Nominal max size {self.nominal_max_size_mm}mm not supported. Use 10, 19, 20, or 40"
             )
 
 

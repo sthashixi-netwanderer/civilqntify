@@ -37,8 +37,8 @@ class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle("CivilQntify")
-        self.setMinimumSize(1200, 750)
-        self.resize(1400, 850)
+        self.setMinimumSize(1024, 640)
+        self.resize(1360, 820)
         self.setStyleSheet(STYLESHEET)
 
         # Unit preferences (singleton)
@@ -124,7 +124,7 @@ class MainWindow(QMainWindow):
         spacer.setStyleSheet("background: transparent;")
         toolbar.addWidget(spacer)
 
-        # Weather button
+        # Weather button — unified to primary palette
         self._btn_weather = QPushButton("Weather")
         self._btn_weather.setObjectName("weather-btn")
         self._btn_weather.setToolTip("View Weather Data")
@@ -132,18 +132,18 @@ class MainWindow(QMainWindow):
         self._btn_weather.setStyleSheet("""
             QPushButton {
                 padding: 4px 12px;
-                background-color: #0ea5e9;
+                background-color: #1e40af;
                 color: white;
                 border: none;
-                border-radius: 6px;
+                border-radius: 4px;
                 font-size: 12px;
-                font-weight: 500;
+                font-weight: 600;
             }
             QPushButton:hover {
-                background-color: #0284c7;
+                background-color: #1e3a8a;
             }
             QPushButton:pressed {
-                background-color: #0369a1;
+                background-color: #172554;
             }
         """)
         self._btn_weather.clicked.connect(self._open_weather)

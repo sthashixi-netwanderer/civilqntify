@@ -103,11 +103,12 @@ class CostEstimationTab(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(splitter)
 
-        # Left: scrollable input form
+        # Left: scrollable input form — responsive
         input_scroll = QScrollArea()
         input_scroll.setWidgetResizable(True)
-        input_scroll.setMinimumWidth(420)
-        input_scroll.setMaximumWidth(540)
+        input_scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        input_scroll.setMinimumWidth(360)
+        input_scroll.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
         input_widget = QWidget()
         self._form = QVBoxLayout(input_widget)
         self._form.setContentsMargins(16, 16, 12, 16)
@@ -116,11 +117,18 @@ class CostEstimationTab(QWidget):
         input_scroll.setWidget(input_widget)
         splitter.addWidget(input_scroll)
 
-        # Right: result panel
+        # Right: result panel — expands
         self._result_panel = CostResultPanel()
+        self._result_panel.setMinimumWidth(380)
+        self._result_panel.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         splitter.addWidget(self._result_panel)
 
         splitter.setSizes([460, 740])
+        splitter.setStretchFactor(0, 0)
+        splitter.setStretchFactor(1, 1)
+        splitter.setCollapsible(0, False)
+        splitter.setCollapsible(1, False)
+        splitter.setHandleWidth(6)
 
         # Wire export buttons
         self._result_panel.btn_csv.clicked.connect(self._export_csv)

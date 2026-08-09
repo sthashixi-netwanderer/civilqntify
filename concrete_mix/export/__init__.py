@@ -1,3 +1,4 @@
 from concrete_mix.export.csv_export import export_to_csv
 from concrete_mix.export.json_export import export_to_json
+from concrete_mix.export.pdf_report import generate_latex_source, generate_pdf_report
 from concrete_mix.export.text_report import generate_report

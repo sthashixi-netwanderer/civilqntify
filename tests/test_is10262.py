@@ -274,14 +274,14 @@ class TestWCRatio:
         assert abs(result - 0.3616) < 0.01
 
     def test_wc_ratio_from_strength_opc33_38mpa(self):
-        """OPC 33 at 38 MPa should give w/c ≈ 0.43 (standard worked example: 38.25→0.43)."""
+        """OPC 33 at 38 MPa should give w/c ≈ 0.39 per IS Fig.1 Curve A (OPC 33 < OPC 43 at same strength)."""
         result = wc_ratio_from_strength(38.0, "OPC_33")
-        assert abs(result - 0.4320) < 0.01
+        assert abs(result - 0.3920) < 0.01
 
     def test_wc_ratio_from_strength_opc53_55mpa(self):
-        """OPC 53 at 55 MPa should give w/c ≈ 0.32."""
+        """OPC 53 at 55 MPa should give w/c ≈ 0.36 per IS Fig.1 Curve C (OPC 53 > OPC 43 at same strength)."""
         result = wc_ratio_from_strength(55.0, "OPC_53")
-        assert abs(result - 0.3187) < 0.01
+        assert abs(result - 0.3587) < 0.01
 
     def test_wc_ratio_standard_worked_example_a(self):
         """Annex A/B: target=48.25 MPa → w/c=0.36 for OPC 43."""

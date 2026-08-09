@@ -44,9 +44,10 @@ _STYLESHEET_RAW = """
 QMainWindow, QWidget {
     background-color: #f8fafc;
     color: #0b1c30;
-    font-family: "Inter", "Segoe UI", "Noto Sans", sans-serif;
+    font-family: "Inter", "Geist", "Satoshi", "Segoe UI", "Noto Sans", sans-serif;
     font-size: 13px;
 }
+/* QSS uses JetBrains Mono for numeric values where tabular alignment is needed */
 
 /* ── Tab Widget ── */
 QTabWidget::pane {
@@ -88,10 +89,10 @@ QLabel {
 
 QLabel#section-title {
     color: #1e40af;
-    font-size: 12px;
-    font-weight: 700;
+    font-size: 11px;
+    font-weight: 600;
     text-transform: uppercase;
-    letter-spacing: 0.05em;
+    letter-spacing: 0.03em;
     padding: 6px 0 2px 0;
 }
 
@@ -147,11 +148,16 @@ QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox {
 }
 
 QLineEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus, QComboBox:focus {
-    border: 1px solid #3b82f6;
+    border: 1px solid #1e40af;
 }
 
 QLineEdit:hover, QSpinBox:hover, QDoubleSpinBox:hover, QComboBox:hover {
-    border: 1px solid #c4c5d5;
+    border: 1px solid #94a3b8;
+}
+QLineEdit:disabled, QSpinBox:disabled, QDoubleSpinBox:disabled, QComboBox:disabled {
+    background-color: #f1f5f9;
+    color: #94a3b8;
+    border: 1px solid #e2e8f0;
 }
 
 QLineEdit[readOnly="true"], QSpinBox[readOnly="true"], QDoubleSpinBox[readOnly="true"] {
@@ -187,11 +193,26 @@ QComboBox::down-arrow:disabled {
 QComboBox QAbstractItemView {
     background-color: #ffffff;
     border: 1px solid #e2e8f0;
+    border-radius: 4px;
     color: #0b1c30;
     selection-background-color: #1e40af;
     selection-color: #ffffff;
     outline: none;
     padding: 4px;
+}
+QComboBox QAbstractItemView::item {
+    padding: 7px 12px;
+    border-radius: 4px;
+    color: #0b1c30;
+    min-height: 18px;
+}
+QComboBox QAbstractItemView::item:selected {
+    background-color: #1e40af;
+    color: #ffffff;
+}
+QComboBox QAbstractItemView::item:hover:!selected {
+    background-color: #eff4ff;
+    color: #0b1c30;
 }
 
 /* ── Checkbox ── */
@@ -277,12 +298,12 @@ QPushButton#danger-btn:pressed {
 QGroupBox {
     border: 1px solid #e2e8f0;
     border-radius: 4px;
-    margin-top: 14px;
-    padding-top: 18px;
-    font-weight: 700;
-    font-size: 12px;
+    margin-top: 16px;
+    padding-top: 20px;
+    font-weight: 600;
+    font-size: 11px;
     text-transform: uppercase;
-    letter-spacing: 0.05em;
+    letter-spacing: 0.03em;
     color: #1e40af;
     background-color: #ffffff;
 }
@@ -378,11 +399,14 @@ QHeaderView::section {
 /* ── Splitter ── */
 QSplitter::handle {
     background: #e2e8f0;
-    width: 1px;
+    width: 6px;
+    margin: 0 1px;
 }
-
 QSplitter::handle:hover {
-    background: #3b82f6;
+    background: #1e40af;
+}
+QSplitter::handle:pressed {
+    background: #1e3a8a;
 }
 
 /* ── Text Edit (Report) ── */

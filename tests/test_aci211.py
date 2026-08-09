@@ -33,36 +33,36 @@ class TestACIWaterContent:
     """Verify water content table values."""
 
     def test_10mm_25mm_slump_nae(self):
-        assert WATER_CONTENT_NON_AIR_ENTRAINED[10][25] == 207
+        assert WATER_CONTENT_NON_AIR_ENTRAINED[10][25] == 208
 
     def test_10mm_150mm_slump_nae(self):
-        assert WATER_CONTENT_NON_AIR_ENTRAINED[10][150] == 268
+        assert WATER_CONTENT_NON_AIR_ENTRAINED[10][150] == 237
 
     def test_20mm_50mm_slump_nae(self):
-        assert WATER_CONTENT_NON_AIR_ENTRAINED[20][50] == 193
+        assert WATER_CONTENT_NON_AIR_ENTRAINED[20][50] == 187
 
     def test_40mm_100mm_slump_nae(self):
-        assert WATER_CONTENT_NON_AIR_ENTRAINED[40][100] == 193
+        assert WATER_CONTENT_NON_AIR_ENTRAINED[40][100] == 178
 
     def test_20mm_50mm_slump_ae(self):
-        assert WATER_CONTENT_AIR_ENTRAINED[20][50] == 179
+        assert WATER_CONTENT_AIR_ENTRAINED[20][50] == 166
 
     def test_interpolate_20mm_60mm_slump(self):
-        """Between 50mm (193) and 75mm (208) — non-air-entrained."""
+        """Between 50mm (187) and 75mm (202) — non-air-entrained per ACI 211.1-22."""
         result = interpolate_water_content(20, 60, False)
         # fraction = (60-50)/(75-50) = 0.4
-        expected = 193 + 0.4 * (208 - 193)  # 193 + 6.0 = 199.0
-        assert abs(result - 199.0) < 0.1
+        expected = 187 + 0.4 * (202 - 187)  # 187 + 6.0 = 193.0
+        assert abs(result - 193.0) < 0.1
 
     def test_interpolate_clamp_low(self):
         """Below table range should clamp to lowest value."""
         result = interpolate_water_content(20, 10, False)
-        assert result == 183
+        assert result == 187
 
     def test_interpolate_clamp_high(self):
         """Above table range should clamp to highest value."""
         result = interpolate_water_content(20, 200, False)
-        assert result == 228
+        assert result == 208
 
 
 # ---------------------------------------------------------------------------
@@ -71,7 +71,7 @@ class TestACIWaterContent:
 class TestACIAirContent:
     """Verify air content table values."""
 
-    @pytest.mark.parametrize("nmsa,expected", [(10, 1.5), (20, 1.0), (40, 0.5)])
+    @pytest.mark.parametrize("nmsa,expected", [(10, 3.0), (20, 2.0), (40, 1.0)])
     def test_entrapped_air(self, nmsa, expected):
         assert AIR_CONTENT_ENTRAPPED[nmsa] == expected
 
@@ -85,7 +85,7 @@ class TestACIAirContent:
         assert AIR_CONTENT[20]["severe"] == 6.0
 
     def test_get_air_entrapped(self):
-        assert get_air_content(20, "moderate", False) == 1.0
+        assert get_air_content(20, "moderate", False) == 2.0
 
     def test_get_air_entrained_moderate(self):
         assert get_air_content(20, "moderate", True) == 4.5

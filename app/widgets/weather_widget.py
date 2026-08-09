@@ -526,15 +526,7 @@ class WeatherWidget(QWidget):
 
         self._openmeteo_search_input = QLineEdit()
         self._openmeteo_search_input.setPlaceholderText("Type city name...")
-        self._openmeteo_search_input.setStyleSheet("""
-            QLineEdit {
-                padding: 6px 10px;
-                border: 1px solid #d1d5db;
-                border-radius: 5px;
-                font-size: 12px;
-            }
-            QLineEdit:focus { border-color: #2563eb; }
-        """)
+        # Uses global QLineEdit style — no inline override to keep dropdown palette consistent
         self._openmeteo_search_input.textChanged.connect(self._on_openmeteo_search_changed)
         search_row.addWidget(self._openmeteo_search_input, stretch=1)
 
@@ -550,17 +542,7 @@ class WeatherWidget(QWidget):
 
         self._openmeteo_city_combo = QComboBox()
         self._openmeteo_city_combo.setMinimumWidth(180)
-        self._openmeteo_city_combo.setStyleSheet("""
-            QComboBox {
-                padding: 6px 10px;
-                border: 1px solid #d1d5db;
-                border-radius: 5px;
-                font-size: 12px;
-                background-color: white;
-            }
-            QComboBox:hover { border-color: #9ca3af; }
-            QComboBox::drop-down { border: none; width: 20px; }
-        """)
+        # Global QComboBox style — ensures dropdown colors match design system (#e2e8f0→#1e40af)
 
         self._populate_city_combo(self._openmeteo_city_combo, None)
 
@@ -571,14 +553,15 @@ class WeatherWidget(QWidget):
         refresh_btn.setStyleSheet("""
             QPushButton {
                 padding: 6px 12px;
-                background-color: #2563eb;
+                background-color: #1e40af;
                 color: white;
                 border: none;
-                border-radius: 5px;
+                border-radius: 4px;
                 font-size: 12px;
-                font-weight: 500;
+                font-weight: 600;
             }
-            QPushButton:hover { background-color: #1d4ed8; }
+            QPushButton:hover { background-color: #1e3a8a; }
+            QPushButton:pressed { background-color: #172554; }
         """)
         refresh_btn.clicked.connect(self._on_refresh)
         city_row.addWidget(refresh_btn)
@@ -604,15 +587,7 @@ class WeatherWidget(QWidget):
 
         self._search_input = QLineEdit()
         self._search_input.setPlaceholderText("Type city name...")
-        self._search_input.setStyleSheet("""
-            QLineEdit {
-                padding: 6px 10px;
-                border: 1px solid #d1d5db;
-                border-radius: 5px;
-                font-size: 12px;
-            }
-            QLineEdit:focus { border-color: #2563eb; }
-        """)
+        # Uses global style
         self._search_input.textChanged.connect(self._on_search_changed)
         search_row.addWidget(self._search_input, stretch=1)
 
@@ -628,17 +603,7 @@ class WeatherWidget(QWidget):
 
         self._weatherapi_city_combo = QComboBox()
         self._weatherapi_city_combo.setMinimumWidth(180)
-        self._weatherapi_city_combo.setStyleSheet("""
-            QComboBox {
-                padding: 6px 10px;
-                border: 1px solid #d1d5db;
-                border-radius: 5px;
-                font-size: 12px;
-                background-color: white;
-            }
-            QComboBox:hover { border-color: #9ca3af; }
-            QComboBox::drop-down { border: none; width: 20px; }
-        """)
+        # Global style — no inline override
 
         self._populate_city_combo(self._weatherapi_city_combo, None)
 
@@ -649,14 +614,15 @@ class WeatherWidget(QWidget):
         refresh_btn.setStyleSheet("""
             QPushButton {
                 padding: 6px 12px;
-                background-color: #2563eb;
+                background-color: #1e40af;
                 color: white;
                 border: none;
-                border-radius: 5px;
+                border-radius: 4px;
                 font-size: 12px;
-                font-weight: 500;
+                font-weight: 600;
             }
-            QPushButton:hover { background-color: #1d4ed8; }
+            QPushButton:hover { background-color: #1e3a8a; }
+            QPushButton:pressed { background-color: #172554; }
         """)
         refresh_btn.clicked.connect(self._on_refresh)
         city_row.addWidget(refresh_btn)

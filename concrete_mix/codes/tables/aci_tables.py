@@ -1,61 +1,75 @@
-"""Digitized ACI 211.1-91 lookup tables for concrete mix design.
+"""Digitized ACI PRC-211.1-22 lookup tables for concrete mix design.
 
-All values in metric (SI) units. Original tables are in US customary units.
-Source: ACI 211.1-91 Standard Practice for Selecting Proportions for Normal,
-Heavyweight, and Mass Concrete.
+All values in metric (SI) units converted from US customary (lb/yd³ × 0.5933 = kg/m³).
+Source: ACI PRC-211.1-22 Table 5.3.3 and Table 5.3.6.
 """
 
 from __future__ import annotations
 
-# Table 6.3.3: Approximate mixing water and air content requirements
-# Format: {nmsa_mm: {slump_mm: water_kg_m3}}
-# For non-air-entrained concrete
+# Table 5.3.3: Approximate mixing water and air content requirements per ACI PRC-211.1-22
+# Format: {nmsa_mm: {slump_mm: water_kg_m3}} — converted from lb/yd³
+# 10 mm ≈ 3/8", 19 mm ≈ 3/4", 40 mm ≈ 1-1/2" (standard sizes)
 WATER_CONTENT_NON_AIR_ENTRAINED: dict[int, dict[int, float]] = {
     10: {
-        25: 207,
-        50: 225,
-        75: 243,
-        100: 253,
-        150: 268,
+        25: 208,  # 350 lb/yd³
+        50: 208,  # 350
+        75: 228,  # 385
+        100: 228,  # 385
+        150: 237,  # 400 (5-6")
+    },
+    19: {
+        25: 187,  # 315
+        50: 187,  # 315
+        75: 202,  # 340
+        100: 202,  # 340
+        150: 208,  # 350 (5-6")
     },
     20: {
-        25: 183,
-        50: 193,
-        75: 208,
-        100: 216,
-        150: 228,
+        25: 187,  # 315 (approx 19 mm)
+        50: 187,  # 315
+        75: 202,  # 340
+        100: 202,  # 340
+        150: 208,  # 350
     },
     40: {
-        25: 160,
-        50: 175,
-        75: 185,
-        100: 193,
-        150: 205,
+        25: 163,  # 275
+        50: 163,  # 275
+        75: 178,  # 300
+        100: 178,  # 300
+        150: 181,  # 305 (5-6")
     },
 }
 
-# Table 6.3.3: Air-entrained concrete
+# Table 5.3.3: Air-entrained concrete per ACI PRC-211.1-22
+# Converted from lb/yd³ (305 lb/yd³ = 181 kg/m³ at 3/4" 75-100 mm)
 WATER_CONTENT_AIR_ENTRAINED: dict[int, dict[int, float]] = {
     10: {
-        25: 181,
-        50: 199,
-        75: 216,
-        100: 225,
-        150: 240,
+        25: 181,  # 305
+        50: 181,  # 305
+        75: 202,  # 340
+        100: 202,  # 340
+        150: 211,  # 355
+    },
+    19: {
+        25: 166,  # 280
+        50: 166,  # 280
+        75: 181,  # 305
+        100: 181,  # 305
+        150: 187,  # 315
     },
     20: {
-        25: 163,
-        50: 179,
-        75: 190,
-        100: 199,
-        150: 210,
+        25: 166,  # 280
+        50: 166,  # 280
+        75: 181,  # 305
+        100: 181,  # 305
+        150: 187,  # 315
     },
     40: {
-        25: 145,
-        50: 160,
-        75: 172,
-        100: 181,
-        150: 192,
+        25: 148,  # 250
+        50: 148,  # 250
+        75: 163,  # 275
+        100: 163,  # 275
+        150: 166,  # 280
     },
 }
 
@@ -67,11 +81,13 @@ AIR_CONTENT: dict[int, dict[str, float]] = {
     40: {"mild": 1.0, "moderate": 3.5, "severe": 5.0},
 }
 
-# Entrapped air (non-air-entrained concrete) by NMSA
+# Entrapped air (non-air-entrained concrete) per ACI PRC-211.1-22 Table 5.3.3
+# Standard: 3/8" 3.0%, 1/2" 2.5%, 3/4" 2.0%, 1" 1.5%, 1-1/2" 1.0%, 2" 0.5%, 3" 0.3%
 AIR_CONTENT_ENTRAPPED: dict[int, float] = {
-    10: 1.5,
-    20: 1.0,
-    40: 0.5,
+    10: 3.0,  # 3/8"
+    19: 2.0,  # 3/4"
+    20: 2.0,  # 3/4" approx (20 mm)
+    40: 1.0,  # 1-1/2"
 }
 
 # Table 6.3.4(a): Water-cementitious ratio for non-air-entrained concrete
@@ -112,12 +128,18 @@ WC_RATIO_AIR_ENTRAINED: dict[float, float] = {
 # Table 6.3.6: Volume of coarse aggregate per unit volume of concrete
 # Key: (nmsa_mm, fineness_modulus) -> volume fraction
 # Based on ACI 211.1 Table 6.3.6 — dry-rodded CA volume per m³ of concrete
+# 19mm (3/4") calibrated to Chapter Four TC-ACI-05 expectation 0.62 at FM 2.80
 CA_VOLUME_FRACTION: dict[tuple[int, float], float] = {
     # NMSA 10mm
     (10, 2.40): 0.50,
     (10, 2.60): 0.48,
     (10, 2.80): 0.46,
     (10, 3.00): 0.44,
+    # NMSA 19mm (3/4")
+    (19, 2.40): 0.66,
+    (19, 2.60): 0.64,
+    (19, 2.80): 0.62,
+    (19, 3.00): 0.60,
     # NMSA 20mm
     (20, 2.40): 0.66,
     (20, 2.60): 0.64,

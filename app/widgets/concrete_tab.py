@@ -75,14 +75,15 @@ class ConcreteMixTab(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(splitter)
 
-        # Left: tabbed input panel
+        # Left: tabbed input panel — responsive: min 360, no max, stretchable via splitter
         self._left_tabs = QTabWidget()
-        self._left_tabs.setMinimumWidth(400)
-        self._left_tabs.setMaximumWidth(520)
+        self._left_tabs.setMinimumWidth(360)
+        self._left_tabs.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
 
         # Tab 1: Concrete Mix Design (main form)
         input_scroll = QScrollArea()
         input_scroll.setWidgetResizable(True)
+        input_scroll.setFrameShape(QScrollArea.Shape.NoFrame)
         input_widget = QWidget()
         self._form = QVBoxLayout(input_widget)
         self._form.setContentsMargins(16, 16, 12, 16)
@@ -101,11 +102,18 @@ class ConcreteMixTab(QWidget):
 
         splitter.addWidget(self._left_tabs)
 
-        # Right: results panel
+        # Right: results panel — takes remaining space, scrollable
         self._result_panel = ResultPanel()
+        self._result_panel.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self._result_panel.setMinimumWidth(380)
         splitter.addWidget(self._result_panel)
 
         splitter.setSizes([440, 760])
+        splitter.setStretchFactor(0, 0)
+        splitter.setStretchFactor(1, 1)
+        splitter.setCollapsible(0, False)
+        splitter.setCollapsible(1, False)
+        splitter.setHandleWidth(6)
 
         # Wire export buttons
         self._result_panel.btn_csv.clicked.connect(self._export_csv)
@@ -584,11 +592,11 @@ class ConcreteMixTab(QWidget):
         )
         f1.addRow(self._lbl_exposure, self.exposure_combo)
 
-        # Max Free W/C display (new)
+        # Max Free W/C display — uses warning palette from design system
         self.max_wc_label = QLabel("—")
         self.max_wc_label.setStyleSheet(
-            "font-weight: bold; color: #8B4513; font-size: 12px; padding: 4px 8px; "
-            "background: #FFF8F0; border: 1px solid #DEB887; border-radius: 4px;"
+            "font-weight: 600; color: #92400e; font-size: 12px; padding: 6px 10px; "
+            "background: #fef3c7; border: 1px solid #f59e0b; border-radius: 4px;"
         )
         self._lbl_max_wc = self._label("Max Free W/C Ratio")
         f1.addRow(self._lbl_max_wc, self.max_wc_label)
@@ -717,7 +725,7 @@ class ConcreteMixTab(QWidget):
         )
         self.nmsa_combo.currentIndexChanged.connect(self._on_nmsa_changed)
         self.water_content_label = QLabel("—")
-        self.water_content_label.setStyleSheet("font-weight: bold; color: #2d5a27;")
+        self.water_content_label.setStyleSheet("font-weight: 600; color: #1e40af; font-size: 13px;")
         self.volume_spin = self._spin(1.0, 0.01, 1000.0, 0.1, 3)
 
         f1.addRow(
@@ -1151,8 +1159,8 @@ class ConcreteMixTab(QWidget):
         )
         self.reduced_water_label = QLabel("—")
         self.reduced_water_label.setStyleSheet(
-            "font-weight: bold; color: #2d5a27; font-size: 12px; padding: 4px 8px; "
-            "background: #f0f7f0; border-radius: 4px;"
+            "font-weight: 600; color: #1e40af; font-size: 12px; padding: 6px 10px; "
+            "background: #eff4ff; border: 1px solid #dbeafe; border-radius: 4px;"
         )
         f3.addRow(
             self._label_with_info(
@@ -1286,12 +1294,14 @@ class ConcreteMixTab(QWidget):
         return g
 
     def _label(self, text: str) -> QLabel:
-        """Create a bold uppercase label (Stitch label-bold style)."""
+        """Create a bold uppercase label — refined from Stitch, reduced slop (0.03em, 600)."""
         lbl = QLabel(text)
         lbl.setStyleSheet(
-            "font-size: 11px; font-weight: 700; text-transform: uppercase; "
-            "letter-spacing: 0.05em; color: #444653;"
+            "font-size: 11px; font-weight: 600; text-transform: uppercase; "
+            "letter-spacing: 0.03em; color: #444653;"
         )
+        lbl.setWordWrap(False)
+        lbl.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
         return lbl
 
     def _label_with_info(self, text: str, info: str, key: str | None = None) -> QWidget:
