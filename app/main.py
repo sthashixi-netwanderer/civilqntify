@@ -3,9 +3,29 @@
 from __future__ import annotations
 
 import pathlib
+import sys
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont, QFontDatabase, QIcon
+
+
+def _resource_path(name: str) -> pathlib.Path:
+    """Resolve ``app/resources/<name>`` both in dev and in a PyInstaller bundle.
+
+    Uses ``sys._MEIPASS`` when frozen; otherwise resolves relative to this
+    file.  Covers both onefile (temp extraction) and onedir (sibling) layouts.
+    """
+    meipass = getattr(sys, "_MEIPASS", None)
+    if meipass:
+        p = pathlib.Path(meipass) / "app" / "resources" / name
+        if p.exists():
+            return p
+        # Fallback: resources at top-level of bundle
+        p2 = pathlib.Path(meipass) / "resources" / name
+        if p2.exists():
+            return p2
+    # Dev fallback
+    return pathlib.Path(__file__).resolve().parent / "resources" / name
 from PyQt6.QtWidgets import (
     QLabel,
     QPushButton,
@@ -26,8 +46,6 @@ from app.widgets.cost_estimation_tab import CostEstimationTab
 from app.widgets.history_tab import HistoryTab
 from app.widgets.weather_widget import WeatherWidget
 from app.widgets.settings_dialog import SettingsDialog
-from history.db import get_db
-from app.widgets.history_tab import HistoryTab
 from history.db import HistoryDB
 
 
@@ -74,7 +92,7 @@ class MainWindow(QMainWindow):
         # History tab
         self.history_db = HistoryDB()
         self.history_tab = HistoryTab(db=self.history_db)
-        _icon_path = pathlib.Path(__file__).resolve().parent / "resources" / "history.svg"
+        _icon_path = _resource_path("history.svg")
         self.tabs.addTab(self.history_tab, QIcon(str(_icon_path)), "History")
 
         # Wire data handoff: mix design → quantification
@@ -151,7 +169,7 @@ class MainWindow(QMainWindow):
         toolbar.addWidget(self._btn_weather)
 
         # Settings button
-        _icon_path = pathlib.Path(__file__).resolve().parent / "resources" / "settings.svg"
+        _icon_path = _resource_path("settings.svg")
         self._btn_settings = QPushButton()
         self._btn_settings.setObjectName("settings-btn")
         self._btn_settings.setIcon(QIcon(str(_icon_path)))

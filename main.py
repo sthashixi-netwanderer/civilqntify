@@ -4,16 +4,37 @@ Run:  python main.py
 """
 
 import os
+import pathlib
 import sys
 
 # Ensure project root & PyInstaller temp directory (_MEIPASS) are in sys.path
-if getattr(sys, "frozen", False):
-    base_dir = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
-else:
-    base_dir = os.path.dirname(os.path.abspath(__file__))
+# Covers both onefile (PyInstaller extracts to _MEIPASS) and onedir
+# (executable sits next to bundled packages) layouts, plus the plain dev run.
+def _init_sys_path() -> None:
+    candidates: list[str] = []
+    meipass = getattr(sys, "_MEIPASS", None)
+    if meipass:
+        candidates.append(meipass)
+    # Directory containing the executable / script — works for onedir and dev
+    try:
+        candidates.append(os.path.dirname(os.path.abspath(__file__)))
+    except Exception:
+        pass
+    try:
+        candidates.append(os.path.dirname(os.path.abspath(sys.executable)))
+    except Exception:
+        pass
+    # Also try pathlib for robustness on different OS path separators
+    try:
+        candidates.append(str(pathlib.Path(__file__).resolve().parent))
+    except Exception:
+        pass
+    for p in candidates:
+        if p and p not in sys.path:
+            sys.path.insert(0, p)
 
-if base_dir not in sys.path:
-    sys.path.insert(0, base_dir)
+
+_init_sys_path()
 
 from PyQt6.QtWidgets import QApplication
 

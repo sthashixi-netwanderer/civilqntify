@@ -6,11 +6,36 @@ Font: Inter. Radius: 4px. Depth via outlines, not shadows.
 """
 
 import os
+import pathlib
+import sys
+
+
+def _resource_base() -> pathlib.Path:
+    """Return the directory that contains ``app/resources``.
+
+    In a PyInstaller bundle ``_MEIPASS`` points to the extraction temp
+    directory (onefile) or the distribution folder already contains the
+    resources.  Falling back to ``__file__`` covers the normal dev run.
+    """
+    meipass = getattr(sys, "_MEIPASS", None)
+    if meipass:
+        p = pathlib.Path(meipass) / "app" / "resources"
+        if p.is_dir():
+            return p
+        # Some builds may bundle resources at top-level
+        p2 = pathlib.Path(meipass) / "resources"
+        if p2.is_dir():
+            return p2
+    # Dev / onedir fallback: relative to this file
+    return pathlib.Path(__file__).resolve().parent / "resources"
+
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
+_RESOURCE_BASE = _resource_base()
+
 
 def _get_resource_path(name: str) -> str:
-    path = os.path.join(_HERE, "resources", name)
+    path = os.path.join(str(_RESOURCE_BASE), name)
     return path.replace("\\", "/")
 
 _DOWN_ARROW = _get_resource_path("down_arrow.svg")

@@ -13,6 +13,13 @@ block_cipher = None
 # ── Paths ────────────────────────────────────────────────────────────
 ROOT = os.path.abspath(SPECPATH)
 
+# Ensure local packages are importable when collecting submodules.
+# collect_submodules() searches sys.path, so ROOT must be present
+# before the call — otherwise it returns an empty list and hiddenimports
+# silently misses local modules (e.g. app.pricing, app.widgets.*).
+if ROOT not in sys.path:
+    sys.path.insert(0, ROOT)
+
 # ── datas: bundle resource files & library data alongside the app ───
 datas = (
     [
@@ -22,28 +29,115 @@ datas = (
     + collect_data_files("reportlab", includes=["*.png", "*.jpg", "*.ttf", "*.pfb"])
 )
 
-# ── hiddenimports: dynamically collect all local & library submodules 
-hiddenimports = (
-    collect_submodules("app")
-    + collect_submodules("concrete_mix")
-    + collect_submodules("material_quantify")
-    + collect_submodules("history")
-    + collect_submodules("PyQt6")
-    + [
-        "matplotlib",
-        "matplotlib.backends.backend_qtagg",
-        "matplotlib.backends.backend_qt5agg",
-        "reportlab",
-        "reportlab.lib",
-        "reportlab.platypus",
-        "reportlab.pdfgen",
-        "requests",
-        "gspread",
-        "sqlite3",
-        "json",
-        "csv",
-    ]
-)
+# ── hiddenimports: dynamically collect all local & library submodules
+# Use collect_submodules for bulk discovery plus an explicit fallback list.
+# The explicit list guarantees coverage when collect_submodules misses
+# modules that are only imported conditionally or inside functions, and
+# protects against a future regression if sys.path handling changes.
+_hidden_collected = []
+for _pkg in ("app", "concrete_mix", "material_quantify", "history"):
+    try:
+        _hidden_collected += collect_submodules(_pkg)
+    except Exception:
+        pass
+try:
+    _hidden_collected += collect_submodules("PyQt6")
+except Exception:
+    pass
+
+hiddenimports = _hidden_collected + [
+    # Explicit fallbacks — mirrors the pre-dynamic explicit list and
+    # covers modules that are imported lazily or via Qt plugins.
+    "app",
+    "app.main",
+    "app.styles",
+    "app.unit_preferences",
+    "app.widgets",
+    "app.widgets.concrete_tab",
+    "app.widgets.material_quantify_tab",
+    "app.widgets.cost_estimation_tab",
+    "app.widgets.history_tab",
+    "app.widgets.history_detail_dialog",
+    "app.widgets.report_preview_dialog",
+    "app.widgets.settings_dialog",
+    "app.widgets.info_button",
+    "app.widgets.result_panel",
+    "app.widgets.quant_result_panel",
+    "app.widgets.cost_result_panel",
+    "app.widgets.psd_widget",
+    "app.widgets.weather_widget",
+    "app.workers",
+    "app.workers.mix_design_worker",
+    "app.workers.quantification_worker",
+    "app.pricing",
+    "app.pricing.price_sheet_service",
+    "app.pricing.price_sheet_worker",
+    "app.weather",
+    "app.weather.ghana_cities",
+    "app.weather.weather_service",
+    "app.weather.weather_worker",
+    "app.weather.weatherapi_service",
+    "concrete_mix",
+    "concrete_mix.codes",
+    "concrete_mix.codes.aci211",
+    "concrete_mix.codes.is10262",
+    "concrete_mix.codes.doe",
+    "concrete_mix.codes.base",
+    "concrete_mix.codes.tables",
+    "concrete_mix.codes.tables.aci_tables",
+    "concrete_mix.codes.tables.is_tables",
+    "concrete_mix.codes.tables.doe_tables",
+    "concrete_mix.codes.tables.grading_bands",
+    "concrete_mix.engine",
+    "concrete_mix.engine.grading",
+    "concrete_mix.engine.moisture_correction",
+    "concrete_mix.engine.proportioner",
+    "concrete_mix.engine.psd",
+    "concrete_mix.engine.volume_calculator",
+    "concrete_mix.estimators",
+    "concrete_mix.estimators.carbon",
+    "concrete_mix.estimators.cost",
+    "concrete_mix.estimators.strength_from_ratio",
+    "concrete_mix.export",
+    "concrete_mix.export.csv_export",
+    "concrete_mix.export.json_export",
+    "concrete_mix.export.pdf_report",
+    "concrete_mix.export.text_report",
+    "concrete_mix.models",
+    "concrete_mix.models.materials",
+    "concrete_mix.models.mix_input",
+    "concrete_mix.models.mix_result",
+    "concrete_mix.utils",
+    "concrete_mix.utils.constants",
+    "concrete_mix.utils.units",
+    "concrete_mix.validation",
+    "concrete_mix.validation.validators",
+    "material_quantify",
+    "material_quantify.engine",
+    "material_quantify.engine.quantifier",
+    "material_quantify.models",
+    "material_quantify.models.bill",
+    "material_quantify.models.elements",
+    "material_quantify.models.transfer_data",
+    "history",
+    "history.db",
+    "history.serializers",
+    "matplotlib",
+    "matplotlib.backends.backend_qtagg",
+    "matplotlib.backends.backend_qt5agg",
+    "reportlab",
+    "reportlab.lib",
+    "reportlab.platypus",
+    "reportlab.pdfgen",
+    "fpdf",
+    "PIL",
+    "PIL.Image",
+    "requests",
+    "gspread",
+    "sqlite3",
+    "json",
+    "csv",
+]
 
 a = Analysis(
     [os.path.join(ROOT, "main.py")],
