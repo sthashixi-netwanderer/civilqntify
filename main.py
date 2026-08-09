@@ -40,6 +40,19 @@ from PyQt6.QtWidgets import QApplication
 
 from app.main import MainWindow
 
+# Explicit imports to force PyInstaller to bundle all widget modules.
+# PyInstaller's static analysis can miss modules imported only inside
+# app.main when frozen; importing them here guarantees they are traced
+# from the entry point (main.py) which is always analyzed.
+import app.widgets.concrete_tab  # noqa: F401
+import app.widgets.material_quantify_tab  # noqa: F401
+import app.widgets.cost_estimation_tab  # noqa: F401
+import app.widgets.history_tab  # noqa: F401
+import app.widgets.psd_widget  # noqa: F401
+import app.widgets.weather_widget  # noqa: F401
+import app.pricing.price_sheet_service  # noqa: F401
+import app.pricing.price_sheet_worker  # noqa: F401
+
 
 
 def main() -> None:
