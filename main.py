@@ -36,9 +36,10 @@ def _init_sys_path() -> None:
 
 _init_sys_path()
 
+from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import QApplication
 
-from app.main import MainWindow
+from app.main import MainWindow, _resource_path
 
 # Explicit imports to force PyInstaller to bundle all widget modules.
 # PyInstaller's static analysis can miss modules imported only inside
@@ -53,12 +54,22 @@ import app.widgets.weather_widget  # noqa: F401
 import app.pricing.price_sheet_service  # noqa: F401
 import app.pricing.price_sheet_worker  # noqa: F401
 
+# Windows: give the process an explicit AppUserModelID so the taskbar
+# shows/groups it under our own icon instead of a generic one.
+if sys.platform == "win32":
+    import ctypes
+
+    try:
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("CivilQntify")
+    except Exception:
+        pass
 
 
 def main() -> None:
     app = QApplication(sys.argv)
     app.setApplicationName("CivilQntify")
     app.setOrganizationName("CivilQntify")
+    app.setWindowIcon(QIcon(str(_resource_path("icon.png"))))
     window = MainWindow()
     window.show()
     sys.exit(app.exec())

@@ -55,6 +55,7 @@ class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle("CivilQntify")
+        self.setWindowIcon(QIcon(str(_resource_path("icon.png"))))
         self.setMinimumSize(1024, 640)
         self.resize(1360, 820)
         self.setStyleSheet(STYLESHEET)
