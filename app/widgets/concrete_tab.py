@@ -2173,6 +2173,11 @@ class ConcreteMixTab(QWidget):
                 f"</tr>"
             )
 
+        # Formatted before the f-string blocks below: Python < 3.12 forbids
+        # reusing the outer f-string delimiter inside an expression part.
+        nmsa_val = f"{params.get('nmsa', 'N/A')} mm"
+        slump_val = f"{params.get('slump_mm', 'N/A')} mm"
+
         # ── Assemble full HTML ──
         html = (
             "<!DOCTYPE html>"
@@ -2210,22 +2215,22 @@ class ConcreteMixTab(QWidget):
             f"{param_cell('Target Strength', f'{result.target_mean_strength_mpa:.1f} MPa', highlight=True)}"
             f"{param_cell('W/C Ratio', f'{result.w_c_ratio:.3f}')}"
             f"</tr><tr>"
-            f"{param_cell('Max Agg. Size (NMSA)', f'{params.get("nmsa", "N/A")} mm')}"
-            f"{param_cell('Slump', f'{params.get("slump_mm", "N/A")} mm')}"
+            f"{param_cell('Max Agg. Size (NMSA)', nmsa_val)}"
+            f"{param_cell('Slump', slump_val)}"
             f"{param_cell('Air Content', f'{result.air_volume_percent:.1f}%')}"
             f"</tr><tr>"
-            f"{param_cell('Volume', f'{vol:.2f} m\u00b3')}"
-            f"{param_cell('Total Cementitious', f'{result.total_cementitious_kg:.1f} kg/m\u00b3')}"
+            f"{param_cell('Volume', f'{vol:.2f} m³')}"
+            f"{param_cell('Total Cementitious', f'{result.total_cementitious_kg:.1f} kg/m³')}"
             f"{param_cell('', '')}"
             f"</tr></table></div>"
             # ── Section 2: Material Quantities per m\u00b3 ──
             f'<div style="margin-bottom:20px;">'
-            f"{section_heading(2, 'Material Quantities per m\u00b3')}"
+            f"{section_heading(2, 'Material Quantities per m³')}"
             f'<table style="width:100%; border-collapse:collapse;"><tr>'
-            f"{material_card('Cement', f'{result.cement_kg:.1f}', 'kg/m\u00b3')}"
-            f"{material_card('Water', f'{result.water_kg:.1f}', 'liters/m\u00b3')}"
-            f"{material_card('Fine Aggregate', f'{result.fine_aggregate_kg:.1f}', 'kg/m\u00b3')}"
-            f"{material_card('Coarse Aggregate', f'{result.coarse_aggregate_kg:.1f}', 'kg/m\u00b3')}"
+            f"{material_card('Cement', f'{result.cement_kg:.1f}', 'kg/m³')}"
+            f"{material_card('Water', f'{result.water_kg:.1f}', 'liters/m³')}"
+            f"{material_card('Fine Aggregate', f'{result.fine_aggregate_kg:.1f}', 'kg/m³')}"
+            f"{material_card('Coarse Aggregate', f'{result.coarse_aggregate_kg:.1f}', 'kg/m³')}"
             f"</tr></table>"
         )
 
@@ -2278,7 +2283,7 @@ class ConcreteMixTab(QWidget):
         # ── Section 5: Batch Quantities ──
         html += (
             f'<div style="margin-bottom:20px;">'
-            f"{section_heading(5, f'Batch Quantities for {vol:.2f} m\u00b3')}"
+            f"{section_heading(5, f'Batch Quantities for {vol:.2f} m³')}"
             f'<table style="width:100%; border-collapse:collapse; border:1px solid {BORDER}; '
             f'background:{WHITE};">'
             f'<thead><tr style="background:{HEADER_BG};">'

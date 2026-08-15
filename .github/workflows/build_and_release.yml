@@ -35,6 +35,14 @@ jobs:
           pip install -r requirements.txt
           pip install pyinstaller
 
+      - name: Verify Sources Compile on CI Python
+        run: |
+          # CI builds with Python 3.11. The codebase is developed on 3.12+
+          # where PEP 701 allows f-strings that are SyntaxErrors here —
+          # PyInstaller would silently drop such modules from the bundle.
+          # Compiling everything up front turns that into a loud failure.
+          python -m compileall -q app concrete_mix material_quantify history main.py
+
       - name: Build Standalone Windows Executable
         run: |
           pyinstaller civilqntify.spec
@@ -79,6 +87,14 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           pip install pyinstaller
+
+      - name: Verify Sources Compile on CI Python
+        run: |
+          # CI builds with Python 3.11. The codebase is developed on 3.12+
+          # where PEP 701 allows f-strings that are SyntaxErrors here —
+          # PyInstaller would silently drop such modules from the bundle.
+          # Compiling everything up front turns that into a loud failure.
+          python -m compileall -q app concrete_mix material_quantify history main.py
 
       - name: Build Linux Binary Bundle
         run: |

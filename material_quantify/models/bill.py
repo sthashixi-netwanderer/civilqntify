@@ -90,11 +90,11 @@ class MaterialBill:
         lines.append(f"  {'Water':<25} {self.total_water_kg:<14.1f} {f'{self.total_water_liters:.1f} L':<14} {'--':<10}")
         lines.append(
             f"  {'Fine Aggregate':<25} {self.total_fine_aggregate_kg:<14.1f} "
-            f"{f'{self.total_fine_aggregate_bulk_m3:.3f} m\u00b3':<14} {'--':<10}"
+            f"{f'{self.total_fine_aggregate_bulk_m3:.3f} m³':<14} {'--':<10}"
         )
         lines.append(
             f"  {'Coarse Aggregate':<25} {self.total_coarse_aggregate_kg:<14.1f} "
-            f"{f'{self.total_coarse_aggregate_bulk_m3:.3f} m\u00b3':<14} {'--':<10}"
+            f"{f'{self.total_coarse_aggregate_bulk_m3:.3f} m³':<14} {'--':<10}"
         )
         if self.total_scm_kg > 0:
             lines.append(

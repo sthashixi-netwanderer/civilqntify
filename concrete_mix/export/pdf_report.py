@@ -552,6 +552,34 @@ Fine aggregate Zones I--IV per IS~383. Zone~II is reference; Zone~I $-3$\% water
         if result.volume_m3 != 1.0 and result.cost_per_m3 is not None:
             cost_latex += f"Total cost ({result.volume_m3:.1f} m\\textsuperscript{{3}}): \\textbf{{{result.cost_per_m3 * result.volume_m3:.2f}}} \\\\\n"
 
+    # Pre-computed outside the f-string below: Python < 3.12 forbids
+    # backslashes inside f-string expression parts, and these LaTeX
+    # fragments are full of them.
+    if _has_logo:
+        header_block = (
+            "\\noindent\\begin{minipage}[c]{0.18\\textwidth}"
+            "\\includegraphics[width=\\linewidth]{logo.png}\\end{minipage}\\hfill"
+            "\\begin{minipage}[c]{0.80\\textwidth}"
+            "{\\color{accentblue}\\LARGE\\textbf{CivilQntify}}\\\\[0.2em]"
+            "{\\color{graytext}\\small Concrete Mix Design Report \\;|\\; "
+            + code_short + " \\;|\\; " + date_str + "}"
+            "\\end{minipage}\\\\[0.6em]"
+            "\\noindent\\textcolor{accentblue}{\\rule{\\textwidth}{0.6pt}}\\\\[1.2em]"
+        )
+    else:
+        header_block = (
+            "\\noindent{\\color{accentblue}\\LARGE\\textbf{CivilQntify}}\\\\[0.3em]"
+            "{\\color{graytext}\\small Concrete Mix Design Report \\;|\\; "
+            + code_short + " \\;|\\; " + date_str + "}"
+            "\\\\[0.6em]"
+            "\\noindent\\textcolor{accentblue}{\\rule{\\textwidth}{0.6pt}}\\\\[1.2em]"
+        )
+    volume_note = (
+        "The total volume requested is \\textbf{"
+        + f"{result.volume_m3:.1f} m\\textsuperscript{{3}}"
+        + "}. All quantities below are shown per cubic metre and as total batch amounts."
+    ) if result.volume_m3 != 1.0 else ""
+
     latex = f"""\\documentclass[a4paper,11pt]{{article}}
 \\usepackage[margin=2cm]{{geometry}}
 \\usepackage{{xcolor}}
@@ -576,12 +604,12 @@ Fine aggregate Zones I--IV per IS~383. Zone~II is reference; Zone~I $-3$\% water
 \\begin{{document}}
 
 % ── Header ──────────────────────────────────────────────────────────
-{("\\noindent\\begin{minipage}[c]{0.18\\textwidth}\\includegraphics[width=\\linewidth]{logo.png}\\end{minipage}\\hfill\\begin{minipage}[c]{0.80\\textwidth}{\\color{accentblue}\\LARGE\\textbf{CivilQntify}}\\\\[0.2em]{\\color{graytext}\\small Concrete Mix Design Report \\;|\\; " + code_short + " \\;|\\; " + date_str + "}\\end{minipage}\\\\[0.6em]\\noindent\\textcolor{accentblue}{\\rule{\\textwidth}{0.6pt}}\\\\[1.2em]" if _has_logo else "\\noindent{\\color{accentblue}\\LARGE\\textbf{CivilQntify}}\\\\[0.3em]{\\color{graytext}\\small Concrete Mix Design Report \\;|\\; " + code_short + " \\;|\\; " + date_str + "}\\\\[0.6em]\\noindent\\textcolor{accentblue}{\\rule{\\textwidth}{0.6pt}}\\\\[1.2em]")}
+{header_block}
 
 % ── 1. Executive Summary ───────────────────────────────────────────
 \\section{{Executive Summary}}
 This report presents a concrete mix design performed in accordance with {code_label}. The design targets a characteristic compressive strength of \\textbf{{{_sanitize_latex(str(target_strength))} MPa}} with a water--cement ratio of \\textbf{{{result.w_c_ratio:.3f}}} and a target mean strength of \\textbf{{{result.target_mean_strength_mpa:.1f} MPa}}.
-{"The total volume requested is \\textbf{" + f"{result.volume_m3:.1f} m\\textsuperscript{{3}}" + "}. All quantities below are shown per cubic metre and as total batch amounts." if result.volume_m3 != 1.0 else ""}
+{volume_note}
 
 % ── 2. Input Parameters ────────────────────────────────────────────
 \\section{{Input Parameters}}
