@@ -86,6 +86,15 @@ jobs:
 
       - name: Smoke Test Linux Binary
         run: |
+          # Qt6 links against system graphics libraries that PyInstaller
+          # does not bundle. These match the --depends flags below so the
+          # test also validates that the declared deps are sufficient.
+          # (ubuntu-latest runners lack libegl1/libgl1 by default.)
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq \
+            libegl1 libgl1 libxkbcommon0 libfontconfig1 libfreetype6 \
+            libdbus-1-3 libglib2.0-0 libxcb-cursor0
+
           # Launch the onedir bundle headless; the app is a GUI so a healthy
           # build stays alive until the timeout kills it (exit 124). An
           # immediate exit means a missing module / broken bundle — fail.
@@ -142,20 +151,38 @@ jobs:
           EOF
 
           # Build Debian (.deb) package
+          # Qt6 system-library runtime deps (apt installs them automatically)
           fpm -s dir -t deb \
             -n civilqntify \
             -v "$VERSION" \
             --architecture amd64 \
+            --depends libegl1 \
+            --depends libgl1 \
+            --depends libxkbcommon0 \
+            --depends libfontconfig1 \
+            --depends libfreetype6 \
+            --depends libdbus-1-3 \
+            --depends libglib2.0-0 \
+            --depends libxcb-cursor0 \
             --description "CivilQntify - Concrete Mix Design & Material Quantification" \
             --url "https://github.com/${{ github.repository }}" \
             --license "MIT" \
             -C ${STAGE_DIR} .
 
           # Build RedHat/Fedora (.rpm) package
+          # Fedora/RHEL package names for the same Qt6 runtime libraries
           fpm -s dir -t rpm \
             -n civilqntify \
             -v "$VERSION" \
             --architecture x86_64 \
+            --depends mesa-libEGL \
+            --depends mesa-libGL \
+            --depends libxkbcommon \
+            --depends fontconfig \
+            --depends freetype \
+            --depends dbus-libs \
+            --depends glib2 \
+            --depends xcb-util-cursor \
             --description "CivilQntify - Concrete Mix Design & Material Quantification" \
             --url "https://github.com/${{ github.repository }}" \
             --license "MIT" \
