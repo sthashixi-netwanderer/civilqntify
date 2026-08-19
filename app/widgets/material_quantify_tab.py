@@ -38,9 +38,11 @@ from PyQt6.QtWidgets import (
 from material_quantify import StructuralElement
 from material_quantify.models.bill import MaterialBill
 from material_quantify.models.transfer_data import MixDesignTransferData
-from app.widgets.info_button import InfoButton
+from app.unit_preferences import get_unit_prefs
+from app.widgets.info_button import InfoButton, set_label_with_info_text
 from app.widgets.quant_result_panel import QuantResultPanel
 from app.widgets.report_preview_dialog import ReportPreviewDialog
+from app.widgets.unit_spin import UnitSpinBox
 from app.workers.quantification_worker import QuantificationWorker
 
 
@@ -336,7 +338,7 @@ class MaterialQuantifyTab(QWidget):
             self._code_combo,
         )
 
-        self._strength_spin = self._spin(25.0, 10.0, 100.0, 5.0, 1, suffix=" MPa")
+        self._strength_spin = UnitSpinBox("strength", 25.0, 10.0, 100.0, 5.0, 1)
         self._strength_spin.valueChanged.connect(self._on_input_changed)
         info_form.addRow(
             self._label_with_info(
@@ -373,7 +375,7 @@ class MaterialQuantifyTab(QWidget):
             self._wc_spin,
         )
 
-        self._bag_weight_spin = self._spin(50.0, 25.0, 100.0, 1.0, 0, suffix=" kg")
+        self._bag_weight_spin = UnitSpinBox("mass", 50.0, 25.0, 100.0, 1.0, 0)
         self._bag_weight_spin.valueChanged.connect(self._on_input_changed)
         info_form.addRow(
             self._label_with_info(
@@ -429,14 +431,15 @@ class MaterialQuantifyTab(QWidget):
         vol_form = QFormLayout()
         vol_form.setSpacing(8)
         vol_form.setContentsMargins(12, 16, 12, 12)
-        self.volume_spin = self._spin(10.0, 0.01, 100000.0, 1.0, 3)
+        self.volume_spin = UnitSpinBox("volume", 10.0, 0.01, 100000.0, 1.0, 3)
         self.volume_spin.valueChanged.connect(self._on_input_changed)
+        self._volume_label = self._label_with_info(
+            "Concrete Volume (m\u00b3)",
+            "Total net volume of concrete required for the project in cubic metres. "
+            "Wastage will be added on top of this.",
+        )
         vol_form.addRow(
-            self._label_with_info(
-                "Concrete Volume (m\u00b3)",
-                "Total net volume of concrete required for the project in cubic metres. "
-                "Wastage will be added on top of this.",
-            ),
+            self._volume_label,
             self.volume_spin,
         )
         self._grp_volume.setLayout(vol_form)
@@ -449,7 +452,7 @@ class MaterialQuantifyTab(QWidget):
         elem_layout.setContentsMargins(12, 16, 12, 12)
 
         self._elem_table = QTableWidget(0, len(_ELEM_HEADERS))
-        self._elem_table.setHorizontalHeaderLabels(_ELEM_HEADERS)
+        self._elem_table.setHorizontalHeaderLabels(self._element_headers())
         self._elem_table.horizontalHeader().setSectionResizeMode(
             QHeaderView.ResizeMode.Stretch
         )
@@ -601,11 +604,17 @@ class MaterialQuantifyTab(QWidget):
 
         self._transfer_data = td
         self._populate_data_from_transfer(td)
+        up = self.unit_prefs or get_unit_prefs()
+        pvu = up.mass_per_volume_unit()
+        cement_pv = (
+            td.cement_kg_per_m3 * 1.68555 if up.is_imperial() else td.cement_kg_per_m3
+        )
         self._status_banner.setText(
             f"Loaded: {td.code_used}  |  "
-            f"f'cr={td.target_mean_strength_mpa:.1f} MPa  |  "
+            f"f'cr={up.convert_strength_mpa(td.target_mean_strength_mpa):.1f} "
+            f"{up.strength_unit()}  |  "
             f"W/C={td.w_c_ratio:.3f}  |  "
-            f"Cement={td.cement_kg_per_m3:.1f} kg/m\u00b3"
+            f"Cement={cement_pv:.1f} {pvu}"
         )
         self._status_banner.setStyleSheet(
             "background-color: #d1fae5; color: #065f46; "
@@ -719,48 +728,27 @@ class MaterialQuantifyTab(QWidget):
         self._on_input_changed()
 
     def on_unit_changed(self) -> None:
-        """Update spinbox suffixes and labels when unit preferences change."""
+        """Update unit-dependent labels when unit preferences change.
+
+        Input spinboxes are UnitSpinBox instances that re-derive their own
+        display from the stored metric value, so only static labels need
+        refreshing here.
+        """
         if self.unit_prefs is None:
             return
         up = self.unit_prefs
 
-        # Block signals to prevent cascading recalculations
-        spinboxes = [
-            self._strength_spin, self.volume_spin, self._bag_weight_spin,
-        ]
-        for sb in spinboxes:
-            sb.blockSignals(True)
+        set_label_with_info_text(
+            self._volume_label, f"Concrete Volume ({up.volume_unit()})"
+        )
+        self._elem_table.setHorizontalHeaderLabels(self._element_headers())
+        self._update_element_volumes()
 
-        # Snapshot metric values before first conversion
-        if not hasattr(self, '_metric_snapshot'):
-            self._metric_snapshot = {
-                'strength': self._strength_spin.value(),
-                'volume': self.volume_spin.value(),
-                'bag_weight': self._bag_weight_spin.value(),
-            }
-
-        ms = self._metric_snapshot
-
-        # Apply conversions from metric snapshot
-        self._strength_spin.setValue(up.convert_strength_mpa(ms['strength']))
-        self.volume_spin.setValue(up.convert_volume_m3(ms['volume']))
-        self._bag_weight_spin.setValue(up.convert_mass_kg(ms['bag_weight']))
-
-        # Update suffixes
-        self._strength_spin.setSuffix(f" {up.strength_unit()}")
-        self.volume_spin.setSuffix(f" {up.volume_unit()}")
-        self._bag_weight_spin.setSuffix(f" {up.mass_unit()}")
-
-        # Update element table headers
+    def _element_headers(self) -> list[str]:
+        up = self.unit_prefs or get_unit_prefs()
         lu = up.length_unit()
         vu = up.volume_unit()
-        self._elem_table.setHorizontalHeaderLabels(
-            ["Type", f"L ({lu})", f"W ({lu})", f"D ({lu})", "Qty", f"Vol ({vu})"]
-        )
-
-        # Unblock signals
-        for sb in spinboxes:
-            sb.blockSignals(False)
+        return ["Type", f"L ({lu})", f"W ({lu})", f"D ({lu})", "Qty", f"Vol ({vu})"]
 
     # ── Element Table ────────────────────────────────────────────────
 
@@ -777,14 +765,11 @@ class MaterialQuantifyTab(QWidget):
         self._elem_table.setCellWidget(row, 0, type_combo)
         type_combo.currentIndexChanged.connect(lambda: self._on_input_changed())
 
-        # Dimension spin boxes
+        # Dimension spin boxes: cols 1-3 are L/W/D (unit-aware, metric base m),
+        # col 4 is the piece count (dimensionless).
         for col in range(1, 5):
-            spin = QDoubleSpinBox()
-            spin.setRange(0.01, 1000.0)
-            spin.setDecimals(3)
             if col < 4:
-                spin.setValue(1.0)
-                spin.setSingleStep(0.1)
+                spin = UnitSpinBox("length_m", 1.0, 0.001, 1000.0, 0.1, 3)
             else:
                 spin = QDoubleSpinBox()  # type: ignore[assignment]
                 spin.setRange(1, 10000)
@@ -792,6 +777,7 @@ class MaterialQuantifyTab(QWidget):
                 spin.setValue(1)
                 spin.setSingleStep(1)
             spin.valueChanged.connect(self._on_input_changed)
+            spin.valueChanged.connect(lambda _=None: self._update_element_volumes())
             self._elem_table.setCellWidget(row, col, spin)
 
         # Volume display (read-only)
@@ -817,6 +803,7 @@ class MaterialQuantifyTab(QWidget):
 
     def _update_element_volumes(self) -> None:
         """Recalculate and display per-element and total volumes."""
+        up = self.unit_prefs or get_unit_prefs()
         total = 0.0
         for row in range(self._elem_table.rowCount()):
             l_spin = self._elem_table.cellWidget(row, 1)
@@ -824,12 +811,16 @@ class MaterialQuantifyTab(QWidget):
             d_spin = self._elem_table.cellWidget(row, 3)
             q_spin = self._elem_table.cellWidget(row, 4)
             if all(w is not None for w in [l_spin, w_spin, d_spin, q_spin]):
+                # Spin values are metric metres; volume is m³, converted only
+                # for display.
                 vol = l_spin.value() * w_spin.value() * d_spin.value() * q_spin.value()
                 total += vol
                 vol_item = self._elem_table.item(row, 5)
                 if vol_item:
-                    vol_item.setText(f"{vol:.3f}")
-        self._elem_total_label.setText(f"Total: {total:.3f} m\u00b3")
+                    vol_item.setText(f"{up.convert_volume_m3(vol):.3f}")
+        self._elem_total_label.setText(
+            f"Total: {up.convert_volume_m3(total):.3f} {up.volume_unit()}"
+        )
 
     def _get_elements(self) -> list[StructuralElement]:
         """Parse element table into StructuralElement list."""
@@ -907,10 +898,13 @@ class MaterialQuantifyTab(QWidget):
         self.calc_btn.setText("  Calculate Material Quantities")
 
         if hasattr(self.window(), "status_bar"):
+            up = self.unit_prefs or get_unit_prefs()
             self.window().status_bar.showMessage(
-                f"Quantified \u2014 Gross: {bill.gross_concrete_volume_m3:.3f} m\u00b3  |  "
-                f"Cement: {bill.total_cement_kg:,.1f} kg ({bill.total_cement_bags:.0f} bags)  |  "
-                f"Water: {bill.total_water_kg:,.1f} kg",
+                f"Quantified \u2014 Gross: {up.convert_volume_m3(bill.gross_concrete_volume_m3):.3f} "
+                f"{up.volume_unit()}  |  "
+                f"Cement: {up.convert_mass_kg(bill.total_cement_kg):,.1f} {up.mass_unit()} "
+                f"({bill.total_cement_bags:.0f} bags)  |  "
+                f"Water: {up.convert_mass_kg(bill.total_water_kg):,.1f} {up.mass_unit()}",
                 8000,
             )
         # Auto-save to history
@@ -966,11 +960,18 @@ class MaterialQuantifyTab(QWidget):
             self._grp_over.setVisible(True)
             self._populate_override_defaults(bill.transfer_data)
 
+            up = self.unit_prefs or get_unit_prefs()
+            cement_pv = (
+                bill.transfer_data.cement_kg_per_m3 * 1.68555
+                if up.is_imperial()
+                else bill.transfer_data.cement_kg_per_m3
+            )
             self._status_banner.setText(
                 f"Loaded from history: {bill.transfer_data.code_used}  |  "
-                f"f'cr={bill.transfer_data.target_mean_strength_mpa:.1f} MPa  |  "
+                f"f'cr={up.convert_strength_mpa(bill.transfer_data.target_mean_strength_mpa):.1f} "
+                f"{up.strength_unit()}  |  "
                 f"W/C={bill.transfer_data.w_c_ratio:.3f}  |  "
-                f"Cement={bill.transfer_data.cement_kg_per_m3:.1f} kg/m\u00b3"
+                f"Cement={cement_pv:.1f} {up.mass_per_volume_unit()}"
             )
             self._status_banner.setStyleSheet(
                 "background-color: #d1fae5; color: #065f46; "
@@ -992,60 +993,76 @@ class MaterialQuantifyTab(QWidget):
 
             bill = self._last_bill
             td = bill.transfer_data
+            up = self.unit_prefs or get_unit_prefs()
+            mu = up.mass_unit()
+            vu = up.volume_unit()
+            pvu = up.mass_per_volume_unit()
+
+            def pv(kg_m3: float) -> float:
+                return kg_m3 * 1.68555 if up.is_imperial() else kg_m3
+
             output = io.StringIO()
             writer = csv.writer(output)
-            writer.writerow(["Material", "Per m\u00b3", "Total", "Unit"])
+            writer.writerow(["Material", f"Per {vu} ({pvu})", "Total", "Unit"])
             writer.writerow(
                 [
                     "Cement",
-                    f"{td.cement_kg_per_m3:.1f}",
-                    f"{bill.total_cement_kg:.1f}",
-                    "kg",
+                    f"{pv(td.cement_kg_per_m3):.1f}",
+                    f"{up.convert_mass_kg(bill.total_cement_kg):.1f}",
+                    mu,
                 ]
             )
             writer.writerow(
                 [
                     "Water (field)",
-                    f"{td.field_water_kg_per_m3:.1f}",
-                    f"{bill.total_water_kg:.1f}",
-                    "kg",
+                    f"{pv(td.field_water_kg_per_m3):.1f}",
+                    f"{up.convert_mass_kg(bill.total_water_kg):.1f}",
+                    mu,
                 ]
             )
             writer.writerow(
                 [
                     "Fine Aggregate (field)",
-                    f"{td.field_fine_aggregate_kg_per_m3:.1f}",
-                    f"{bill.total_fine_aggregate_kg:.1f}",
-                    "kg",
+                    f"{pv(td.field_fine_aggregate_kg_per_m3):.1f}",
+                    f"{up.convert_mass_kg(bill.total_fine_aggregate_kg):.1f}",
+                    mu,
                 ]
             )
             writer.writerow(
                 [
                     "Coarse Aggregate (field)",
-                    f"{td.field_coarse_aggregate_kg_per_m3:.1f}",
-                    f"{bill.total_coarse_aggregate_kg:.1f}",
-                    "kg",
+                    f"{pv(td.field_coarse_aggregate_kg_per_m3):.1f}",
+                    f"{up.convert_mass_kg(bill.total_coarse_aggregate_kg):.1f}",
+                    mu,
                 ]
             )
             if bill.total_scm_kg > 0:
                 writer.writerow(
-                    ["SCM", f"{td.scm_kg_per_m3:.1f}", f"{bill.total_scm_kg:.1f}", "kg"]
+                    [
+                        "SCM",
+                        f"{pv(td.scm_kg_per_m3):.1f}",
+                        f"{up.convert_mass_kg(bill.total_scm_kg):.1f}",
+                        mu,
+                    ]
                 )
             writer.writerow(
                 [
                     "Cement Bags",
                     "",
                     f"{bill.total_cement_bags:.0f}",
-                    f"bags ({bill.cement_bag_weight_kg:.0f} kg)",
+                    f"bags ({up.convert_mass_kg(bill.cement_bag_weight_kg):.0f} {mu})",
                 ]
             )
             writer.writerow([])
             writer.writerow(
-                ["Net Volume (m\u00b3)", f"{bill.net_concrete_volume_m3:.3f}"]
+                [f"Net Volume ({vu})", f"{up.convert_volume_m3(bill.net_concrete_volume_m3):.3f}"]
             )
             writer.writerow(["Wastage (%)", f"{bill.wastage_percent:.1f}"])
             writer.writerow(
-                ["Gross Volume (m\u00b3)", f"{bill.gross_concrete_volume_m3:.3f}"]
+                [
+                    f"Gross Volume ({vu})",
+                    f"{up.convert_volume_m3(bill.gross_concrete_volume_m3):.3f}",
+                ]
             )
 
             with open(path, "w", newline="") as f:
@@ -1059,6 +1076,34 @@ class MaterialQuantifyTab(QWidget):
             return ""
 
         td = bill.transfer_data
+
+        # ── Display-unit conversions ──
+        up = self.unit_prefs or get_unit_prefs()
+        vu = up.volume_unit()
+        mu = up.mass_unit()
+        wu = up.water_unit()
+        su = up.strength_unit()
+        # Per-volume content: kg/m³ (IS basis) ↔ lb/yd³ (ACI basis)
+        pvu = up.mass_per_volume_unit()
+
+        def pv(kg_m3: float) -> float:
+            return kg_m3 * 1.68555 if up.is_imperial() else kg_m3
+
+        net_v = up.convert_volume_m3(bill.net_concrete_volume_m3)
+        gross_v = up.convert_volume_m3(bill.gross_concrete_volume_m3)
+        waste_v = up.convert_volume_m3(
+            bill.gross_concrete_volume_m3 - bill.net_concrete_volume_m3
+        )
+        target_s = up.convert_strength_mpa(td.target_mean_strength_mpa)
+        cement_m = up.convert_mass_kg(bill.total_cement_kg)
+        scm_m = up.convert_mass_kg(bill.total_scm_kg)
+        admix_m = up.convert_mass_kg(bill.total_admixture_kg)
+        fa_bulk = up.convert_volume_m3(bill.total_fine_aggregate_bulk_m3)
+        ca_bulk = up.convert_volume_m3(bill.total_coarse_aggregate_bulk_m3)
+        water_l = up.convert_water_liters(bill.total_water_liters)
+        t_fa = up.convert_mass_kg(bill.total_fine_aggregate_kg)
+        t_ca = up.convert_mass_kg(bill.total_coarse_aggregate_kg)
+        t_w = up.convert_mass_kg(bill.total_water_kg)
 
         html = f"""<!DOCTYPE html>
 <html class="light" lang="en">
@@ -1135,7 +1180,7 @@ class MaterialQuantifyTab(QWidget):
             <div class="text-right flex flex-col gap-1">
                 <div class="text-[11px] leading-[16px] tracking-[0.05em] font-semibold text-primary uppercase">Mix Design Reference</div>
                 <div class="text-[24px] leading-[32px] font-semibold text-on-surface">{td.code_used}</div>
-                <div class="text-on-surface-variant font-body-md mt-2">Target: {td.target_mean_strength_mpa:.1f} MPa</div>
+                <div class="text-on-surface-variant font-body-md mt-2">Target: {target_s:.1f} {su}</div>
                 <div class="text-on-surface-variant font-body-md">W/C Ratio: {td.w_c_ratio:.3f}</div>
             </div>
         </header>
@@ -1147,22 +1192,22 @@ class MaterialQuantifyTab(QWidget):
                 <div class="border border-outline-variant p-4 flex flex-col gap-2">
                     <div class="text-[11px] leading-[16px] tracking-[0.05em] font-semibold text-on-surface-variant uppercase">Net Volume</div>
                     <div class="flex justify-between items-end">
-                        <span class="text-[24px] font-bold">{bill.net_concrete_volume_m3:,.3f}</span>
-                        <span class="text-[11px] pb-1">m³</span>
+                        <span class="text-[24px] font-bold">{net_v:,.3f}</span>
+                        <span class="text-[11px] pb-1">{vu}</span>
                     </div>
                 </div>
                 <div class="border border-outline-variant p-4 flex flex-col gap-2 bg-surface-container-low">
                     <div class="text-[11px] leading-[16px] tracking-[0.05em] font-semibold text-on-surface-variant uppercase">Wastage ({bill.wastage_percent:.1f}%)</div>
                     <div class="flex justify-between items-end">
-                        <span class="text-[24px] font-bold">{bill.gross_concrete_volume_m3 - bill.net_concrete_volume_m3:,.3f}</span>
-                        <span class="text-[11px] pb-1">m³</span>
+                        <span class="text-[24px] font-bold">{waste_v:,.3f}</span>
+                        <span class="text-[11px] pb-1">{vu}</span>
                     </div>
                 </div>
                 <div class="border-2 border-primary p-4 flex flex-col gap-2">
                     <div class="text-[11px] leading-[16px] tracking-[0.05em] font-semibold text-primary uppercase">Gross Volume</div>
                     <div class="flex justify-between items-end text-primary">
-                        <span class="text-[24px] font-bold">{bill.gross_concrete_volume_m3:,.3f}</span>
-                        <span class="text-[11px] pb-1 font-bold">m³</span>
+                        <span class="text-[24px] font-bold">{gross_v:,.3f}</span>
+                        <span class="text-[11px] pb-1 font-bold">{vu}</span>
                     </div>
                 </div>
             </div>
@@ -1181,9 +1226,9 @@ class MaterialQuantifyTab(QWidget):
                         </div>
                         <div class="flex justify-between items-center text-on-surface-variant">
                             <span class="font-body-md">Total Cement Weight</span>
-                            <span class="text-[16px] leading-[24px] font-medium">{bill.total_cement_kg:,.1f} kg</span>
+                            <span class="text-[16px] leading-[24px] font-medium">{cement_m:,.1f} {mu}</span>
                         </div>
-                        {f'<div class="flex justify-between items-center"><span class="font-body-md text-on-surface">SCM</span><span class="text-[16px] leading-[24px] font-medium font-bold">{bill.total_scm_kg:,.1f} kg</span></div>' if bill.total_scm_kg > 0 else ""}
+                        {f'<div class="flex justify-between items-center"><span class="font-body-md text-on-surface">SCM</span><span class="text-[16px] leading-[24px] font-medium font-bold">{scm_m:,.1f} {mu}</span></div>' if bill.total_scm_kg > 0 else ""}
                     </div>
                 </div>
                 <div class="border border-outline-variant">
@@ -1191,15 +1236,15 @@ class MaterialQuantifyTab(QWidget):
                     <div class="p-4 space-y-4">
                         <div class="flex justify-between items-center">
                             <span class="font-body-md text-on-surface">Fine Aggregate (Sand)</span>
-                            <span class="text-[16px] leading-[24px] font-medium font-bold">{bill.total_fine_aggregate_bulk_m3:,.3f} m³</span>
+                            <span class="text-[16px] leading-[24px] font-medium font-bold">{fa_bulk:,.3f} {vu}</span>
                         </div>
                         <div class="flex justify-between items-center">
                             <span class="font-body-md text-on-surface">Coarse Aggregate (20mm)</span>
-                            <span class="text-[16px] leading-[24px] font-medium font-bold">{bill.total_coarse_aggregate_bulk_m3:,.3f} m³</span>
+                            <span class="text-[16px] leading-[24px] font-medium font-bold">{ca_bulk:,.3f} {vu}</span>
                         </div>
                         <div class="flex justify-between items-center text-on-surface-variant">
                             <span class="font-body-md">Water (Field)</span>
-                            <span class="text-[16px] leading-[24px] font-medium">{bill.total_water_liters:,.1f} L</span>
+                            <span class="text-[16px] leading-[24px] font-medium">{water_l:,.1f} {wu}</span>
                         </div>
                     </div>
                 </div>
@@ -1213,38 +1258,38 @@ class MaterialQuantifyTab(QWidget):
                 <thead>
                     <tr class="border-y border-outline text-left bg-surface-container-lowest">
                         <th class="px-4 py-2 text-[11px] leading-[16px] tracking-[0.05em] font-semibold text-on-surface-variant">Material</th>
-                        <th class="px-4 py-2 text-[11px] leading-[16px] tracking-[0.05em] font-semibold text-on-surface-variant text-right">Per m³</th>
-                        <th class="px-4 py-2 text-[11px] leading-[16px] tracking-[0.05em] font-semibold text-on-surface-variant text-right">Total (kg)</th>
+                        <th class="px-4 py-2 text-[11px] leading-[16px] tracking-[0.05em] font-semibold text-on-surface-variant text-right">Per {vu} ({pvu})</th>
+                        <th class="px-4 py-2 text-[11px] leading-[16px] tracking-[0.05em] font-semibold text-on-surface-variant text-right">Total ({mu})</th>
                         <th class="px-4 py-2 text-[11px] leading-[16px] tracking-[0.05em] font-semibold text-on-surface-variant text-right">Volume/Bags</th>
                     </tr>
                 </thead>
                 <tbody class="text-[13px] leading-[18px]">
                     <tr class="zebra-row border-b border-outline-variant">
                         <td class="px-4 py-2 text-on-surface font-semibold">Portland Cement</td>
-                        <td class="px-4 py-2 text-right">{td.cement_kg_per_m3:,.1f}</td>
-                        <td class="px-4 py-2 text-right">{bill.total_cement_kg:,.1f}</td>
+                        <td class="px-4 py-2 text-right">{pv(td.cement_kg_per_m3):,.1f}</td>
+                        <td class="px-4 py-2 text-right">{cement_m:,.1f}</td>
                         <td class="px-4 py-2 text-right">{bill.total_cement_bags:,.0f} bags</td>
                     </tr>
                     <tr class="zebra-row border-b border-outline-variant">
                         <td class="px-4 py-2 text-on-surface font-semibold">Fine Aggregate</td>
-                        <td class="px-4 py-2 text-right">{td.field_fine_aggregate_kg_per_m3:,.1f}</td>
-                        <td class="px-4 py-2 text-right">{bill.total_fine_aggregate_kg:,.1f}</td>
-                        <td class="px-4 py-2 text-right">{bill.total_fine_aggregate_bulk_m3:,.3f} m³</td>
+                        <td class="px-4 py-2 text-right">{pv(td.field_fine_aggregate_kg_per_m3):,.1f}</td>
+                        <td class="px-4 py-2 text-right">{t_fa:,.1f}</td>
+                        <td class="px-4 py-2 text-right">{fa_bulk:,.3f} {vu}</td>
                     </tr>
                     <tr class="zebra-row border-b border-outline-variant">
                         <td class="px-4 py-2 text-on-surface font-semibold">Coarse Aggregate</td>
-                        <td class="px-4 py-2 text-right">{td.field_coarse_aggregate_kg_per_m3:,.1f}</td>
-                        <td class="px-4 py-2 text-right">{bill.total_coarse_aggregate_kg:,.1f}</td>
-                        <td class="px-4 py-2 text-right">{bill.total_coarse_aggregate_bulk_m3:,.3f} m³</td>
+                        <td class="px-4 py-2 text-right">{pv(td.field_coarse_aggregate_kg_per_m3):,.1f}</td>
+                        <td class="px-4 py-2 text-right">{t_ca:,.1f}</td>
+                        <td class="px-4 py-2 text-right">{ca_bulk:,.3f} {vu}</td>
                     </tr>
                     <tr class="zebra-row border-b border-outline-variant">
                         <td class="px-4 py-2 text-on-surface font-semibold">Water</td>
-                        <td class="px-4 py-2 text-right">{td.field_water_kg_per_m3:,.1f}</td>
-                        <td class="px-4 py-2 text-right">{bill.total_water_kg:,.1f}</td>
-                        <td class="px-4 py-2 text-right">{bill.total_water_liters:,.1f} L</td>
+                        <td class="px-4 py-2 text-right">{pv(td.field_water_kg_per_m3):,.1f}</td>
+                        <td class="px-4 py-2 text-right">{t_w:,.1f}</td>
+                        <td class="px-4 py-2 text-right">{water_l:,.1f} {wu}</td>
                     </tr>
-                    {f'<tr class="zebra-row border-b border-outline-variant"><td class="px-4 py-2 text-on-surface font-semibold">SCM</td><td class="px-4 py-2 text-right">{td.scm_kg_per_m3:,.1f}</td><td class="px-4 py-2 text-right">{bill.total_scm_kg:,.1f}</td><td class="px-4 py-2 text-right">-</td></tr>' if bill.total_scm_kg > 0 else ""}
-                    {f'<tr class="zebra-row border-b border-outline-variant"><td class="px-4 py-2 text-on-surface font-semibold">Admixture</td><td class="px-4 py-2 text-right">{td.admixture_kg_per_m3:,.3f}</td><td class="px-4 py-2 text-right">{bill.total_admixture_kg:,.3f}</td><td class="px-4 py-2 text-right">-</td></tr>' if bill.total_admixture_kg > 0 else ""}
+                    {f'<tr class="zebra-row border-b border-outline-variant"><td class="px-4 py-2 text-on-surface font-semibold">SCM</td><td class="px-4 py-2 text-right">{pv(td.scm_kg_per_m3):,.1f}</td><td class="px-4 py-2 text-right">{scm_m:,.1f}</td><td class="px-4 py-2 text-right">-</td></tr>' if bill.total_scm_kg > 0 else ""}
+                    {f'<tr class="zebra-row border-b border-outline-variant"><td class="px-4 py-2 text-on-surface font-semibold">Admixture</td><td class="px-4 py-2 text-right">{pv(td.admixture_kg_per_m3):,.3f}</td><td class="px-4 py-2 text-right">{admix_m:,.3f}</td><td class="px-4 py-2 text-right">-</td></tr>' if bill.total_admixture_kg > 0 else ""}
                 </tbody>
             </table>
         </section>

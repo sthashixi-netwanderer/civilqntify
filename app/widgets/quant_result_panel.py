@@ -66,6 +66,7 @@ class QuantResultPanel(QWidget):
         self._bill: MaterialBill | None = None
         self.unit_prefs: UnitPreferences = get_unit_prefs()
         self._build_ui()
+        self.unit_prefs.changed.connect(self.on_unit_changed)
 
     def _build_ui(self) -> None:
         scroll = QScrollArea()
@@ -139,6 +140,7 @@ class QuantResultPanel(QWidget):
         self._table.setColumnCount(5)
         self._table.setFixedHeight(280)
         outer.addWidget(self._table)
+        self._table_header_units()
 
         # ── Export Buttons ──
         btn_row = QHBoxLayout()
@@ -176,6 +178,7 @@ class QuantResultPanel(QWidget):
             return
 
         up = self.unit_prefs
+        self._table_header_units()
 
         # Volume cards
         self._card_net.set_value(
@@ -209,44 +212,43 @@ class QuantResultPanel(QWidget):
         # Detailed table
         self._table.clear()
         td = bill.transfer_data
-        mu = up.mass_unit()
         vu = up.volume_unit()
         wu = up.water_unit()
 
         rows = [
             ("Cement",
-             up.convert_mass_kg(td.cement_kg_per_m3),
-             up.convert_mass_kg(bill.total_cement_kg), mu,
+             self._per_volume_mass(td.cement_kg_per_m3, up),
+             up.convert_mass_kg(bill.total_cement_kg), up.mass_per_volume_unit(),
              f"{bill.total_cement_bags:.0f} bags"),
             ("Water (field)",
-             up.convert_mass_kg(td.field_water_kg_per_m3),
-             up.convert_mass_kg(bill.total_water_kg), mu,
+             self._per_volume_mass(td.field_water_kg_per_m3, up),
+             up.convert_mass_kg(bill.total_water_kg), up.mass_per_volume_unit(),
              f"{up.convert_water_liters(bill.total_water_liters):.1f} {wu}"),
             ("Fine Aggregate (SSD)",
-             up.convert_mass_kg(td.fine_aggregate_kg_per_m3),
-             up.convert_mass_kg(bill.total_fine_aggregate_kg), mu,
+             self._per_volume_mass(td.fine_aggregate_kg_per_m3, up),
+             up.convert_mass_kg(bill.total_fine_aggregate_kg), up.mass_per_volume_unit(),
              f"{up.convert_volume_m3(bill.total_fine_aggregate_bulk_m3):.3f} {vu}"),
             ("Fine Aggregate (field)",
-             up.convert_mass_kg(td.field_fine_aggregate_kg_per_m3),
-             up.convert_mass_kg(bill.total_fine_aggregate_kg), mu, ""),
+             self._per_volume_mass(td.field_fine_aggregate_kg_per_m3, up),
+             up.convert_mass_kg(bill.total_fine_aggregate_kg), up.mass_per_volume_unit(), ""),
             ("Coarse Aggregate (SSD)",
-             up.convert_mass_kg(td.coarse_aggregate_kg_per_m3),
-             up.convert_mass_kg(bill.total_coarse_aggregate_kg), mu,
+             self._per_volume_mass(td.coarse_aggregate_kg_per_m3, up),
+             up.convert_mass_kg(bill.total_coarse_aggregate_kg), up.mass_per_volume_unit(),
              f"{up.convert_volume_m3(bill.total_coarse_aggregate_bulk_m3):.3f} {vu}"),
             ("Coarse Aggregate (field)",
-             up.convert_mass_kg(td.field_coarse_aggregate_kg_per_m3),
-             up.convert_mass_kg(bill.total_coarse_aggregate_kg), mu, ""),
+             self._per_volume_mass(td.field_coarse_aggregate_kg_per_m3, up),
+             up.convert_mass_kg(bill.total_coarse_aggregate_kg), up.mass_per_volume_unit(), ""),
         ]
 
         if bill.total_scm_kg > 0:
             rows.append(("SCM",
-                         up.convert_mass_kg(td.scm_kg_per_m3),
-                         up.convert_mass_kg(bill.total_scm_kg), mu, ""))
+                         self._per_volume_mass(td.scm_kg_per_m3, up),
+                         up.convert_mass_kg(bill.total_scm_kg), up.mass_per_volume_unit(), ""))
 
         if bill.total_admixture_kg > 0:
             rows.append(("Admixture",
-                         up.convert_mass_kg(td.admixture_kg_per_m3),
-                         up.convert_mass_kg(bill.total_admixture_kg), mu, ""))
+                         self._per_volume_mass(td.admixture_kg_per_m3, up),
+                         up.convert_mass_kg(bill.total_admixture_kg), up.mass_per_volume_unit(), ""))
 
         for name, per_m3, total, unit, extra in rows:
             item = QTreeWidgetItem([
@@ -267,6 +269,24 @@ class QuantResultPanel(QWidget):
         self._btn_cost.setEnabled(True)
 
     def on_unit_changed(self) -> None:
+        """Re-render the bill when unit preferences change."""
+        self._refresh_display()
+
+    def _table_header_units(self) -> None:
+        """Set the breakdown table header to the active per-volume unit."""
+        vu = self.unit_prefs.volume_unit()
+        self._table.setHeaderLabels([
+            "Material", f"Per {vu}", "Total", "Unit", "Volume/Bags"
+        ])
+
+    @staticmethod
+    def _per_volume_mass(kg_per_m3: float, up) -> float:
+        """Convert a kg/m³ content to the active per-volume mass unit.
+
+        Metric shows kg/m³ (IS 10262 basis); imperial shows lb/yd³
+        (ACI 211.1 basis).
+        """
+        return kg_per_m3 * 1.68555 if up.is_imperial() else kg_per_m3
         """Re-display bill when unit preferences change."""
         self._refresh_display()
 

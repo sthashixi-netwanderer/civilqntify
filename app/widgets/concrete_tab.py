@@ -29,10 +29,12 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from app.unit_preferences import get_unit_prefs
 from app.widgets.info_button import InfoButton
 from app.widgets.psd_widget import ParticleSizeDistributionTab
 from app.widgets.report_preview_dialog import ReportPreviewDialog
 from app.widgets.result_panel import ResultPanel
+from app.widgets.unit_spin import UnitSpinBox
 from app.workers.mix_design_worker import MixDesignWorker
 from concrete_mix import (
     MixDesignResult,
@@ -661,7 +663,7 @@ class ConcreteMixTab(QWidget):
         )
 
         # DOE: Standard deviation input (user can override Figure 3)
-        self.std_dev_spin = self._spin(0.0, 0.0, 20.0, 0.1, 1)
+        self.std_dev_spin = UnitSpinBox("strength", 0.0, 0.0, 20.0, 0.1, 1)
         self.std_dev_spin.setSpecialValueText("Auto (Figure 3)")
         self._lbl_std_dev = self._label_with_info(
             "Std Deviation (MPa)",
@@ -685,7 +687,7 @@ class ConcreteMixTab(QWidget):
             key="age_days",
         )
 
-        self.min_cement_spin = self._spin(0.0, 0.0, 1000.0, 10.0, 0)
+        self.min_cement_spin = UnitSpinBox("mass_per_volume", 0.0, 0.0, 1000.0, 10.0, 0)
         self._lbl_min_cement = self._label_with_info(
             "Min Cement (kg/m\u00b3)",
             "Minimum cement content limit for durability (DOE only).\n\n"
@@ -693,7 +695,7 @@ class ConcreteMixTab(QWidget):
             key="min_cement",
         )
 
-        self.max_cement_spin = self._spin(0.0, 0.0, 1000.0, 10.0, 0)
+        self.max_cement_spin = UnitSpinBox("mass_per_volume", 0.0, 0.0, 1000.0, 10.0, 0)
         self._lbl_max_cement = self._label_with_info(
             "Max Cement (kg/m\u00b3)",
             "Maximum cement content limit (DOE only).\n\n"
@@ -717,8 +719,8 @@ class ConcreteMixTab(QWidget):
         f1.addRow(self._lbl_max_wc_override, self.max_wc_override_spin)
 
         # Strength, slump, NMSA, water, volume
-        self.strength_spin = self._spin(25.0, 10.0, 80.0, 0.5, 2)
-        self.slump_spin = self._spin(75.0, 10.0, 250.0, 5.0, 0)
+        self.strength_spin = UnitSpinBox("strength", 25.0, 10.0, 80.0, 0.5, 2)
+        self.slump_spin = UnitSpinBox("length_mm", 75.0, 10.0, 250.0, 5.0, 0)
         self.nmsa_combo = self._combo(
             [("10 mm", 10), ("20 mm", 20), ("40 mm", 40)],
             default=20,
@@ -726,7 +728,7 @@ class ConcreteMixTab(QWidget):
         self.nmsa_combo.currentIndexChanged.connect(self._on_nmsa_changed)
         self.water_content_label = QLabel("—")
         self.water_content_label.setStyleSheet("font-weight: 600; color: #1e40af; font-size: 13px;")
-        self.volume_spin = self._spin(1.0, 0.01, 1000.0, 0.1, 3)
+        self.volume_spin = UnitSpinBox("volume", 1.0, 0.01, 1000.0, 0.1, 3)
 
         f1.addRow(
             self._label_with_info(
@@ -970,7 +972,7 @@ class ConcreteMixTab(QWidget):
         self.ca_sg_spin = self._spin(2.70, 2.2, 3.2, 0.01, 2)
         self.ca_abs_spin = self._spin(0.5, 0.0, 10.0, 0.1, 1)
         self.ca_moist_spin = self._spin(0.0, 0.0, 20.0, 0.5, 1)
-        self.ca_bulk_spin = self._spin(1600.0, 1000.0, 2000.0, 10.0, 0)
+        self.ca_bulk_spin = UnitSpinBox("density", 1600.0, 1000.0, 2000.0, 10.0, 0)
         self.agg_shape_combo = self._combo(
             [(s.value.replace("_", " ").title(), s.value) for s in AggregateShape],
             default="gravel",
@@ -1424,12 +1426,12 @@ class ConcreteMixTab(QWidget):
             if reduction > 0:
                 reduced = water_with_shape * (1 - reduction / 100)
                 self.reduced_water_label.setText(
-                    f"{reduced:.1f} kg/m\u00b3  "
-                    f"({water_with_shape:.0f} \u2212 {reduction:.1f}%)"
+                    f"{self._fmt_water_content(reduced)}  "
+                    f"({self._fmt_water_content(water_with_shape)} \u2212 {reduction:.1f}%)"
                 )
             else:
                 self.reduced_water_label.setText(
-                    f"{water_with_shape:.1f} kg/m\u00b3 (no admixture reduction)"
+                    f"{self._fmt_water_content(water_with_shape)} (no admixture reduction)"
                 )
         else:
             self.reduced_water_label.setText("\u2014")
@@ -1473,7 +1475,7 @@ class ConcreteMixTab(QWidget):
             if shape_adj_kg != 0:
                 parts.append(f"{shape_adj_kg:+.0f} kg shape")
             self.water_content_label.setText(
-                f"{wc:.1f} kg/m\u00b3  ({' '.join(parts)})"
+                f"{self._fmt_water_content(wc)}  ({' '.join(parts)})"
             )
             self._lbl_water.setVisible(True)
             self.water_content_label.setVisible(True)
@@ -1736,59 +1738,30 @@ class ConcreteMixTab(QWidget):
             self.window().status_bar.showMessage("Interface cleared", 3000)
 
     def on_unit_changed(self) -> None:
-        """Update spinbox suffixes and labels when unit preferences change."""
+        """React to unit preference changes.
+
+        Input spinboxes are UnitSpinBox instances that re-derive their own
+        display from the stored metric value, so only the derived preview
+        labels need refreshing here.
+        """
         if self.unit_prefs is None:
             return
-        up = self.unit_prefs
+        self._update_water_display()
+        # Re-render the ratio-subtab estimate label (values are metric;
+        # only the display conversion changes)
+        if self._ratio_result_label.text():
+            self._estimate_strength_from_ratio()
 
-        # Block signals to prevent cascading recalculations
-        spinboxes = [
-            self.strength_spin, self.slump_spin, self.volume_spin,
-            self.min_cement_spin, self.max_cement_spin, self.ca_bulk_spin,
-        ]
-        for sb in spinboxes:
-            sb.blockSignals(True)
+    def _fmt_water_content(self, kg_m3: float) -> str:
+        """Format a per-m³ water content in the active unit system.
 
-        # Convert values: if we were imperial and now metric, convert back and vice versa
-        # For simplicity, we convert the current display value to the new unit
-        # by converting from the previous system to metric, then metric to new system.
-        # Since we don't track the "previous" system, we use a stored metric value approach.
-        # Store current metric values on first conversion, then convert from there.
-
-        if not hasattr(self, '_metric_snapshot'):
-            # Take a snapshot of metric values before first conversion
-            self._metric_snapshot = {
-                'strength': self.strength_spin.value(),
-                'slump': self.slump_spin.value(),
-                'volume': self.volume_spin.value(),
-                'min_cement': self.min_cement_spin.value(),
-                'max_cement': self.max_cement_spin.value(),
-                'ca_bulk': self.ca_bulk_spin.value(),
-            }
-
-        # Check if we're back to the state matching the snapshot
-        # by comparing current value to what snapshot would produce
-        ms = self._metric_snapshot
-
-        # Apply conversions from metric snapshot to display values
-        self.strength_spin.setValue(up.convert_strength_mpa(ms['strength']))
-        self.slump_spin.setValue(up.convert_length_mm(ms['slump']))
-        self.volume_spin.setValue(up.convert_volume_m3(ms['volume']))
-        self.min_cement_spin.setValue(up.convert_density_kg_m3(ms['min_cement']))
-        self.max_cement_spin.setValue(up.convert_density_kg_m3(ms['max_cement']))
-        self.ca_bulk_spin.setValue(up.convert_density_kg_m3(ms['ca_bulk']))
-
-        # Update suffixes
-        self.strength_spin.setSuffix(f" {up.strength_unit()}")
-        self.slump_spin.setSuffix(f" {up.length_unit()}")
-        self.volume_spin.setSuffix(f" {up.volume_unit()}")
-        self.min_cement_spin.setSuffix(f" {up.mass_per_volume_unit()}")
-        self.max_cement_spin.setSuffix(f" {up.mass_per_volume_unit()}")
-        self.ca_bulk_spin.setSuffix(f" {up.density_unit()}")
-
-        # Unblock signals
-        for sb in spinboxes:
-            sb.blockSignals(False)
+        Metric shows kg/m³ (IS 10262 Table 4 basis); imperial shows lb/yd³
+        (ACI 211.1 Table 6.3.3 basis).
+        """
+        up = self.unit_prefs or get_unit_prefs()
+        if up.is_imperial():
+            return f"{kg_m3 * 1.68555:.0f} lb/yd\u00b3"
+        return f"{kg_m3:.1f} kg/m\u00b3"
 
     # ── Strength Estimation from Mix Ratio ───────────────────────────
 
@@ -1815,14 +1788,16 @@ class ConcreteMixTab(QWidget):
 
         result = estimate_strength_from_ratio(cement, sand, gravel, fck, code)
 
-        # Show result in subtab label
-        fck_val = result["characteristic_strength_fck"]
-        ft = result["target_strength_f_target"]
+        # Show result in subtab label (convert strengths for display)
+        up = self.unit_prefs or get_unit_prefs()
+        su = up.strength_unit()
+        fck_val = up.convert_strength_mpa(result["characteristic_strength_fck"])
+        ft = up.convert_strength_mpa(result["target_strength_f_target"])
         wc = result["implied_wc_ratio"]
-        sd = result["standard_deviation"]
+        sd = up.convert_strength_mpa(result["standard_deviation"])
         margin = result["margin_formula"]
         self._ratio_result_label.setText(
-            f"f_ck = {fck_val:.2f} MPa  |  f_target = {ft:.2f} MPa  "
+            f"f_ck = {fck_val:.2f} {su}  |  f_target = {ft:.2f} {su}  "
             f"({margin})  |  W/C = {wc:.2f}"
         )
 
@@ -1923,11 +1898,13 @@ class ConcreteMixTab(QWidget):
         self.calc_btn.setEnabled(True)
         self.calc_btn.setText("  Calculate Mix Design")
         if hasattr(self.window(), "status_bar"):
+            up = self.unit_prefs or get_unit_prefs()
             self.window().status_bar.showMessage(
                 f"Done \u2014 {result.code_used}  |  "
-                f"Cement: {result.cement_kg:.1f} kg  |  "
+                f"Cement: {up.convert_mass_kg(result.cement_kg):.1f} {up.mass_unit()}  |  "
                 f"W/C: {result.w_c_ratio:.3f}  |  "
-                f"f'cr: {result.target_mean_strength_mpa:.1f} MPa"
+                f"f'cr: {up.convert_strength_mpa(result.target_mean_strength_mpa):.1f} "
+                f"{up.strength_unit()}"
             )
         # Auto-save to history
         self._auto_save_history(result)
@@ -2015,6 +1992,18 @@ class ConcreteMixTab(QWidget):
 
         vol = result.volume_m3
 
+        # ── Unit conversions for display ──
+        up = self.unit_prefs or get_unit_prefs()
+        vol_d = up.convert_volume_m3(vol)
+        vu = up.volume_unit()
+        mu = up.mass_unit()
+        su = up.strength_unit()
+        # Per-volume content unit: kg/m³ (IS basis) ↔ lb/yd³ (ACI basis)
+        pvu = up.mass_per_volume_unit()
+
+        def per_vol(kg_m3: float) -> float:
+            return kg_m3 * 1.68555 if up.is_imperial() else kg_m3
+
         # ── Colour palette (reused throughout) ──
         PRIMARY = "#00288e"
         HEADER_BG = "#e8eef8"
@@ -2089,7 +2078,7 @@ class ConcreteMixTab(QWidget):
         scm_card = ""
         if result.scm_kg > 0:
             scm_card = material_card(
-                "SCM (Suppl.)", f"{result.scm_kg:.1f}", "kg/m\u00b3"
+                "SCM (Suppl.)", f"{per_vol(result.scm_kg):.1f}", pvu
             )
 
         # ── Batch quantities (scaled) ──
@@ -2175,8 +2164,16 @@ class ConcreteMixTab(QWidget):
 
         # Formatted before the f-string blocks below: Python < 3.12 forbids
         # reusing the outer f-string delimiter inside an expression part.
-        nmsa_val = f"{params.get('nmsa', 'N/A')} mm"
-        slump_val = f"{params.get('slump_mm', 'N/A')} mm"
+        nmsa_raw = params.get("nmsa")
+        nmsa_val = (
+            "N/A" if nmsa_raw is None
+            else f"{up.convert_length_mm(nmsa_raw):.0f} {up.length_unit()}"
+        )
+        slump_raw = params.get("slump_mm")
+        slump_val = (
+            "N/A" if slump_raw is None
+            else f"{up.convert_length_mm(slump_raw):.0f} {up.length_unit()}"
+        )
 
         # ── Assemble full HTML ──
         html = (
@@ -2212,25 +2209,25 @@ class ConcreteMixTab(QWidget):
             f'<table style="width:100%; border-collapse:collapse; border:1px solid {BORDER}; '
             f'background:{WHITE};"><tr>'
             f"{param_cell('Design Code', code_label)}"
-            f"{param_cell('Target Strength', f'{result.target_mean_strength_mpa:.1f} MPa', highlight=True)}"
+            f"{param_cell('Target Strength', f'{up.convert_strength_mpa(result.target_mean_strength_mpa):.1f} {su}', highlight=True)}"
             f"{param_cell('W/C Ratio', f'{result.w_c_ratio:.3f}')}"
             f"</tr><tr>"
             f"{param_cell('Max Agg. Size (NMSA)', nmsa_val)}"
             f"{param_cell('Slump', slump_val)}"
             f"{param_cell('Air Content', f'{result.air_volume_percent:.1f}%')}"
             f"</tr><tr>"
-            f"{param_cell('Volume', f'{vol:.2f} m³')}"
-            f"{param_cell('Total Cementitious', f'{result.total_cementitious_kg:.1f} kg/m³')}"
+            f"{param_cell('Volume', f'{vol_d:.2f} {vu}')}"
+            f"{param_cell('Total Cementitious', f'{per_vol(result.total_cementitious_kg):.1f} {pvu}')}"
             f"{param_cell('', '')}"
             f"</tr></table></div>"
-            # ── Section 2: Material Quantities per m\u00b3 ──
+            # ── Section 2: Material Quantities per volume ──
             f'<div style="margin-bottom:20px;">'
-            f"{section_heading(2, 'Material Quantities per m³')}"
+            f"{section_heading(2, f'Material Quantities per {vu}')}"
             f'<table style="width:100%; border-collapse:collapse;"><tr>'
-            f"{material_card('Cement', f'{result.cement_kg:.1f}', 'kg/m³')}"
-            f"{material_card('Water', f'{result.water_kg:.1f}', 'liters/m³')}"
-            f"{material_card('Fine Aggregate', f'{result.fine_aggregate_kg:.1f}', 'kg/m³')}"
-            f"{material_card('Coarse Aggregate', f'{result.coarse_aggregate_kg:.1f}', 'kg/m³')}"
+            f"{material_card('Cement', f'{per_vol(result.cement_kg):.1f}', pvu)}"
+            f"{material_card('Water', f'{per_vol(result.water_kg):.1f}', pvu if up.is_imperial() else 'liters/m\u00b3')}"
+            f"{material_card('Fine Aggregate', f'{per_vol(result.fine_aggregate_kg):.1f}', pvu)}"
+            f"{material_card('Coarse Aggregate', f'{per_vol(result.coarse_aggregate_kg):.1f}', pvu)}"
             f"</tr></table>"
         )
 
@@ -2283,19 +2280,19 @@ class ConcreteMixTab(QWidget):
         # ── Section 5: Batch Quantities ──
         html += (
             f'<div style="margin-bottom:20px;">'
-            f"{section_heading(5, f'Batch Quantities for {vol:.2f} m³')}"
+            f"{section_heading(5, f'Batch Quantities for {vol_d:.2f} {vu}')}"
             f'<table style="width:100%; border-collapse:collapse; border:1px solid {BORDER}; '
             f'background:{WHITE};">'
             f'<thead><tr style="background:{HEADER_BG};">'
             f'<th style="padding:8px 10px; font-size:10px; font-weight:600; color:{TEXT_DIM}; '
             f'text-transform:uppercase; text-align:left; border-bottom:2px solid {BORDER};">Material</th>'
             f'<th style="padding:8px 10px; font-size:10px; font-weight:600; color:{TEXT_DIM}; '
-            f'text-transform:uppercase; text-align:right; border-bottom:2px solid {BORDER};">Per m\u00b3</th>'
+            f'text-transform:uppercase; text-align:right; border-bottom:2px solid {BORDER};">Per {vu}</th>'
             f'<th style="padding:8px 10px; font-size:10px; font-weight:600; color:{TEXT_DIM}; '
             f'text-transform:uppercase; text-align:right; border-bottom:2px solid {BORDER};">Unit</th>'
             f'<th style="padding:8px 10px; font-size:10px; font-weight:600; color:{TEXT_DIM}; '
             f"text-transform:uppercase; text-align:right; border-bottom:2px solid {BORDER}; "
-            f'color:{PRIMARY};">Batch ({vol:.2f} m\u00b3)</th>'
+            f'color:{PRIMARY};">Batch ({vol_d:.2f} {vu})</th>'
             f"</tr></thead><tbody>"
         )
 
@@ -2310,15 +2307,20 @@ class ConcreteMixTab(QWidget):
 
         for i, (mat, per_m3, unit, batch_val) in enumerate(batch_materials):
             bg = f" background:{ROW_ALT};" if i % 2 == 0 else ""
+            # Per-volume contents convert kg/m³ ↔ lb/yd³; batch totals are
+            # plain masses converted kg ↔ lb (self-labelled).
+            per_m3_disp = per_vol(per_m3)
+            unit_disp = pvu if up.is_imperial() else unit
+            batch_disp = up.convert_mass_kg(batch_val)
             html += (
                 f'<tr style="{bg}">'
                 f'<td style="padding:7px 10px; border-bottom:1px solid {BORDER}; font-weight:500;">{mat}</td>'
                 f'<td style="padding:7px 10px; border-bottom:1px solid {BORDER}; text-align:right;">'
-                f"{per_m3:.1f}</td>"
+                f"{per_m3_disp:.1f}</td>"
                 f'<td style="padding:7px 10px; border-bottom:1px solid {BORDER}; text-align:right; '
-                f'color:{TEXT_DIM};">{unit}</td>'
+                f'color:{TEXT_DIM};">{unit_disp}</td>'
                 f'<td style="padding:7px 10px; border-bottom:1px solid {BORDER}; text-align:right; '
-                f'font-weight:600; color:{PRIMARY};">{batch_val:.1f}</td>'
+                f'font-weight:600; color:{PRIMARY};">{batch_disp:.1f} {mu}</td>'
                 f"</tr>"
             )
         html += "</tbody></table></div>"

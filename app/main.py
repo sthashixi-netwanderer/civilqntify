@@ -234,9 +234,14 @@ class MainWindow(QMainWindow):
                 coarse_agg_sg=2.70,
             )
             self.tabs.setCurrentWidget(self.quant_tab)
+            up = self.unit_prefs
+            cement_pv = (
+                result.cement_kg * 1.68555 if up.is_imperial() else result.cement_kg
+            )
             self.status_bar.showMessage(
                 f"Mix design transferred to Quantification  |  "
-                f"{result.code_used}  |  Cement: {result.cement_kg:.1f} kg/m\u00b3",
+                f"{result.code_used}  |  Cement: {cement_pv:.1f} "
+                f"{up.mass_per_volume_unit()}",
                 6000,
             )
         except Exception as e:
@@ -248,9 +253,11 @@ class MainWindow(QMainWindow):
         try:
             self.cost_tab.load_bill(bill)
             self.tabs.setCurrentWidget(self.cost_tab)
+            up = self.unit_prefs
             self.status_bar.showMessage(
                 f"Material bill transferred to Cost Estimation  |  "
-                f"Gross Volume: {bill.gross_concrete_volume_m3:.3f} m\u00b3  |  "
+                f"Gross Volume: {up.convert_volume_m3(bill.gross_concrete_volume_m3):.3f} "
+                f"{up.volume_unit()}  |  "
                 f"Cement: {bill.total_cement_bags:.0f} bags",
                 6000,
             )

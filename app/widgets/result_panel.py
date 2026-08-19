@@ -64,8 +64,10 @@ class ResultPanel(QWidget):
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self._result: MixDesignResult | None = None
+        self._strength_estimate: dict | None = None
         self.unit_prefs: UnitPreferences = get_unit_prefs()
         self._build_ui()
+        self.unit_prefs.changed.connect(self.on_unit_changed)
 
     def _build_ui(self) -> None:
         outer = QVBoxLayout(self)
@@ -188,6 +190,7 @@ class ResultPanel(QWidget):
         """Update the panel with a new mix design result."""
         self._result = result
         # Hide any previous strength estimation when showing a full result
+        self._strength_estimate = None
         self._strength_est_frame.setVisible(False)
         self._refresh_display()
 
@@ -207,58 +210,90 @@ class ResultPanel(QWidget):
         """Show the target strength estimation result from the ratio subtab.
 
         Populates the stat cards with estimated material quantities and
-        displays the strength formula in the estimation frame.
+        displays the strength formula in the estimation frame.  Values are
+        stored metric and converted at render time.
         """
+        self._strength_estimate = {
+            "fck": fck,
+            "f_target": f_target,
+            "std_dev": std_dev,
+            "margin": margin,
+            "wc_ratio": wc_ratio,
+            "method": method,
+            "cement_kg": cement_kg,
+            "water_kg": water_kg,
+            "fine_agg_kg": fine_agg_kg,
+            "coarse_agg_kg": coarse_agg_kg,
+        }
+        self._refresh_strength_estimate()
+
+    def _refresh_strength_estimate(self) -> None:
+        """Render the stored strength estimate in the active unit system."""
+        est = self._strength_estimate
+        if est is None:
+            return
+        up = self.unit_prefs
+        su = up.strength_unit()
+        fck = up.convert_strength_mpa(est["fck"])
+        f_target = up.convert_strength_mpa(est["f_target"])
+        margin = est["margin"]
+        wc_ratio = est["wc_ratio"]
+        method = est["method"]
+
         self._strength_est_frame.setVisible(True)
         if method == "is10262":
             html = (
-                f"<b>f<sub>ck</sub>:</b> {fck:.1f} MPa<br/>"
+                f"<b>f<sub>ck</sub>:</b> {fck:.1f} {su}<br/>"
                 f"<b>f'<sub>ck</sub></b> = max(f<sub>ck</sub> + 1.65·S, "
                 f"f<sub>ck</sub> + X)<br/>"
                 f"<b>Margin:</b> {margin}<br/>"
                 f"<b>Target Mean Strength:</b> "
                 f"<span style='color:#047857;font-weight:700;'>"
-                f"{f_target:.1f} MPa</span>"
+                f"{f_target:.1f} {su}</span>"
             )
         elif method == "aci211":
             html = (
-                f"<b>f'<sub>c</sub>:</b> {fck:.1f} MPa<br/>"
+                f"<b>f'<sub>c</sub>:</b> {fck:.1f} {su}<br/>"
                 f"<b>Margin:</b> {margin}<br/>"
                 f"<b>Target Mean Strength (f'<sub>cr</sub>):</b> "
                 f"<span style='color:#047857;font-weight:700;'>"
-                f"{f_target:.1f} MPa</span><br/>"
+                f"{f_target:.1f} {su}</span><br/>"
                 f"<small>Margin derived from ACI 318 overdesign method.</small>"
             )
         elif method == "doe":
             html = (
-                f"<b>f<sub>c</sub>:</b> {fck:.1f} MPa<br/>"
+                f"<b>f<sub>c</sub>:</b> {fck:.1f} {su}<br/>"
                 f"<b>Margin:</b> {margin}<br/>"
                 f"<b>Target Mean Strength (f<sub>m</sub>):</b> "
                 f"<span style='color:#047857;font-weight:700;'>"
-                f"{f_target:.1f} MPa</span><br/>"
+                f"{f_target:.1f} {su}</span><br/>"
                 f"<small>Margin = k × std_dev (DOE method).</small>"
             )
         else:
             html = (
                 f"<b>Target Mean Strength:</b> "
                 f"<span style='color:#047857;font-weight:700;'>"
-                f"{f_target:.1f} MPa</span>"
+                f"{f_target:.1f} {su}</span>"
             )
         html += f"<br/><b>Implied W/C:</b> {wc_ratio:.2f}"
         self._strength_est_html.setText(html)
 
-        # Populate stat cards with estimated material quantities
-        self._cards["cement"].set_value(cement_kg, "kg")
-        self._cards["water"].set_value(water_kg, "kg")
-        self._cards["fine_agg"].set_value(fine_agg_kg, "kg")
-        self._cards["coarse_agg"].set_value(coarse_agg_kg, "kg")
+        # Populate stat cards with estimated material quantities (converted)
+        mu = up.mass_unit()
+        self._cards["cement"].set_value(up.convert_mass_kg(est["cement_kg"]), mu)
+        self._cards["water"].set_value(up.convert_mass_kg(est["water_kg"]), mu)
+        self._cards["fine_agg"].set_value(up.convert_mass_kg(est["fine_agg_kg"]), mu)
+        self._cards["coarse_agg"].set_value(up.convert_mass_kg(est["coarse_agg_kg"]), mu)
         self._cards["wc_ratio"].set_value(wc_ratio, "", ".3f")
-        self._cards["target"].set_value(f_target, "MPa")
-        self._cards["scm"].set_value(0.0, "kg")
+        self._cards["target"].set_value(f_target, su)
+        self._cards["scm"].set_value(0.0, mu)
         self._cards["air"].set_value(1.0, "%")
 
         # Show mix ratio in the ratio label
-        ratio_parts = f"1 : {fine_agg_kg / cement_kg:.1f} : {coarse_agg_kg / cement_kg:.1f}"
+        ratio_parts = (
+            f"1 : {est['fine_agg_kg'] / est['cement_kg']:.1f} : "
+            f"{est['coarse_agg_kg'] / est['cement_kg']:.1f}"
+        )
         label_text = (
             f"<b>Mix Ratio</b><br>"
             f"<span style='font-size:16px;'>{ratio_parts} "
@@ -270,13 +305,13 @@ class ResultPanel(QWidget):
         # Create a MixDesignResult so the send-to-quantification button works
         self._result = MixDesignResult(
             code_used=method,
-            target_mean_strength_mpa=f_target,
+            target_mean_strength_mpa=est["f_target"],
             w_c_ratio=wc_ratio,
-            water_kg=water_kg,
-            cement_kg=cement_kg,
+            water_kg=est["water_kg"],
+            cement_kg=est["cement_kg"],
             scm_kg=0.0,
-            fine_aggregate_kg=fine_agg_kg,
-            coarse_aggregate_kg=coarse_agg_kg,
+            fine_aggregate_kg=est["fine_agg_kg"],
+            coarse_aggregate_kg=est["coarse_agg_kg"],
             air_volume_percent=1.0,
         )
 
@@ -339,13 +374,20 @@ class ResultPanel(QWidget):
         self._mix_ratio_label.setText(label_text)
         self._mix_ratio_label.setVisible(True)
 
-        # Show per-m³ reference when volume != 1.0
+        # Show per-volume reference when volume != 1.0
         if vol != 1.0:
             vol_display = up.convert_volume_m3(vol)
+            if up.is_imperial():
+                cement_pv = result.cement_kg * 1.68555
+                water_pv = result.water_kg * 1.68555
+            else:
+                cement_pv = result.cement_kg
+                water_pv = result.water_kg
             self._total_label.setText(
                 f"Quantities shown for {vol_display:.3f} {up.volume_unit()} "
-                f"(per m³: Cement {up.convert_mass_kg(result.cement_kg):.0f} {up.mass_unit()}, "
-                f"Water {up.convert_mass_kg(result.water_kg):.0f} {up.mass_unit()})"
+                f"(per {up.volume_unit()}: Cement {cement_pv:.0f} "
+                f"{up.mass_per_volume_unit()}, "
+                f"Water {water_pv:.0f} {up.mass_per_volume_unit()})"
             )
             self._total_label.setVisible(True)
         else:
@@ -374,6 +416,8 @@ class ResultPanel(QWidget):
 
     def on_unit_changed(self) -> None:
         """Re-display results when unit preferences change."""
+        if self._strength_estimate is not None:
+            self._refresh_strength_estimate()
         self._refresh_display()
 
     def _on_send_to_quant(self) -> None:

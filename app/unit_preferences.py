@@ -1,7 +1,9 @@
 """Central unit system preferences for CivilQntify.
 
 Provides a singleton UnitPreferences instance that manages the active unit
-system (Metric or American Imperial) and the metric length sub-unit (mm, cm, m).
+system (Metric or American Imperial). Metric lengths always display in
+metres.
+
 All conversion is display-layer only — the backend always works in SI metric.
 
 Persistence: QSettings (survives app restarts).
@@ -17,12 +19,6 @@ from PyQt6.QtCore import QObject, QSettings, pyqtSignal
 class UnitSystem(Enum):
     METRIC = "metric"
     IMPERIAL = "imperial"
-
-
-class MetricLengthUnit(Enum):
-    MM = "mm"
-    CM = "cm"
-    M = "m"
 
 
 # ── Conversion factors (metric → target) ────────────────────────────────
@@ -50,7 +46,6 @@ class UnitPreferences(QObject):
     _SETTINGS_ORG = "CivilQntify"
     _SETTINGS_APP = "CivilQntify"
     _KEY_SYSTEM = "unit_system"
-    _KEY_LENGTH = "metric_length_unit"
     _KEY_WEATHER_API_KEY = "weather_api_key"
 
     def __init__(self, parent: QObject | None = None) -> None:
@@ -66,21 +61,9 @@ class UnitPreferences(QObject):
         except ValueError:
             return UnitSystem.METRIC
 
-    def metric_length_unit(self) -> MetricLengthUnit:
-        raw = self._settings.value(self._KEY_LENGTH, MetricLengthUnit.M.value)
-        try:
-            return MetricLengthUnit(raw)
-        except ValueError:
-            return MetricLengthUnit.M
-
     def set_system(self, system: UnitSystem) -> None:
         if self.system() != system:
             self._settings.setValue(self._KEY_SYSTEM, system.value)
-            self.changed.emit()
-
-    def set_metric_length_unit(self, unit: MetricLengthUnit) -> None:
-        if self.metric_length_unit() != unit:
-            self._settings.setValue(self._KEY_LENGTH, unit.value)
             self.changed.emit()
 
     def weather_api_key(self) -> str:
@@ -104,16 +87,13 @@ class UnitPreferences(QObject):
         return mpa
 
     def convert_length_mm(self, mm: float) -> float:
-        """Convert a length stored in mm to the active length unit."""
+        """Convert a length stored in mm to the active length unit.
+
+        Metric always displays metres; imperial displays inches.
+        """
         if self.is_imperial():
             return mm * _MM_TO_INCH
-        unit = self.metric_length_unit()
-        if unit == MetricLengthUnit.MM:
-            return mm
-        elif unit == MetricLengthUnit.CM:
-            return mm / 10.0
-        else:  # M
-            return mm / 1000.0
+        return mm / 1000.0
 
     def convert_mass_kg(self, kg: float) -> float:
         """Convert kg to the active mass unit."""
@@ -148,16 +128,10 @@ class UnitPreferences(QObject):
         return value
 
     def to_metric_length(self, value: float) -> float:
-        """Convert from active length unit back to mm."""
+        """Convert from the active length unit (m or in) back to mm."""
         if self.is_imperial():
             return value / _MM_TO_INCH
-        unit = self.metric_length_unit()
-        if unit == MetricLengthUnit.MM:
-            return value
-        elif unit == MetricLengthUnit.CM:
-            return value * 10.0
-        else:  # M
-            return value * 1000.0
+        return value * 1000.0
 
     def to_metric_mass(self, value: float) -> float:
         """Convert from active mass unit back to kg."""
@@ -177,9 +151,7 @@ class UnitPreferences(QObject):
         return "psi" if self.is_imperial() else "MPa"
 
     def length_unit(self) -> str:
-        if self.is_imperial():
-            return "in"
-        return self.metric_length_unit().value
+        return "in" if self.is_imperial() else "m"
 
     def mass_unit(self) -> str:
         return "lb" if self.is_imperial() else "kg"
@@ -195,17 +167,6 @@ class UnitPreferences(QObject):
 
     def water_unit(self) -> str:
         return "gal" if self.is_imperial() else "L"
-
-    def length_label(self) -> str:
-        """Human-readable label for the current length unit."""
-        if self.is_imperial():
-            return "inches"
-        unit = self.metric_length_unit()
-        if unit == MetricLengthUnit.MM:
-            return "millimetres"
-        elif unit == MetricLengthUnit.CM:
-            return "centimetres"
-        return "metres"
 
 
 # ── Module-level singleton ──────────────────────────────────────────────

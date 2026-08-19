@@ -600,6 +600,9 @@ class ParticleSizeDistributionTab(QWidget):
             markersize=6, label="Your gradation", zorder=5,
         )
 
+        # ── Out-of-band comment (IS 383 Table 4 zones / Table 7, ASTM C33) ──
+        self._annotate_band_violations(ax, result, band)
+
         # ── Axes: x = log scale (sieve size), y = linear %passing ──
         ax.set_xscale("log")
         ax.set_xlabel("Sieve Size (mm)  —  log scale", fontsize=11)
@@ -631,6 +634,67 @@ class ParticleSizeDistributionTab(QWidget):
         ax.legend(loc="lower left", fontsize=9, framealpha=0.9)
         self._fig.tight_layout()
         self._canvas.draw()
+
+    def _annotate_band_violations(
+        self,
+        ax,
+        result: PSDResult,
+        band: dict[float, tuple[float, float]],
+    ) -> None:
+        """Mark and explain any sieve whose %passing falls outside the band.
+
+        %passing above the upper limit means excess fines at that sieve
+        (curve too fine); below the lower limit means deficit fines
+        (too coarse). Conformance limits per IS 383 Table 4 (fine zones)
+        / Table 7 and ASTM C33 (coarse sizes).
+        """
+        if not band or not result.conforms:
+            return
+
+        violations: list[tuple[float, float, float, str]] = []
+        for s, p, ok in zip(result.sieve_sizes, result.percent_passing,
+                            result.conforms):
+            if ok or s not in band:
+                continue
+            lo, hi = band[s]
+            if p > hi:
+                violations.append((s, p, hi, "upper"))
+            else:
+                violations.append((s, p, lo, "lower"))
+        if not violations:
+            return
+
+        # Red × on each offending data point
+        ax.scatter(
+            [s for s, _, _, _ in violations],
+            [p for _, p, _, _ in violations],
+            marker="x", s=80, color=_ERROR, linewidths=2.2,
+            label="Out of band", zorder=6,
+        )
+
+        # Plain-language summary box (upper-right corner of the plot)
+        lines = []
+        for s, p, limit, which in violations[:4]:
+            arrow = ">" if which == "upper" else "<"
+            direction = "too fine" if which == "upper" else "too coarse"
+            lines.append(
+                f"• {_fmt_size(s)}: {p:.1f}% {arrow} {limit:.0f}% "
+                f"limit — {direction}"
+            )
+        if len(violations) > 4:
+            lines.append(f"… and {len(violations) - 4} more sieve(s)")
+        comment = "⚠ Outside the standard band\n" + "\n".join(lines)
+        # Lower-right interior stays clear of the curve (which rises toward
+        # the top-right) and of the lower-left legend.
+        ax.text(
+            0.98, 0.05, comment,
+            transform=ax.transAxes, ha="right", va="bottom",
+            fontsize=8.5, color="#7f1d1d", zorder=7, linespacing=1.5,
+            bbox=dict(
+                boxstyle="round,pad=0.45", facecolor="#fee2e2",
+                edgecolor=_ERROR, linewidth=1.2, alpha=0.95,
+            ),
+        )
 
     # ── Export ───────────────────────────────────────────────────────
 

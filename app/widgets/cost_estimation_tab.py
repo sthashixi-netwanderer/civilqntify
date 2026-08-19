@@ -39,8 +39,9 @@ from PyQt6.QtWidgets import (
 
 from app.unit_preferences import get_unit_prefs
 from app.widgets.cost_result_panel import CostResultPanel
-from app.widgets.info_button import InfoButton
+from app.widgets.info_button import InfoButton, set_label_with_info_text
 from app.widgets.report_preview_dialog import ReportPreviewDialog
+from app.widgets.unit_spin import UnitSpinBox
 
 # Default material prices in GH₵ (Ghana Cedis)
 _DEFAULT_PRICES = {
@@ -155,47 +156,54 @@ class CostEstimationTab(QWidget):
         data_form.setContentsMargins(12, 16, 12, 12)
 
         self._qty_spins: dict[str, QDoubleSpinBox] = {}
+        # (key, label_fn, lo, hi, default, decimals, kind, info)
+        # kind=None → plain spinbox (count); otherwise a UnitSpinBox whose
+        # value() is metric for the backend.
         qty_fields = [
             (
                 "cement_bags",
-                "Cement (Bags)",
+                lambda up: "Cement (Bags)",
                 0.0,
                 100000.0,
                 0.0,
                 0,
+                None,
                 "Total number of cement bags required.\n"
                 "Standard bag = 50 kg (Ghana/International).\n"
                 "Bags = total cement kg ÷ bag weight.",
             ),
             (
                 "fine_agg_m3",
-                "Fine Agg (m\u00b3)",
+                lambda up: f"Fine Agg ({up.volume_unit()})",
                 0.0,
                 100000.0,
                 0.0,
                 3,
+                "volume",
                 "Total volume of fine aggregate (sand) in m³.\n"
                 "Convert from weight: V = mass / (SG × 1000).\n"
                 "Order by bulk volume accounting for void content.",
             ),
             (
                 "coarse_agg_m3",
-                "Coarse Agg (m\u00b3)",
+                lambda up: f"Coarse Agg ({up.volume_unit()})",
                 0.0,
                 100000.0,
                 0.0,
                 3,
+                "volume",
                 "Total volume of coarse aggregate (gravel) in m³.\n"
                 "Convert from weight: V = mass / (SG × 1000).\n"
                 "Typical bulk density: 1400–1700 kg/m³.",
             ),
             (
                 "water_l",
-                "Water (L)",
+                lambda up: f"Water ({up.water_unit()})",
                 0.0,
                 1000000.0,
                 0.0,
                 1,
+                "water",
                 "Total mixing water in litres.\n"
                 "1 kg water = 1 litre.\n"
                 "Field water may differ from design water due to\n"
@@ -203,42 +211,56 @@ class CostEstimationTab(QWidget):
             ),
             (
                 "scm_kg",
-                "SCMs (kg)",
+                lambda up: f"SCMs ({up.mass_unit()})",
                 0.0,
                 100000.0,
                 0.0,
                 1,
+                "mass",
                 "Total Supplementary Cementitious Material in kg.\n"
                 "Fly ash, GGBFS, or silica fume.\n"
                 "Priced separately from cement if applicable.",
             ),
             (
                 "admix_l",
-                "Admix (L)",
+                lambda up: f"Admix ({up.mass_unit()})",
                 0.0,
                 10000.0,
                 0.0,
                 3,
-                "Total chemical admixture volume in litres.\n"
+                "mass",
+                # Backend field is total_admixture_kg and it is priced per
+                # kg, so this is a mass quantity (1 L ≈ 1 kg assumption).
+                "Total chemical admixture in kg (≈ litres).\n"
                 "Superplasticizer, plasticizer, retarder, etc.\n"
-                "Priced per litre or per kg depending on supplier.",
+                "Priced per kg depending on supplier.",
             ),
         ]
-        for key, label_text, lo, hi, default, decimals, info in qty_fields:
-            spin = self._spin(default, lo, hi, 10.0, decimals)
+        self._dynamic_labels: list[tuple[QLabel, object]] = []
+        for key, label_fn, lo, hi, default, decimals, kind, info in qty_fields:
+            if kind is None:
+                spin = self._spin(default, lo, hi, 10.0, decimals)
+            else:
+                spin = UnitSpinBox(kind, default, lo, hi, 10.0, decimals)
             spin.valueChanged.connect(self._on_input_changed)
             self._qty_spins[key] = spin
-            data_form.addRow(self._label_with_info(label_text, info), spin)
+            label = self._label_with_info(label_fn(get_unit_prefs()), info)
+            self._dynamic_labels.append((label, label_fn))
+            data_form.addRow(label, spin)
 
         # Volume input
-        self._volume_spin = self._spin(1.0, 0.01, 100000.0, 1.0, 2, suffix=" m\u00b3")
+        self._volume_spin = UnitSpinBox("volume", 1.0, 0.01, 100000.0, 1.0, 2)
         self._volume_spin.valueChanged.connect(self._on_input_changed)
+        self._volume_label = self._label_with_info(
+            "Total Volume",
+            "Total gross volume of concrete including wastage. "
+            "Cost per unit volume is calculated from this volume.",
+        )
+        self._dynamic_labels.append(
+            (self._volume_label, lambda up: f"Total Volume ({up.volume_unit()})")
+        )
         data_form.addRow(
-            self._label_with_info(
-                "Total Volume",
-                "Total gross volume of concrete including wastage. "
-                "Cost per m\u00b3 is calculated from this volume.",
-            ),
+            self._volume_label,
             self._volume_spin,
         )
 
@@ -265,63 +287,80 @@ class CostEstimationTab(QWidget):
         prices_form.setContentsMargins(12, 16, 12, 12)
 
         self._price_spins: dict[str, QDoubleSpinBox] = {}
+        # (key, label_fn, lo, hi, default, kind, info)
+        # kind=None → currency per bag (no unit conversion); rate kinds hold
+        # GH₵ per metric unit internally and display GH₵ per display unit.
         price_fields = [
             (
                 "cement_per_bag",
-                "Cement (per bag)",
+                lambda up: "Cement (per bag)",
                 0.01,
                 10000.0,
                 85.00,
+                None,
                 "Current market price per 50 kg bag in GH₵.\n"
                 "Ghana range: GH₵ 60–120 depending on brand and region.\n"
                 "Includes manufacturer margin but excludes transport.",
             ),
             (
                 "fine_agg_per_m3",
-                "Fine Agg (per m\u00b3)",
+                lambda up: f"Fine Agg (per {up.volume_unit()})",
                 0.01,
                 50000.0,
                 350.00,
+                "rate_volume",
                 "Price per m³ of sand delivered to site in GH₵.\n"
                 "Includes quarrying/river sand cost + transport.\n"
                 "Void content affects actual vs loose volume.",
             ),
             (
                 "coarse_agg_per_m3",
-                "Coarse Agg (per m\u00b3)",
+                lambda up: f"Coarse Agg (per {up.volume_unit()})",
                 0.01,
                 50000.0,
                 400.00,
+                "rate_volume",
                 "Price per m³ of gravel/stone delivered to site in GH₵.\n"
                 "Varies by size (20mm, 40mm) and source distance.\n"
                 "Typically 10–20% higher than sand.",
             ),
             (
                 "water_per_1000l",
-                "Water (per 1000L)",
+                lambda up: (
+                    "Water (per 1000 gal)" if up.is_imperial() else "Water (per 1000L)"
+                ),
                 0.01,
                 1000.0,
                 15.00,
+                "rate_water",
                 "Cost per 1000 litres of water supply in GH₵.\n"
                 "Includes tanker/borehole/tap water costs.\n"
                 "Some sites have free municipal water.",
             ),
             (
                 "admixture_per_kg",
-                "Admixture (per kg)",
+                lambda up: f"Admixture (per {up.mass_unit()})",
                 0.01,
                 10000.0,
                 12.00,
+                "rate_mass",
                 "Price per kg of chemical admixture in GH₵.\n"
                 "Varies by type: plasticizer, superplasticizer, retarder.\n"
                 "Typical range: GH₵ 8–25 per kg depending on brand.",
             ),
         ]
-        for key, label_text, lo, hi, default, info in price_fields:
-            spin = self._spin(default, lo, hi, 5.0, 2, prefix="GH\u20b5 ")
+        for key, label_fn, lo, hi, default, kind, info in price_fields:
+            if kind is None:
+                spin = self._spin(default, lo, hi, 5.0, 2, prefix="GH\u20b5 ")
+            else:
+                spin = UnitSpinBox(
+                    kind, default, lo, hi, 5.0, 2, prefix="GH\u20b5 "
+                )
             spin.valueChanged.connect(self._on_input_changed)
             self._price_spins[key] = spin
-            prices_form.addRow(self._label_with_info(label_text, info), spin)
+            label = self._label_with_info(label_fn(get_unit_prefs()), info)
+            self._dynamic_labels.append((label, label_fn))
+            prices_form.addRow(label, spin)
 
         # Reset button
         self._btn_reset_prices = QPushButton("Reset to Default Prices")
@@ -366,7 +405,7 @@ class CostEstimationTab(QWidget):
             ),
             (
                 "transport_per_m3",
-                "Transport (GH\u20b5/m\u00b3)",
+                lambda up: f"Transport (GH\u20b5/{up.volume_unit()})",
                 0.0,
                 10000.0,
                 80.00,
@@ -417,10 +456,17 @@ class CostEstimationTab(QWidget):
             ),
         ]
         for key, label_text, lo, hi, default, decimals, pfx, info in addl_fields:
-            spin = self._spin(default, lo, hi, 1.0, decimals, prefix=pfx)
+            label_fn = label_text if callable(label_text) else (lambda up, t=label_text: t)
+            if key == "transport_per_m3":
+                # GH₵ per metric m³ internally, GH₵ per display unit shown
+                spin = UnitSpinBox("rate_volume", default, lo, hi, 1.0, decimals, prefix=pfx)
+            else:
+                spin = self._spin(default, lo, hi, 1.0, decimals, prefix=pfx)
             spin.valueChanged.connect(self._on_input_changed)
             self._addl_spins[key] = spin
-            addl_form.addRow(self._label_with_info(label_text, info), spin)
+            label = self._label_with_info(label_fn(get_unit_prefs()), info)
+            self._dynamic_labels.append((label, label_fn))
+            addl_form.addRow(label, spin)
 
         grp_addl.setLayout(addl_form)
         self._form.addWidget(grp_addl)
@@ -537,28 +583,18 @@ class CostEstimationTab(QWidget):
         return sb
 
     def on_unit_changed(self) -> None:
-        """Update spinbox suffixes when unit preferences change."""
+        """Update unit-dependent labels when unit preferences change.
+
+        Input spinboxes are UnitSpinBox instances that re-derive their own
+        display from the stored metric value, so only the static labels
+        need refreshing here.
+        """
         if self.unit_prefs is None:
             return
         up = self.unit_prefs
-
-        # Block signals
-        self._volume_spin.blockSignals(True)
-
-        # Snapshot metric value
-        if not hasattr(self, '_metric_snapshot'):
-            self._metric_snapshot = {
-                'volume': self._volume_spin.value(),
-            }
-
-        ms = self._metric_snapshot
-
-        # Apply conversion
-        self._volume_spin.setValue(up.convert_volume_m3(ms['volume']))
-        self._volume_spin.setSuffix(f" {up.volume_unit()}")
-
-        # Unblock signals
-        self._volume_spin.blockSignals(False)
+        for label, label_fn in self._dynamic_labels:
+            set_label_with_info_text(label, label_fn(up))
+        self._result_panel.on_unit_changed()
 
     # ── Data Handoff (public API) ────────────────────────────────────
 
@@ -695,10 +731,13 @@ class CostEstimationTab(QWidget):
             "total_project_cost": grand_total,
             "cost_per_bag": cost_per_bag,
             "material_breakdown": [
+                # qty/unit are metric; kind lets the panel convert for
+                # display (unit_price is currency per metric unit).
                 {
                     "name": "Cement",
                     "qty": bill.total_cement_bags,
                     "unit": "bags",
+                    "kind": "count",
                     "unit_price": cement_price,
                     "total": cement_cost,
                 },
@@ -706,6 +745,7 @@ class CostEstimationTab(QWidget):
                     "name": "Fine Aggregate",
                     "qty": bill.total_fine_aggregate_bulk_m3,
                     "unit": "m\u00b3",
+                    "kind": "volume",
                     "unit_price": fa_price,
                     "total": fa_cost,
                 },
@@ -713,13 +753,15 @@ class CostEstimationTab(QWidget):
                     "name": "Coarse Aggregate",
                     "qty": bill.total_coarse_aggregate_bulk_m3,
                     "unit": "m\u00b3",
+                    "kind": "volume",
                     "unit_price": ca_price,
                     "total": ca_cost,
                 },
                 {
                     "name": "Water",
-                    "qty": bill.total_water_liters / 1000.0,
-                    "unit": "1000L",
+                    "qty": bill.total_water_liters,
+                    "unit": "L",
+                    "kind": "water",
                     "unit_price": water_price,
                     "total": water_cost,
                 },
@@ -727,6 +769,7 @@ class CostEstimationTab(QWidget):
                     "name": "Admixture",
                     "qty": bill.total_admixture_kg,
                     "unit": "kg",
+                    "kind": "mass",
                     "unit_price": admix_price,
                     "total": admix_cost,
                 },
@@ -759,9 +802,12 @@ class CostEstimationTab(QWidget):
         self._auto_save_history(self._last_cost_data)
 
         if hasattr(self.window(), "status_bar"):
+            up = self.unit_prefs or get_unit_prefs()
+            mat_cost_display = mat_cost_m3 / 1.30795 if up.is_imperial() else mat_cost_m3
+            vu = up.volume_unit()
             self.window().status_bar.showMessage(
                 f"Cost estimated \u2014 Grand Total: GH\u20b5 {grand_total:,.2f}  |  "
-                f"Per m\u00b3: GH\u20b5 {mat_cost_m3:,.2f}  |  "
+                f"Per {vu}: GH\u20b5 {mat_cost_display:,.2f}  |  "
                 f"Material: GH\u20b5 {total_material:,.2f}",
                 8000,
             )
@@ -827,7 +873,10 @@ class CostEstimationTab(QWidget):
                 self._qty_spins["coarse_agg_m3"].setValue(qty)
                 self._price_spins["coarse_agg_per_m3"].setValue(price)
             elif name == "Water":
-                self._qty_spins["water_l"].setValue(qty * 1000.0)
+                # Current records store qty in litres (kind="water");
+                # legacy records stored qty in 1000 L units.
+                qty_l = qty if item.get("kind") else qty * 1000.0
+                self._qty_spins["water_l"].setValue(qty_l)
                 self._price_spins["water_per_1000l"].setValue(price)
             elif name == "Admixture":
                 self._qty_spins["admix_l"].setValue(qty)
@@ -841,6 +890,33 @@ class CostEstimationTab(QWidget):
 
     # ── Export ────────────────────────────────────────────────────────
 
+    def _convert_breakdown_row(self, row: dict, up) -> tuple[float, str, float]:
+        """Convert a metric breakdown row to the active display units.
+
+        Mirrors CostResultPanel._convert_breakdown_row for the report paths.
+        """
+        qty = row["qty"]
+        unit = row.get("unit", "")
+        price = row["unit_price"]
+        kind = row.get("kind")
+        imperial = up.is_imperial()
+        if kind == "volume":
+            qty = up.convert_volume_m3(qty)
+            unit = up.volume_unit()
+            if imperial:
+                price = price / 1.30795  # per m³ → per yd³
+        elif kind == "water":
+            qty = up.convert_water_liters(qty)
+            unit = up.water_unit()
+            if imperial:
+                price = price / 264.172  # per 1000 L → per 1000 gal
+        elif kind == "mass":
+            qty = up.convert_mass_kg(qty)
+            unit = up.mass_unit()
+            if imperial:
+                price = price / 2.20462  # per kg → per lb
+        return qty, unit, price
+
     def _generate_cost_report_html(self) -> str:
         """Generate HTML report for cost estimation preview."""
         data = self._last_cost_data
@@ -851,16 +927,18 @@ class CostEstimationTab(QWidget):
         breakdown = data.get("material_breakdown", [])
         summary = data.get("summary_rows", [])
 
-        # Build material breakdown rows
+        # Build material breakdown rows (converted to display units)
+        up = self.unit_prefs or get_unit_prefs()
         material_rows = ""
         for i, row in enumerate(breakdown):
             bg_class = "zebra-row" if i % 2 == 0 else ""
+            qty, unit, unit_price = self._convert_breakdown_row(row, up)
             material_rows += f"""
             <tr class="{bg_class} border-b border-outline-variant">
                 <td class="py-sm px-md font-body-md text-on-surface">{row["name"]}</td>
-                <td class="py-sm px-md text-right font-data-table">{row["qty"]:,.2f}</td>
-                <td class="py-sm px-md text-right font-data-table">{row["unit"]}</td>
-                <td class="py-sm px-md text-right font-data-table">{row["unit_price"]:,.2f}</td>
+                <td class="py-sm px-md text-right font-data-table">{qty:,.2f}</td>
+                <td class="py-sm px-md text-right font-data-table">{unit}</td>
+                <td class="py-sm px-md text-right font-data-table">{unit_price:,.2f}</td>
                 <td class="py-sm px-md text-right font-data-table">{row["total"]:,.2f}</td>
             </tr>"""
 
@@ -1247,13 +1325,17 @@ class CostEstimationTab(QWidget):
                     pdf.ln(6)
 
                 # Summary
+                up = self.unit_prefs or get_unit_prefs()
+                mat_cost = data["material_cost_per_m3"]
+                if up.is_imperial():
+                    mat_cost = mat_cost / 1.30795
                 pdf.set_font("DejaVu", "B", 11)
                 pdf.cell(0, 7, "COST SUMMARY", new_x="LMARGIN", new_y="NEXT")
                 pdf.set_font("DejaVu", "", 10)
                 pdf.cell(
                     0,
                     6,
-                    f"Material Cost / m\u00b3: GH\u20b5 {data['material_cost_per_m3']:,.2f}",
+                    f"Material Cost / {up.volume_unit()}: GH\u20b5 {mat_cost:,.2f}",
                     new_x="LMARGIN",
                     new_y="NEXT",
                 )
@@ -1292,11 +1374,12 @@ class CostEstimationTab(QWidget):
                 pdf.ln()
                 pdf.set_font("DejaVu", "", 9)
                 for row in data["material_breakdown"]:
+                    qty, unit, unit_price = self._convert_breakdown_row(row, up)
                     pdf.cell(50, 6, row["name"], border=1)
-                    pdf.cell(30, 6, f"{row['qty']:,.2f}", border=1, align="R")
-                    pdf.cell(25, 6, row["unit"], border=1)
+                    pdf.cell(30, 6, f"{qty:,.2f}", border=1, align="R")
+                    pdf.cell(25, 6, unit, border=1)
                     pdf.cell(
-                        35, 6, f"GH\u20b5 {row['unit_price']:,.2f}", border=1, align="R"
+                        35, 6, f"GH\u20b5 {unit_price:,.2f}", border=1, align="R"
                     )
                     pdf.cell(
                         40, 6, f"GH\u20b5 {row['total']:,.2f}", border=1, align="R"
@@ -1383,11 +1466,15 @@ class CostEstimationTab(QWidget):
             writer.writerow([])
 
             # Summary
+            up = self.unit_prefs or get_unit_prefs()
+            mat_cost = data["material_cost_per_m3"]
+            if up.is_imperial():
+                mat_cost = mat_cost / 1.30795
             writer.writerow(["SUMMARY"])
             writer.writerow(
                 [
-                    "Material Cost / m\u00b3",
-                    f"GH\u20b5 {data['material_cost_per_m3']:,.2f}",
+                    f"Material Cost / {up.volume_unit()}",
+                    f"GH\u20b5 {mat_cost:,.2f}",
                 ]
             )
             writer.writerow(
@@ -1413,12 +1500,13 @@ class CostEstimationTab(QWidget):
                 ]
             )
             for row in data["material_breakdown"]:
+                qty, unit, unit_price = self._convert_breakdown_row(row, up)
                 writer.writerow(
                     [
                         row["name"],
-                        f"{row['qty']:,.2f}",
-                        row["unit"],
-                        f"{row['unit_price']:,.2f}",
+                        f"{qty:,.2f}",
+                        unit,
+                        f"{unit_price:,.2f}",
                         f"{row['total']:,.2f}",
                     ]
                 )

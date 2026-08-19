@@ -15,7 +15,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from app.unit_preferences import MetricLengthUnit, UnitPreferences, UnitSystem
+from app.unit_preferences import UnitPreferences, UnitSystem
 
 
 class SettingsDialog(QDialog):
@@ -69,30 +69,6 @@ class SettingsDialog(QDialog):
         sys_layout.addWidget(self._radio_imperial)
         root.addWidget(sys_group)
 
-        # ── Metric Length Unit ──
-        self._length_group = QGroupBox("Metric Length Unit")
-        self._length_group.setStyleSheet(
-            "QGroupBox { font-weight: 600; border: 1px solid #c4c5d5; "
-            "border-radius: 4px; margin-top: 12px; padding: 16px 12px 12px 12px; } "
-            "QGroupBox::title { subcontrol-origin: margin; left: 12px; padding: 0 6px; }"
-        )
-        length_layout = QVBoxLayout(self._length_group)
-
-        length_desc = QLabel(
-            "Select the base length unit for all dimensional measurements."
-        )
-        length_desc.setWordWrap(True)
-        length_desc.setStyleSheet("color: #444653; font-size: 11px; margin-bottom: 4px;")
-        length_layout.addWidget(length_desc)
-
-        self._radio_mm = QRadioButton("Millimetres (mm)")
-        self._radio_cm = QRadioButton("Centimetres (cm)")
-        self._radio_m = QRadioButton("Metres (m)")
-        for rb in (self._radio_mm, self._radio_cm, self._radio_m):
-            rb.setStyleSheet("font-size: 13px; padding: 4px 0;")
-            length_layout.addWidget(rb)
-        root.addWidget(self._length_group)
-
         # ── Weather API Key ──
         api_group = QGroupBox("Weather API Settings")
         api_group.setStyleSheet(
@@ -140,9 +116,6 @@ class SettingsDialog(QDialog):
         btn_row.addWidget(self._btn_apply)
         root.addLayout(btn_row)
 
-        # ── Wire visibility toggle ──
-        self._radio_metric.toggled.connect(self._update_length_group_visibility)
-
     def _load_current(self) -> None:
         """Pre-select radios from current preferences."""
         if self._prefs.is_imperial():
@@ -150,22 +123,9 @@ class SettingsDialog(QDialog):
         else:
             self._radio_metric.setChecked(True)
 
-        mlu = self._prefs.metric_length_unit()
-        if mlu == MetricLengthUnit.MM:
-            self._radio_mm.setChecked(True)
-        elif mlu == MetricLengthUnit.CM:
-            self._radio_cm.setChecked(True)
-        else:
-            self._radio_m.setChecked(True)
-
         # Load API key
         api_key = self._prefs.weather_api_key()
         self._api_key_input.setText(api_key)
-
-        self._update_length_group_visibility()
-
-    def _update_length_group_visibility(self) -> None:
-        self._length_group.setVisible(self._radio_metric.isChecked())
 
     def _apply(self) -> None:
         """Save preferences and close."""
@@ -173,13 +133,6 @@ class SettingsDialog(QDialog):
             self._prefs.set_system(UnitSystem.IMPERIAL)
         else:
             self._prefs.set_system(UnitSystem.METRIC)
-
-        if self._radio_mm.isChecked():
-            self._prefs.set_metric_length_unit(MetricLengthUnit.MM)
-        elif self._radio_cm.isChecked():
-            self._prefs.set_metric_length_unit(MetricLengthUnit.CM)
-        else:
-            self._prefs.set_metric_length_unit(MetricLengthUnit.M)
 
         # Save API key
         api_key = self._api_key_input.text().strip()

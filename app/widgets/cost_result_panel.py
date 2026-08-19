@@ -64,6 +64,7 @@ class CostResultPanel(QWidget):
         self._cost_data: dict | None = None
         self.unit_prefs: UnitPreferences = get_unit_prefs()
         self._build_ui()
+        self.unit_prefs.changed.connect(self.on_unit_changed)
 
     def _build_ui(self) -> None:
         scroll = QScrollArea()
@@ -179,27 +180,31 @@ class CostResultPanel(QWidget):
         else:
             self._warning_banner.setVisible(False)
 
-        # Summary cards
+        # Summary cards (per-volume card converts to the active volume unit)
         mat_m3 = cost_data.get("material_cost_per_m3", 0.0)
         total_mat = cost_data.get("total_material_cost", 0.0)
         total_proj = cost_data.get("total_project_cost", 0.0)
         cost_bag = cost_data.get("cost_per_bag", 0.0)
 
-        self._card_mat_cost_m3.set_value(mat_m3)
+        vu = self.unit_prefs.volume_unit()
+        self._card_mat_cost_m3._label.setText(f"Material Cost / {vu}")
+        mat_m3_display = mat_m3 / 1.30795 if self.unit_prefs.is_imperial() else mat_m3
+        self._card_mat_cost_m3.set_value(mat_m3_display)
         self._card_total_mat.set_value(total_mat)
         self._card_total_proj.set_value(total_proj, fmt=",.2f")
         self._card_cost_bag.set_value(cost_bag)
 
-        # Material breakdown table
+        # Material breakdown table (quantities converted via their kind)
         self._mat_table.setRowCount(0)
         breakdown = cost_data.get("material_breakdown", [])
         for row_data in breakdown:
             row = self._mat_table.rowCount()
             self._mat_table.insertRow(row)
+            qty, unit, unit_price = self._convert_breakdown_row(row_data)
             self._mat_table.setItem(row, 0, QTableWidgetItem(row_data["name"]))
-            self._mat_table.setItem(row, 1, QTableWidgetItem(f"{row_data['qty']:,.2f}"))
-            self._mat_table.setItem(row, 2, QTableWidgetItem(row_data["unit"]))
-            self._mat_table.setItem(row, 3, QTableWidgetItem(f"{row_data['unit_price']:,.2f}"))
+            self._mat_table.setItem(row, 1, QTableWidgetItem(f"{qty:,.2f}"))
+            self._mat_table.setItem(row, 2, QTableWidgetItem(unit))
+            self._mat_table.setItem(row, 3, QTableWidgetItem(f"{unit_price:,.2f}"))
             self._mat_table.setItem(row, 4, QTableWidgetItem(f"{row_data['total']:,.2f}"))
         self._mat_table.resizeColumnsToContents()
 
@@ -218,6 +223,36 @@ class CostResultPanel(QWidget):
         self.btn_print.setEnabled(True)
         self.btn_csv.setEnabled(True)
         self.btn_pdf.setEnabled(True)
+
+    def _convert_breakdown_row(self, row_data: dict) -> tuple[float, str, float]:
+        """Convert a metric breakdown row to the active display units.
+
+        Rows carry metric qty/unit_price plus an optional ``kind``
+        ("volume" | "water" | "mass" | "count").  Legacy rows without a
+        kind are shown verbatim (already metric-labelled).
+        """
+        up = self.unit_prefs
+        qty = row_data["qty"]
+        unit = row_data.get("unit", "")
+        price = row_data["unit_price"]
+        kind = row_data.get("kind")
+        imperial = up.is_imperial()
+        if kind == "volume":
+            qty = up.convert_volume_m3(qty)
+            unit = up.volume_unit()
+            if imperial:
+                price = price / 1.30795  # per m³ → per yd³
+        elif kind == "water":
+            qty = up.convert_water_liters(qty)
+            unit = up.water_unit()
+            if imperial:
+                price = price / 264.172  # per 1000 L → per 1000 gal
+        elif kind == "mass":
+            qty = up.convert_mass_kg(qty)
+            unit = up.mass_unit()
+            if imperial:
+                price = price / 2.20462  # per kg → per lb
+        return qty, unit, price
 
     def _clear_summary_rows(self) -> None:
         """Remove all existing summary rows."""

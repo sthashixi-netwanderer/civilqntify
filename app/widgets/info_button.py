@@ -20,6 +20,17 @@ from PyQt6.QtWidgets import (
 )
 
 
+def set_label_with_info_text(container: QWidget, text: str) -> None:
+    """Update the text of the QLabel inside a label+InfoButton container.
+
+    ``_label_with_info`` helpers return a QWidget container rather than the
+    QLabel itself; this reaches in and updates the first QLabel found.
+    """
+    label = container.findChild(QLabel)
+    if label is not None:
+        label.setText(text)
+
+
 class _InfoOverlay(QWidget):
     """In-app overlay that dismisses on outside click."""
 
