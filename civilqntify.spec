@@ -113,6 +113,7 @@ hiddenimports = _hidden_collected + [
     "concrete_mix.models.mix_result",
     "concrete_mix.utils",
     "concrete_mix.utils.constants",
+    "concrete_mix.utils.display",
     "concrete_mix.utils.units",
     "concrete_mix.validation",
     "concrete_mix.validation.validators",

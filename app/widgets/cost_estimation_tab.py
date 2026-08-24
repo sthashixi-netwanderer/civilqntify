@@ -544,6 +544,10 @@ class CostEstimationTab(QWidget):
             "font-size: 11px; font-weight: 700; text-transform: uppercase; "
             "letter-spacing: 0.05em; color: #444653;"
         )
+        # Wrap so long labels reflow instead of forcing the sidebar wider
+        # than its 360px floor (content would clip behind the scroll area).
+        lbl.setWordWrap(True)
+        lbl.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
         return lbl
 
     def _label_with_info(self, text: str, info: str) -> QWidget:

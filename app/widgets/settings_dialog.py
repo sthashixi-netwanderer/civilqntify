@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
+    QCheckBox,
     QDialog,
     QGroupBox,
     QHBoxLayout,
@@ -86,6 +87,15 @@ class SettingsDialog(QDialog):
         api_desc.setStyleSheet("color: #444653; font-size: 11px; margin-bottom: 8px;")
         api_layout.addWidget(api_desc)
 
+        # Toolbar visibility toggle for the Weather button
+        self._show_weather_check = QCheckBox("Show weather button in toolbar")
+        self._show_weather_check.setStyleSheet("font-size: 13px; padding: 2px 0;")
+        api_layout.addWidget(self._show_weather_check)
+
+        spacer = QLabel()
+        spacer.setFixedHeight(6)
+        api_layout.addWidget(spacer)
+
         api_key_row = QHBoxLayout()
         api_key_label = QLabel("API Key:")
         api_key_label.setStyleSheet("font-size: 12px; font-weight: 500;")
@@ -127,6 +137,9 @@ class SettingsDialog(QDialog):
         api_key = self._prefs.weather_api_key()
         self._api_key_input.setText(api_key)
 
+        # Load toolbar visibility toggle
+        self._show_weather_check.setChecked(self._prefs.weather_button_visible())
+
     def _apply(self) -> None:
         """Save preferences and close."""
         if self._radio_imperial.isChecked():
@@ -137,5 +150,8 @@ class SettingsDialog(QDialog):
         # Save API key
         api_key = self._api_key_input.text().strip()
         self._prefs.set_weather_api_key(api_key)
+
+        # Save Weather button toolbar visibility
+        self._prefs.set_weather_button_visible(self._show_weather_check.isChecked())
 
         self.accept()

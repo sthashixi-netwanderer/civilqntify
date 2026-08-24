@@ -7,5 +7,6 @@ from concrete_mix.engine.volume_calculator import absolute_volume, total_volume
 from concrete_mix.engine.grading import (
     calculate_fineness_modulus,
     determine_grading_zone,
+    recommend_gradation_corrections,
     validate_grading,
 )

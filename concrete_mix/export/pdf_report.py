@@ -27,6 +27,7 @@ from typing import Any
 from fpdf import FPDF
 
 from concrete_mix.models.mix_result import MixDesignResult
+from concrete_mix.utils.display import display_name
 
 # ── Logo resolution ─────────────────────────────────────────────────
 
@@ -289,7 +290,7 @@ def _generate_pdf_via_fpdf(result: MixDesignResult, input_params: dict[str, Any]
         pdf.key_value_row("Required Slump", f"{input_params.get('slump_mm', '?')} mm")
         pdf.key_value_row("NMSA", f"{input_params.get('nmsa', '?')} mm")
         pdf.subsection_title("Cement")
-        pdf.key_value_row("Cement Type", str(input_params.get("cement_type", "?")))
+        pdf.key_value_row("Cement Type", display_name(str(input_params.get("cement_type", "?"))))
         pdf.key_value_row("Specific Gravity", f"{input_params.get('cement_sg', '?')}")
         pdf.subsection_title("Fine Aggregate")
         pdf.key_value_row("Specific Gravity", f"{input_params.get('fine_agg_sg', '?')}")
@@ -308,11 +309,11 @@ def _generate_pdf_via_fpdf(result: MixDesignResult, input_params: dict[str, Any]
         else:
             pdf.subsection_title("IS-Specific Options")
             exposure = input_params.get("exposure_class")
-            pdf.key_value_row("Exposure Class (IS 456)", exposure.title() if exposure else "None specified")
+            pdf.key_value_row("Exposure Class (IS 456)", display_name(exposure) if exposure else "None specified")
         scm_pct = input_params.get("scm_replacement_percent", 0)
         if scm_pct > 0:
             pdf.subsection_title("Supplementary Cementitious Material")
-            pdf.key_value_row("SCM Type", str(input_params.get("scm_type", "?")))
+            pdf.key_value_row("SCM Type", display_name(str(input_params.get("scm_type", "?"))))
             pdf.key_value_row("Replacement", f"{scm_pct:.1f}%")
         adm_wr = input_params.get("admixture_water_reduction", 0)
         if adm_wr > 0:
@@ -466,7 +467,7 @@ def generate_latex_source(
     target_strength = ip.get("target_strength_mpa", result.target_mean_strength_mpa)
     slump = ip.get("slump_mm", "-")
     nmsa = ip.get("nmsa", "-")
-    cement_type = _sanitize_latex(str(ip.get("cement_type", "-")))
+    cement_type = _sanitize_latex(display_name(str(ip.get("cement_type", "-"))))
     cement_sg = ip.get("cement_sg", "-")
     fine_sg = ip.get("fine_agg_sg", "-")
     coarse_sg = ip.get("coarse_agg_sg", "-")
@@ -475,9 +476,9 @@ def generate_latex_source(
     air_entrained = "Yes" if ip.get("air_entrained") else "No"
     sulfate = _sanitize_latex(str(ip.get("sulfate_exposure_class", "S0")))
     has_data = r"$\geq$30 tests" if ip.get("has_production_data", True) else "No data ($<$30 tests)"
-    exposure = _sanitize_latex(str(ip.get("exposure_class", "None specified")).title() if ip.get("exposure_class") else "None specified")
+    exposure = _sanitize_latex(display_name(ip.get("exposure_class")) if ip.get("exposure_class") else "None specified")
     scm_pct = ip.get("scm_replacement_percent", 0)
-    scm_type = _sanitize_latex(str(ip.get("scm_type", "-")))
+    scm_type = _sanitize_latex(display_name(str(ip.get("scm_type", "-"))))
     adm_wr = ip.get("admixture_water_reduction", 0)
     volume = ip.get("volume_m3", result.volume_m3)
 

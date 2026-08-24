@@ -5,6 +5,7 @@ from __future__ import annotations
 from concrete_mix.models.materials import GHANA_CEMENT_EQUIVALENTS, GRADING_ZONE_DESCRIPTIONS
 from concrete_mix.models.mix_input import MixDesignInput
 from concrete_mix.models.mix_result import MixDesignResult
+from concrete_mix.utils.display import display_name
 
 
 def generate_report(
@@ -38,7 +39,7 @@ def generate_report(
         lines.append("-" * 40)
         lines.append(f"  Target strength (fck/f'c):    {inp.target_strength_mpa:.1f} MPa")
         lines.append(f"  Required slump:              {inp.slump_mm:.0f} mm")
-        lines.append(f"  Cement type:                 {inp.cement.type.value}")
+        lines.append(f"  Cement type:                 {display_name(inp.cement.type.value)}")
         lines.append(f"  Cement SG:                   {inp.cement.specific_gravity:.2f}")
         lines.append(f"  NMSA:                        {inp.nmsa} mm")
         lines.append(f"  Fine aggregate SG:           {inp.fine_aggregate.specific_gravity:.2f}")
@@ -51,14 +52,17 @@ def generate_report(
                 lines.append(f"    ({zone_info['name']})")
         lines.append(f"  Coarse aggregate SG:         {inp.coarse_aggregate.specific_gravity:.2f}")
         lines.append(f"  Air-entrained:               {'Yes' if inp.air_entrained else 'No'}")
-        lines.append(f"  Aggregate shape:             {inp.coarse_aggregate.shape.value}")
+        lines.append(f"  Aggregate shape:             {display_name(inp.coarse_aggregate.shape.value)}")
         if inp.exposure_class:
-            lines.append(f"  Exposure class:              {inp.exposure_class}")
+            lines.append(f"  Exposure class:              {display_name(inp.exposure_class)}")
         if inp.scms:
             for scm in inp.scms:
-                lines.append(f"  SCM: {scm.type.value} — {scm.replacement_percent:.0f}% replacement")
+                lines.append(f"  SCM: {display_name(scm.type.value)} — {scm.replacement_percent:.0f}% replacement")
         if inp.admixture:
-            lines.append(f"  Admixture: {inp.admixture.type} at {inp.admixture.dosage_percent:.1f}%")
+            lines.append(
+                f"  Admixture: {display_name(inp.admixture.type_string)}"
+                f" at {inp.admixture.dosage_percent:.1f}%"
+            )
             lines.append(f"    Water reduction: {inp.admixture.water_reduction_percent:.0f}%")
         lines.append("")
 

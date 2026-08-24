@@ -138,16 +138,12 @@ class CostResultPanel(QWidget):
         # ── Export Buttons ──
         btn_row = QHBoxLayout()
         btn_row.setSpacing(8)
-        self.btn_print = QPushButton("  Print Cost Estimate")
-        self.btn_print.setObjectName("secondary")
-        self.btn_print.setEnabled(False)
         self.btn_csv = QPushButton("  Export Cost Report (CSV)")
         self.btn_csv.setObjectName("secondary")
         self.btn_csv.setEnabled(False)
         self.btn_pdf = QPushButton("  Export Cost Report (PDF)")
         self.btn_pdf.setObjectName("primary_action")
         self.btn_pdf.setEnabled(False)
-        btn_row.addWidget(self.btn_print)
         btn_row.addWidget(self.btn_csv)
         btn_row.addWidget(self.btn_pdf)
         btn_row.addStretch()
@@ -220,7 +216,6 @@ class CostResultPanel(QWidget):
             )
 
         # Enable buttons
-        self.btn_print.setEnabled(True)
         self.btn_csv.setEnabled(True)
         self.btn_pdf.setEnabled(True)
 
@@ -312,7 +307,6 @@ class CostResultPanel(QWidget):
             card._unit.setText("")
         self._mat_table.setRowCount(0)
         self._clear_summary_rows()
-        self.btn_print.setEnabled(False)
         self.btn_csv.setEnabled(False)
         self.btn_pdf.setEnabled(False)
 

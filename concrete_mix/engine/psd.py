@@ -32,7 +32,7 @@ from dataclasses import dataclass, field
 FINE_SIEVES: list[float] = [10.0, 4.75, 2.36, 1.18, 0.600, 0.300, 0.150]
 
 # Coarse aggregate (IS 383 Table 7 / ASTM C33): from 75 mm down to 2.36 mm.
-COARSE_SIEVES: list[float] = [75.0, 37.5, 19.0, 9.5, 4.75, 2.36]
+COARSE_SIEVES: list[float] = [75.0, 37.5, 19.0, 12.5, 9.5, 4.75, 2.36]
 
 STANDARD_SIEVES: dict[str, list[float]] = {
     "fine": FINE_SIEVES,

@@ -42,11 +42,13 @@ class UnitPreferences(QObject):
     """
 
     changed = pyqtSignal()
+    weather_button_changed = pyqtSignal(bool)
 
     _SETTINGS_ORG = "CivilQntify"
     _SETTINGS_APP = "CivilQntify"
     _KEY_SYSTEM = "unit_system"
     _KEY_WEATHER_API_KEY = "weather_api_key"
+    _KEY_WEATHER_BUTTON_VISIBLE = "weather_button_visible"
 
     def __init__(self, parent: QObject | None = None) -> None:
         super().__init__(parent)
@@ -73,6 +75,21 @@ class UnitPreferences(QObject):
     def set_weather_api_key(self, api_key: str) -> None:
         """Set the WeatherAPI.com API key."""
         self._settings.setValue(self._KEY_WEATHER_API_KEY, api_key)
+
+    def weather_button_visible(self) -> bool:
+        """Whether the Weather button is shown in the main toolbar.
+
+        Defaults to ``False`` — the toolbar stays clean unless the user
+        opts in via Settings.
+        """
+        raw = self._settings.value(self._KEY_WEATHER_BUTTON_VISIBLE, False)
+        return raw in (True, 1, "1", "true", "True")
+
+    def set_weather_button_visible(self, visible: bool) -> None:
+        """Show or hide the Weather toolbar button and notify listeners."""
+        if self.weather_button_visible() != visible:
+            self._settings.setValue(self._KEY_WEATHER_BUTTON_VISIBLE, bool(visible))
+            self.weather_button_changed.emit(visible)
 
     def is_imperial(self) -> bool:
         return self.system() == UnitSystem.IMPERIAL

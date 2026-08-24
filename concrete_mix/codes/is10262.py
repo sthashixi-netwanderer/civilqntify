@@ -23,6 +23,7 @@ from concrete_mix.engine.moisture_correction import (
     correct_for_moisture,
 )
 from concrete_mix.engine.volume_calculator import absolute_volume, total_volume
+from concrete_mix.utils.display import display_name
 from concrete_mix.models.mix_input import MixDesignInput
 from concrete_mix.models.mix_result import CalculationStep, MixDesignResult
 from concrete_mix.utils.constants import SG_WATER
@@ -136,12 +137,12 @@ class IS10262MixDesign(MixDesignCode):
             if shape_adj_kg < 0:
                 warnings.append(
                     f"Water reduced by {abs(shape_adj_kg):.0f} kg/m³ "
-                    f"for '{agg_shape}' aggregate per IS 10262:2019 Clause 5.2"
+                    f"for '{display_name(agg_shape)}' aggregate per IS 10262:2019 Clause 5.2"
                 )
             else:
                 warnings.append(
                     f"Water increased by {shape_adj_kg:.0f} kg/m³ "
-                    f"for '{agg_shape}' aggregate per IS 10262:2019 Clause 5.2"
+                    f"for '{display_name(agg_shape)}' aggregate per IS 10262:2019 Clause 5.2"
                 )
 
         # IS 10262:2019 Clause 5.3 — Admixture water reduction
@@ -185,7 +186,7 @@ class IS10262MixDesign(MixDesignCode):
                 self._make_step(
                     2.1,
                     "Admixture water reduction",
-                    f"Reduced by {reduction_pct:.1f}% ({admixture.type_string})",
+                    f"Reduced by {reduction_pct:.1f}% ({display_name(admixture.type_string)})",
                     {
                         "water_before": water_before_admixture,
                         "reduction_pct": reduction_pct,
@@ -210,7 +211,7 @@ class IS10262MixDesign(MixDesignCode):
             if wc > limits["max_wc"]:
                 warnings.append(
                     f"W/C ratio {wc:.2f} reduced to {limits['max_wc']:.2f} "
-                    f"for '{inp.exposure_class}' exposure per IS 456:2000"
+                    f"for '{display_name(inp.exposure_class)}' exposure per IS 456:2000"
                 )
                 wc = limits["max_wc"]
 
@@ -241,7 +242,7 @@ class IS10262MixDesign(MixDesignCode):
         if cement_kg < min_cement:
             warnings.append(
                 f"Cement {cement_kg:.0f} kg/m³ below minimum {min_cement:.0f} kg/m³ "
-                f"for '{inp.exposure_class or 'mild'}' exposure per IS 456:2000"
+                f"for '{display_name(inp.exposure_class) if inp.exposure_class else 'mild'}' exposure per IS 456:2000"
             )
             cement_kg = min_cement
             cementitious_total = cement_kg + scm_kg
@@ -286,7 +287,7 @@ class IS10262MixDesign(MixDesignCode):
                     4.2,
                     "Admixture content",
                     f"Admixture = {admixture.dosage_percent:.2f}% by mass of cementitious material "
-                    f"(type: {admixture.type_string})",
+                    f"(type: {display_name(admixture.type_string)})",
                     {
                         "cementitious_total": cementitious_total,
                         "dosage_pct": admixture.dosage_percent,

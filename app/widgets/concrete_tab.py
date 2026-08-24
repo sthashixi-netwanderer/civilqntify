@@ -24,6 +24,7 @@ from PyQt6.QtWidgets import (
     QScrollArea,
     QSizePolicy,
     QSplitter,
+    QStackedWidget,
     QTabWidget,
     QVBoxLayout,
     QWidget,
@@ -31,7 +32,7 @@ from PyQt6.QtWidgets import (
 
 from app.unit_preferences import get_unit_prefs
 from app.widgets.info_button import InfoButton
-from app.widgets.psd_widget import ParticleSizeDistributionTab
+from app.widgets.psd_widget import ParticleSizeDistributionTab, PSDResultPanel
 from app.widgets.report_preview_dialog import ReportPreviewDialog
 from app.widgets.result_panel import ResultPanel
 from app.widgets.unit_spin import UnitSpinBox
@@ -39,7 +40,6 @@ from app.workers.mix_design_worker import MixDesignWorker
 from concrete_mix import (
     MixDesignResult,
     export_to_csv,
-    export_to_json,
     generate_pdf_report,
     map_cement_type,
 )
@@ -97,18 +97,32 @@ class ConcreteMixTab(QWidget):
         # Tab 2: Target Strength estimation from mix ratio
         self._left_tabs.addTab(self._build_target_strength_tab(), "Target Strength")
 
-        # Tab 3: Particle Size Distribution (sieve analysis input + gradation curve)
-        self._psd_tab = ParticleSizeDistributionTab(self)
-        _psd_idx = self._left_tabs.addTab(self._psd_tab, "PSD")
-        self._left_tabs.setTabToolTip(_psd_idx, "Particle Size Distribution")
+        # Tab 3: Particle Size Distribution (sieve analysis input)
+        # Results render on the right side via the shared PSD result panel.
+        self._psd_result_panel = PSDResultPanel()
+        self._psd_tab = ParticleSizeDistributionTab(
+            self, result_panel=self._psd_result_panel
+        )
+        self._psd_idx = self._left_tabs.addTab(self._psd_tab, "PSD")
+        self._left_tabs.setTabToolTip(self._psd_idx, "Particle Size Distribution")
 
         splitter.addWidget(self._left_tabs)
 
-        # Right: results panel — takes remaining space, scrollable
+        # Right: dynamic results stack — shows the result type matching the
+        # active left subtab (mix design / target strength → material
+        # quantities; PSD → gradation curve).
+        self._result_stack = QStackedWidget()
+        self._result_stack.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self._result_stack.setMinimumWidth(380)
+
+        # Page 0: mix design results (stat cards + steps + exports)
         self._result_panel = ResultPanel()
-        self._result_panel.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        self._result_panel.setMinimumWidth(380)
-        splitter.addWidget(self._result_panel)
+        self._result_stack.addWidget(self._result_panel)
+
+        # Page 1: PSD gradation curve + stat cards
+        self._result_stack.addWidget(self._psd_result_panel)
+
+        splitter.addWidget(self._result_stack)
 
         splitter.setSizes([440, 760])
         splitter.setStretchFactor(0, 0)
@@ -117,13 +131,22 @@ class ConcreteMixTab(QWidget):
         splitter.setCollapsible(1, False)
         splitter.setHandleWidth(6)
 
+        # Switch the right results section when the left subtab changes
+        self._left_tabs.currentChanged.connect(self._on_left_tab_changed)
+
         # Wire export buttons
         self._result_panel.btn_csv.clicked.connect(self._export_csv)
-        self._result_panel.btn_json.clicked.connect(self._export_json)
         self._result_panel.btn_report.clicked.connect(self._show_preview)
 
         # Wire quantification handoff
         self._result_panel.send_to_quantification.connect(self.mix_design_ready.emit)
+
+    def _on_left_tab_changed(self, index: int) -> None:
+        """Show the result type matching the active left subtab."""
+        if index == self._psd_idx:
+            self._result_stack.setCurrentWidget(self._psd_result_panel)
+        else:
+            self._result_stack.setCurrentWidget(self._result_panel)
 
     # ── Per-Standard Info Texts ─────────────────────────────────────
     # Keys match the field names used in _info_buttons
@@ -596,6 +619,7 @@ class ConcreteMixTab(QWidget):
 
         # Max Free W/C display — uses warning palette from design system
         self.max_wc_label = QLabel("—")
+        self.max_wc_label.setWordWrap(True)
         self.max_wc_label.setStyleSheet(
             "font-weight: 600; color: #92400e; font-size: 12px; padding: 6px 10px; "
             "background: #fef3c7; border: 1px solid #f59e0b; border-radius: 4px;"
@@ -727,6 +751,7 @@ class ConcreteMixTab(QWidget):
         )
         self.nmsa_combo.currentIndexChanged.connect(self._on_nmsa_changed)
         self.water_content_label = QLabel("—")
+        self.water_content_label.setWordWrap(True)
         self.water_content_label.setStyleSheet("font-weight: 600; color: #1e40af; font-size: 13px;")
         self.volume_spin = UnitSpinBox("volume", 1.0, 0.01, 1000.0, 0.1, 3)
 
@@ -1160,6 +1185,7 @@ class ConcreteMixTab(QWidget):
             self.admix_spin,
         )
         self.reduced_water_label = QLabel("—")
+        self.reduced_water_label.setWordWrap(True)
         self.reduced_water_label.setStyleSheet(
             "font-weight: 600; color: #1e40af; font-size: 12px; padding: 6px 10px; "
             "background: #eff4ff; border: 1px solid #dbeafe; border-radius: 4px;"
@@ -1296,14 +1322,20 @@ class ConcreteMixTab(QWidget):
         return g
 
     def _label(self, text: str) -> QLabel:
-        """Create a bold uppercase label — refined from Stitch, reduced slop (0.03em, 600)."""
+        """Create a bold uppercase label — refined from Stitch, reduced slop (0.03em, 600).
+
+        Word-wrap is enabled so long labels reflow to multiple lines when the
+        sidebar is narrowed; without it the label's minimum size hint equals
+        the full text width, which forces the whole form wider than the
+        sidebar's 360px floor and clips the input fields.
+        """
         lbl = QLabel(text)
         lbl.setStyleSheet(
             "font-size: 11px; font-weight: 600; text-transform: uppercase; "
             "letter-spacing: 0.03em; color: #444653;"
         )
-        lbl.setWordWrap(False)
-        lbl.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
+        lbl.setWordWrap(True)
+        lbl.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
         return lbl
 
     def _label_with_info(self, text: str, info: str, key: str | None = None) -> QWidget:
@@ -1596,17 +1628,17 @@ class ConcreteMixTab(QWidget):
 
         if is_aci:
             ghana_types = [
-                ("32.5R (TYPE_I)", "GRADE_32_5R"),
-                ("42.5R (TYPE_III)", "GRADE_42_5R"),
-                ("42.5N (TYPE_I)", "GRADE_42_5N"),
-                ("52.5N (TYPE_I)", "GRADE_52_5N"),
+                ("32.5R (Type I)", "GRADE_32_5R"),
+                ("42.5R (Type III)", "GRADE_42_5R"),
+                ("42.5N (Type I)", "GRADE_42_5N"),
+                ("52.5N (Type I)", "GRADE_52_5N"),
             ]
         else:
             ghana_types = [
-                ("32.5R (OPC_33)", "GRADE_32_5R"),
-                ("42.5R (OPC_43)", "GRADE_42_5R"),
-                ("42.5N (OPC_43)", "GRADE_42_5N"),
-                ("52.5N (OPC_53)", "GRADE_52_5N"),
+                ("32.5R (OPC 33)", "GRADE_32_5R"),
+                ("42.5R (OPC 43)", "GRADE_42_5R"),
+                ("42.5N (OPC 43)", "GRADE_42_5N"),
+                ("52.5N (OPC 53)", "GRADE_52_5N"),
             ]
 
         for label, data in ghana_types:
@@ -1961,18 +1993,6 @@ class ConcreteMixTab(QWidget):
         if path:
             content = export_to_csv(self._last_result)
             with open(path, "w", newline="") as f:
-                f.write(content)
-            self.window().status_bar.showMessage(f"Exported to {path}", 5000)
-
-    def _export_json(self) -> None:
-        if not self._last_result:
-            return
-        path, _ = QFileDialog.getSaveFileName(
-            self, "Export JSON", "mix_design.json", "JSON (*.json)"
-        )
-        if path:
-            content = export_to_json(self._last_result)
-            with open(path, "w") as f:
                 f.write(content)
             self.window().status_bar.showMessage(f"Exported to {path}", 5000)
 

@@ -252,11 +252,29 @@ jobs:
           echo "tag_name=${TAG_NAME}" >> $GITHUB_OUTPUT
           echo "release_name=${RELEASE_NAME}" >> $GITHUB_OUTPUT
 
+      - name: Prepare Release Notes
+        id: release_notes
+        run: |
+          if [ -f RELEASE_NOTES.md ]; then
+            cp RELEASE_NOTES.md release_notes.md
+          else
+            cat << 'EOF' > release_notes.md
+            ## 🚀 CivilQntify ${{ steps.release_info.outputs.tag_name }}
+
+            ### Updates in this release:
+            - **Particle Size Distribution (PSD) Plot Layout Fix**: Fixed overlay issue where warning banners overlapped the gradation curve. Embedded panel in `QScrollArea` with proper spacing.
+            - **$D_{10}$, $D_{30}$, and $D_{60}$ Characteristic Diameters**: Plotted characteristic diameters on the semi-log gradation curve with straight dashed reference lines to both axes and matching decimal precision.
+            - **$12.5\text{ mm}$ Coarse Sieve & Band**: Included $12.5\text{ mm}$ sieve in `COARSE_SIEVES` per IS 383:2016 Table 7 and ASTM C33 Table 3, along with full grading limits and a dedicated $12.5\text{ mm}$ reference band.
+            - **UI/UX & Display Nomenclature Polish**: Standardized human-readable display names across all UI tabs, reports, and validation messages.
+            EOF
+          fi
+
       - name: Publish or Update GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.release_info.outputs.tag_name }}
           name: ${{ steps.release_info.outputs.release_name }}
+          body_path: release_notes.md
           draft: false
           prerelease: false
           generate_release_notes: true

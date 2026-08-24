@@ -160,15 +160,11 @@ class ResultPanel(QWidget):
         btn_row.setSpacing(8)
         self._btn_csv = QPushButton("Export CSV")
         self._btn_csv.setObjectName("secondary")
-        self._btn_json = QPushButton("Export JSON")
-        self._btn_json.setObjectName("secondary")
         self._btn_report = QPushButton("Export PDF")
         self._btn_report.setObjectName("secondary")
         self._btn_csv.setEnabled(False)
-        self._btn_json.setEnabled(False)
         self._btn_report.setEnabled(False)
         btn_row.addWidget(self._btn_csv)
-        btn_row.addWidget(self._btn_json)
         btn_row.addWidget(self._btn_report)
 
         # Send to Quantification button (primary action)
@@ -183,7 +179,6 @@ class ResultPanel(QWidget):
 
         # Export signal connections will be wired by the parent tab
         self.btn_csv = self._btn_csv
-        self.btn_json = self._btn_json
         self.btn_report = self._btn_report
 
     def display_result(self, result: MixDesignResult) -> None:
@@ -317,7 +312,6 @@ class ResultPanel(QWidget):
 
         # Enable export and send buttons
         self._btn_csv.setEnabled(True)
-        self._btn_json.setEnabled(True)
         self._btn_report.setEnabled(True)
         self._btn_quant.setEnabled(True)
 
@@ -410,7 +404,6 @@ class ResultPanel(QWidget):
 
         # Enable export buttons
         self._btn_csv.setEnabled(True)
-        self._btn_json.setEnabled(True)
         self._btn_report.setEnabled(True)
         self._btn_quant.setEnabled(True)
 
@@ -436,6 +429,5 @@ class ResultPanel(QWidget):
         self._mix_ratio_label.setVisible(False)
         self._steps_tree.clear()
         self._btn_csv.setEnabled(False)
-        self._btn_json.setEnabled(False)
         self._btn_report.setEnabled(False)
         self._btn_quant.setEnabled(False)

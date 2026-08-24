@@ -7,6 +7,8 @@ Supports:
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from concrete_mix.codes.tables.is_tables import GRADING_ZONE_LIMITS
 
 
@@ -135,3 +137,109 @@ def validate_grading(
             warnings.append(f"FM {fm:.2f} above ACI recommended maximum (3.1)")
 
     return warnings
+
+
+# ── Gradation correction recommendations ────────────────────────────────
+# NOTE (deviation documentation, per project AGENTS.md): IS 383 / ASTM C33
+# define the grading *limits* only — they do not prescribe a correction
+# method. The adjustment predicted here is the standard two-component
+# blending mass balance used in combined-gradation practice:
+#   adding a corrective fraction that (a) fully passes the offending sieve
+#   raises %passing:  x = (T - P) / (100 - P)
+#   (b) is fully retained on it, lowers %passing:  x = (P - T) / P
+# where P = current %passing and T = target (band midpoint). The fraction x
+# is expressed as a share of the final blended mass.
+
+
+@dataclass(frozen=True)
+class GradationCorrection:
+    """A single out-of-band sieve with a predicted corrective adjustment."""
+
+    sieve_mm: float
+    percent_passing: float
+    lower: float
+    upper: float
+    target: float
+    too_coarse: bool
+    deviation_pp: float
+    blend_fraction: float
+    action: str
+
+
+def recommend_gradation_corrections(
+    sieve_sizes: list[float],
+    percent_passing: list[float],
+    band: dict[float, tuple[float, float]],
+) -> list[GradationCorrection]:
+    """Predict the adjustment needed to bring out-of-band sieves in band.
+
+    For each sieve whose %passing falls outside ``band`` (IS 383 Table 4
+    fine zones / Table 7, ASTM C33 coarse sizes), a target at the band
+    midpoint and the corrective blend fraction are computed via the
+    two-component blending mass balance (see module note above).
+
+    Args:
+        sieve_sizes: Sieve sizes in mm (any order).
+        percent_passing: %passing aligned with ``sieve_sizes``.
+        band: {sieve_mm: (lower_limit, upper_limit)}.
+
+    Returns:
+        One GradationCorrection per violating sieve (empty if conforming).
+    """
+    corrections: list[GradationCorrection] = []
+
+    for s, p in zip(sieve_sizes, percent_passing):
+        if s not in band:
+            continue
+        lo, hi = band[s]
+        if lo <= p <= hi:
+            continue
+
+        target = (lo + hi) / 2.0
+        if p < lo:
+            # Too coarse — needs material that passes this sieve.
+            too_coarse = True
+            deviation = lo - p
+            denom = 100.0 - p
+            frac = (target - p) / denom if denom > 0 else 1.0
+            base = (
+                f"blend in \u2248{frac * 100:.0f}% (of final blend) material "
+                f"that passes the {s:g} mm sieve \u2014 e.g. the next finer "
+                f"stockpile fraction \u2014 or reduce the +{s:g} mm oversize"
+            )
+            if frac > 0.5:
+                base = (
+                    f"grading is far off spec: re-screen / re-crush the "
+                    f"oversize stock before blending ({base})"
+                )
+        else:
+            # Too fine — needs material retained on this sieve.
+            too_coarse = False
+            deviation = p - hi
+            frac = (p - target) / p if p > 0 else 0.0
+            base = (
+                f"blend in \u2248{frac * 100:.0f}% (of final blend) coarse "
+                f"material retained on the {s:g} mm sieve, or wash out the "
+                f"excess fines passing {s:g} mm"
+            )
+            if frac > 0.5:
+                base = (
+                    f"excess fines are severe: washing or replacing the fine "
+                    f"stock is more practical than blending ({base})"
+                )
+
+        corrections.append(
+            GradationCorrection(
+                sieve_mm=s,
+                percent_passing=p,
+                lower=lo,
+                upper=hi,
+                target=target,
+                too_coarse=too_coarse,
+                deviation_pp=deviation,
+                blend_fraction=min(max(frac, 0.0), 1.0),
+                action=base + f", to bring passing to \u2248{target:.0f}%.",
+            )
+        )
+
+    return corrections

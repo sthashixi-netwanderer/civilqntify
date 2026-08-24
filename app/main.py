@@ -119,6 +119,9 @@ class MainWindow(QMainWindow):
 
         # Wire unit preference changes
         self.unit_prefs.changed.connect(self._on_unit_changed)
+        self.unit_prefs.weather_button_changed.connect(
+            self._on_weather_visibility_changed
+        )
 
         # Refresh history tab when switching to it
         self.tabs.currentChanged.connect(self._on_tab_changed)
@@ -130,10 +133,10 @@ class MainWindow(QMainWindow):
 
     def _build_toolbar(self) -> None:
         """Create the top toolbar with weather and settings buttons."""
-        toolbar = QToolBar("Main Toolbar")
-        toolbar.setMovable(False)
-        toolbar.setIconSize(toolbar.iconSize())
-        self.addToolBar(toolbar)
+        self.toolbar = QToolBar("Main Toolbar")
+        self.toolbar.setMovable(False)
+        self.toolbar.setIconSize(self.toolbar.iconSize())
+        self.addToolBar(self.toolbar)
 
         # Stretch spacer — pushes remaining widgets to the right
         spacer = QWidget()
@@ -141,7 +144,7 @@ class MainWindow(QMainWindow):
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred
         )
         spacer.setStyleSheet("background: transparent;")
-        toolbar.addWidget(spacer)
+        self.toolbar.addWidget(spacer)
 
         # Weather button — unified to primary palette
         self._btn_weather = QPushButton("Weather")
@@ -166,8 +169,14 @@ class MainWindow(QMainWindow):
             }
         """)
         self._btn_weather.clicked.connect(self._open_weather)
-        self._btn_weather.setVisible(False)  # hidden for now
-        toolbar.addWidget(self._btn_weather)
+        # Visibility is driven through the toolbar *action*, not the raw
+        # widget: toggling a fixed-size widget inside a QToolBar does not
+        # reliably re-layout the toolbar on all platforms, while action
+        # visibility does. The widget flag must be kept in sync as well.
+        weather_visible = self.unit_prefs.weather_button_visible()
+        self._btn_weather.setVisible(weather_visible)
+        self._action_weather = self.toolbar.addWidget(self._btn_weather)
+        self._action_weather.setVisible(weather_visible)
 
         # Settings button
         _icon_path = _resource_path("settings.svg")
@@ -177,7 +186,7 @@ class MainWindow(QMainWindow):
         self._btn_settings.setToolTip("Unit Settings")
         self._btn_settings.setFixedSize(36, 36)
         self._btn_settings.clicked.connect(self._open_settings)
-        toolbar.addWidget(self._btn_settings)
+        self.toolbar.addWidget(self._btn_settings)
 
     def _open_settings(self) -> None:
         """Open the unit settings dialog."""
@@ -222,6 +231,14 @@ class MainWindow(QMainWindow):
         for tab in (self.concrete_tab, self.quant_tab, self.cost_tab):
             if hasattr(tab, "on_unit_changed"):
                 tab.on_unit_changed()
+
+    def _on_weather_visibility_changed(self, visible: bool) -> None:
+        """Show or hide the Weather toolbar button when the setting changes."""
+        # Toggle the action first — QToolBar re-layouts immediately when an
+        # action's visibility changes; then keep the widget flag in sync.
+        self._action_weather.setVisible(visible)
+        self._btn_weather.setVisible(visible)
+        self.toolbar.update()
 
     def _on_send_to_quant(self, result) -> None:
         """Handle mix design → quantification handoff."""

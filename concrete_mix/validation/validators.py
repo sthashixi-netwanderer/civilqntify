@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from concrete_mix.codes.tables.is_tables import get_exposure_limits
 from concrete_mix.models.mix_input import MixDesignInput
+from concrete_mix.utils.display import display_name
 
 
 def validate_mix_input(inp: MixDesignInput) -> list[str]:
@@ -54,7 +55,7 @@ def _validate_is_input(inp: MixDesignInput) -> list[str]:
         if inp.w_c_ratio is not None and inp.w_c_ratio > limits["max_wc"]:
             warnings.append(
                 f"W/C ratio {inp.w_c_ratio} exceeds maximum {limits['max_wc']} "
-                f"for '{inp.exposure_class}' exposure per IS 456:2000 Table 5"
+                f"for '{display_name(inp.exposure_class)}' exposure per IS 456:2000 Table 5"
             )
 
     # Cement type should be IS grade
@@ -69,7 +70,7 @@ def _validate_is_input(inp: MixDesignInput) -> list[str]:
     }
     if inp.cement.type not in is_types:
         warnings.append(
-            f"Cement type '{inp.cement.type.value}' is not a standard IS cement grade"
+            f"Cement type '{display_name(inp.cement.type.value)}' is not a standard IS cement grade"
         )
 
     # Grading zone should be specified for IS method
@@ -86,7 +87,7 @@ def _validate_is_input(inp: MixDesignInput) -> list[str]:
     adj_kg = AGGREGATE_SHAPE_ADJUSTMENT_KG.get(agg_shape.value, 0.0)
     if adj_kg < 0:
         warnings.append(
-            f"Aggregate shape '{agg_shape.value}' reduces water demand by "
+            f"Aggregate shape '{display_name(agg_shape.value)}' reduces water demand by "
             f"{abs(adj_kg):.0f} kg/m³ per IS 10262:2019 Clause 5.2"
         )
 
@@ -116,7 +117,7 @@ def _validate_aci_input(inp: MixDesignInput) -> list[str]:
     }
     if inp.cement.type not in aci_types and inp.cement.type not in is_types:
         warnings.append(
-            f"Cement type '{inp.cement.type.value}' is not a standard ASTM C150 type"
+            f"Cement type '{display_name(inp.cement.type.value)}' is not a standard ASTM C150 type"
         )
 
     # Fineness modulus should be specified for ACI method

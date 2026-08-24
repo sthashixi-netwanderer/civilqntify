@@ -37,7 +37,7 @@ class TestStandardSieves:
 
     def test_coarse_sieves_coarse_to_fine(self):
         # IS 383 Table 7 / ASTM C33 series
-        assert COARSE_SIEVES == [75.0, 37.5, 19.0, 9.5, 4.75, 2.36]
+        assert COARSE_SIEVES == [75.0, 37.5, 19.0, 12.5, 9.5, 4.75, 2.36]
 
     def test_standard_sieves_keys(self):
         assert set(STANDARD_SIEVES) == {"fine", "coarse"}
@@ -147,7 +147,7 @@ class TestPSDEdgeCases:
 
     def test_coarse_set_no_fineness_modulus(self):
         # FM is only defined for fine-aggregate sieves; coarse set → None
-        masses = [0.0, 50.0, 200.0, 300.0, 150.0, 50.0]
+        masses = [0.0, 50.0, 200.0, 100.0, 300.0, 150.0, 50.0]
         result = compute_psd(masses, COARSE_SIEVES, pan_mass=10.0)
         assert result.fineness_modulus is None
         assert result.total_mass == pytest.approx(sum(masses) + 10.0)
@@ -187,7 +187,7 @@ class TestConformance:
 
     def test_sieve_not_in_band_is_conforming(self):
         # Coarse sieves not present in the fine band → treated as conforming
-        result = compute_psd([0.0, 50.0, 200.0, 300.0, 150.0, 50.0], COARSE_SIEVES)
+        result = compute_psd([0.0, 50.0, 200.0, 100.0, 300.0, 150.0, 50.0], COARSE_SIEVES)
         band = get_coarse_band(20)
         conforms = check_conformance(result, band)
         assert len(conforms) == len(COARSE_SIEVES)
@@ -201,13 +201,18 @@ class TestGradingBands:
         assert FINE_ZONES == ["I", "II", "III", "IV"]
 
     def test_coarse_sizes_available(self):
-        assert COARSE_NOMINAL_SIZES == [10, 20, 40]
+        assert COARSE_NOMINAL_SIZES == [10, 12.5, 20, 40]
 
     def test_get_fine_band(self):
         band = get_fine_band("II")
         assert 4.75 in band
         lo, hi = band[4.75]
         assert lo == 90 and hi == 100
+
+    def test_get_coarse_band_12_5mm(self):
+        band = get_coarse_band(12.5)
+        assert band[12.5] == (90, 100)
+        assert band[9.5] == (40, 85)
 
     def test_get_coarse_band_20mm(self):
         band = get_coarse_band(20)

@@ -47,25 +47,38 @@ from concrete_mix.codes.tables.is_tables import GRADING_ZONE_LIMITS
 #  2.36      —              0–5            0–5
 # ---------------------------------------------------------------------------
 
-COARSE_BANDS: dict[int, dict[float, tuple[float, float]]] = {
-    # 10 mm nominal maximum size (IS 383 Table 7 / ASTM C33 size 7)
+COARSE_BANDS: dict[int | float, dict[float, tuple[float, float]]] = {
+    # 10 mm nominal maximum size (IS 383 Table 7 / ASTM C33 size 7 / 8)
     10: {
         75.0: (100, 100),
         37.5: (100, 100),
-        19.0: (85, 100),
-        9.5: (0, 25),
-        4.75: (0, 5),
+        19.0: (100, 100),
+        12.5: (100, 100),
+        9.5: (85, 100),
+        4.75: (0, 20),
+        2.36: (0, 5),
+    },
+    # 12.5 mm nominal maximum size (IS 383:2016 Table 7 / ASTM C33 size 7)
+    12.5: {
+        75.0: (100, 100),
+        37.5: (100, 100),
+        19.0: (100, 100),
+        12.5: (90, 100),
+        9.5: (40, 85),
+        4.75: (0, 10),
+        2.36: (0, 5),
     },
     # 20 mm nominal maximum size (IS 383 Table 7 / ASTM C33 size 57)
     20: {
         75.0: (100, 100),
         37.5: (100, 100),
         19.0: (90, 100),
+        12.5: (25, 60),
         9.5: (40, 85),
         4.75: (0, 10),
         2.36: (0, 5),
     },
-    # 40 mm nominal maximum size (IS 383 Table 7 / ASTM C33 size 6)
+    # 40 mm nominal maximum size (IS 383 Table 7 / ASTM C33 size 6 / 467)
     40: {
         75.0: (100, 100),
         37.5: (90, 100),
@@ -78,7 +91,7 @@ COARSE_BANDS: dict[int, dict[float, tuple[float, float]]] = {
 
 # Available choices for the UI combo boxes
 FINE_ZONES: list[str] = ["I", "II", "III", "IV"]
-COARSE_NOMINAL_SIZES: list[int] = [10, 20, 40]
+COARSE_NOMINAL_SIZES: list[int | float] = [10, 12.5, 20, 40]
 
 
 def get_fine_band(zone: str) -> dict[float, tuple[float, float]]:
@@ -101,11 +114,11 @@ def get_fine_band(zone: str) -> dict[float, tuple[float, float]]:
     return GRADING_ZONE_LIMITS[zone]
 
 
-def get_coarse_band(nominal_size_mm: int) -> dict[float, tuple[float, float]]:
+def get_coarse_band(nominal_size_mm: int | float) -> dict[float, tuple[float, float]]:
     """Return the coarse-aggregate passing-percent band for a nominal max size.
 
     Args:
-        nominal_size_mm: Nominal maximum size — 10, 20, or 40 mm.
+        nominal_size_mm: Nominal maximum size — 10, 12.5, 20, or 40 mm.
 
     Returns:
         Dict of ``{sieve_mm: (lower_passing%, upper_passing%)}``.
@@ -113,7 +126,10 @@ def get_coarse_band(nominal_size_mm: int) -> dict[float, tuple[float, float]]:
     Raises:
         KeyError: if *nominal_size_mm* is not in ``COARSE_BANDS``.
     """
+    # Allow integer equivalents (e.g. 20.0 -> 20)
     if nominal_size_mm not in COARSE_BANDS:
+        if isinstance(nominal_size_mm, float) and nominal_size_mm.is_integer() and int(nominal_size_mm) in COARSE_BANDS:
+            return COARSE_BANDS[int(nominal_size_mm)]
         raise KeyError(
             f"Unsupported coarse nominal size {nominal_size_mm} mm. "
             f"Valid sizes: {list(COARSE_BANDS)}"
