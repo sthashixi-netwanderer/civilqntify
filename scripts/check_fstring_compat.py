@@ -34,28 +34,27 @@ PACKAGES = ["app", "concrete_mix", "material_quantify", "history", "main.py", "m
 
 def _violations_in(source: str, filename: str) -> list[str]:
     problems: list[str] = []
+    lines = source.splitlines()
 
-    fstring_delim: str | None = None   # delimiter of the f-string we are inside
-    depth = 0                          # brace nesting depth inside the f-string
-    expr_start: tuple[int, int] | None = None
+    stack: list[dict] = []  # entries: {"delim": str, "depth": int, "expr_start": tuple[int, int] | None}
 
-    def check_expr(end_line: int, end_col: int) -> None:
-        nonlocal expr_start
-        if expr_start is None or fstring_delim is None:
+    def check_expr(entry: dict, end_line: int, end_col: int) -> None:
+        expr_start = entry.get("expr_start")
+        delim = entry.get("delim")
+        if expr_start is None or delim is None:
             return
         sl, sc = expr_start
-        lines = source.splitlines()
         if sl == end_line:
             text = lines[sl - 1][sc:end_col]
         else:
             text = lines[sl - 1][sc:] + "\n" + "\n".join(lines[sl:end_line - 1] + [lines[end_line - 1][:end_col]])
         if "\\" in text:
             problems.append(f"{filename}:{sl}: backslash in f-string expression: {text.splitlines()[0][:90]}")
-        elif len(fstring_delim) == 1 and fstring_delim in text:
+        elif len(delim) == 1 and delim in text:
             problems.append(
-                f"{filename}:{sl}: reuses f-string delimiter {fstring_delim} in expression: {text.splitlines()[0][:90]}"
+                f"{filename}:{sl}: reuses f-string delimiter {delim} in expression: {text.splitlines()[0][:90]}"
             )
-        expr_start = None
+        entry["expr_start"] = None
 
     try:
         tokens = list(tokenize.generate_tokens(io.StringIO(source).readline))
@@ -65,23 +64,22 @@ def _violations_in(source: str, filename: str) -> list[str]:
     for tok in tokens:
         ttype, tstr = tok.type, tok.string
         if ttype == tokenize.FSTRING_START:
-            # Opener like f" / rf' / F''' — delimiter is the trailing quote run
             q = tstr[-1]
-            fstring_delim = q * 3 if tstr.endswith(q * 3) else q
-            depth = 0
+            delim = q * 3 if tstr.endswith(q * 3) else q
+            stack.append({"delim": delim, "depth": 0, "expr_start": None})
         elif ttype == tokenize.FSTRING_END:
-            fstring_delim = None
-            depth = 0
-            expr_start = None
-        elif fstring_delim is not None:
+            if stack:
+                stack.pop()
+        elif stack:
+            cur = stack[-1]
             if ttype == tokenize.OP and tstr == "{":
-                depth += 1
-                if depth == 1:
-                    expr_start = (tok.start[0], tok.start[1])
+                cur["depth"] += 1
+                if cur["depth"] == 1:
+                    cur["expr_start"] = (tok.start[0], tok.start[1])
             elif ttype == tokenize.OP and tstr == "}":
-                if depth == 1:
-                    check_expr(tok.start[0], tok.start[1])
-                depth = max(0, depth - 1)
+                if cur["depth"] == 1:
+                    check_expr(cur, tok.start[0], tok.start[1])
+                cur["depth"] = max(0, cur["depth"] - 1)
     return problems
 
 

@@ -2195,6 +2195,8 @@ class ConcreteMixTab(QWidget):
             else f"{up.convert_length_mm(slump_raw):.0f} {up.length_unit()}"
         )
 
+        water_pvu = pvu if up.is_imperial() else "liters/m³"
+
         # ── Assemble full HTML ──
         html = (
             "<!DOCTYPE html>"
@@ -2245,7 +2247,7 @@ class ConcreteMixTab(QWidget):
             f"{section_heading(2, f'Material Quantities per {vu}')}"
             f'<table style="width:100%; border-collapse:collapse;"><tr>'
             f"{material_card('Cement', f'{per_vol(result.cement_kg):.1f}', pvu)}"
-            f"{material_card('Water', f'{per_vol(result.water_kg):.1f}', pvu if up.is_imperial() else 'liters/m\u00b3')}"
+            f"{material_card('Water', f'{per_vol(result.water_kg):.1f}', water_pvu)}"
             f"{material_card('Fine Aggregate', f'{per_vol(result.fine_aggregate_kg):.1f}', pvu)}"
             f"{material_card('Coarse Aggregate', f'{per_vol(result.coarse_aggregate_kg):.1f}', pvu)}"
             f"</tr></table>"
