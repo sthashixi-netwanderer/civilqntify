@@ -17,6 +17,7 @@ from PyQt6.QtWidgets import (
 )
 
 from app.unit_preferences import UnitPreferences, UnitSystem
+from app.version import BUILD_TAG, STANDARDS_INFO, __version__
 
 
 class SettingsDialog(QDialog):
@@ -29,8 +30,8 @@ class SettingsDialog(QDialog):
     ) -> None:
         super().__init__(parent)
         self._prefs = unit_prefs
-        self.setWindowTitle("Settings — Units")
-        self.setMinimumWidth(380)
+        self.setWindowTitle("Settings")
+        self.setMinimumWidth(400)
         self.setModal(True)
         self._build_ui()
         self._load_current()
@@ -113,6 +114,31 @@ class SettingsDialog(QDialog):
 
         api_layout.addLayout(api_key_row)
         root.addWidget(api_group)
+
+        # ── About & Build Information ──
+        about_group = QGroupBox("Application & Build Information")
+        about_group.setStyleSheet(
+            "QGroupBox { font-weight: 600; border: 1px solid #c4c5d5; "
+            "border-radius: 4px; margin-top: 12px; padding: 16px 12px 12px 12px; } "
+            "QGroupBox::title { subcontrol-origin: margin; left: 12px; padding: 0 6px; }"
+        )
+        about_layout = QVBoxLayout(about_group)
+        about_layout.setSpacing(6)
+
+        ver_lbl = QLabel(f"<b>CivilQntify</b> — Version <b>{BUILD_TAG}</b>")
+        ver_lbl.setStyleSheet("font-size: 13px; color: #0b1c30;")
+        about_layout.addWidget(ver_lbl)
+
+        build_lbl = QLabel(f"Build: <code>{BUILD_TAG} (Release {__version__})</code>")
+        build_lbl.setStyleSheet("font-size: 12px; color: #1e293b;")
+        about_layout.addWidget(build_lbl)
+
+        std_lbl = QLabel(f"Standards: {STANDARDS_INFO}")
+        std_lbl.setStyleSheet("font-size: 11px; color: #4b5563;")
+        std_lbl.setWordWrap(True)
+        about_layout.addWidget(std_lbl)
+
+        root.addWidget(about_group)
 
         # ── Buttons ──
         btn_row = QHBoxLayout()

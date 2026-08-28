@@ -56,6 +56,7 @@ hiddenimports = _hidden_collected + [
     "app.main",
     "app.styles",
     "app.unit_preferences",
+    "app.version",
     "app.widgets",
     "app.widgets.concrete_tab",
     "app.widgets.material_quantify_tab",
