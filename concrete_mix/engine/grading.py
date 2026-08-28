@@ -173,8 +173,8 @@ def recommend_gradation_corrections(
 ) -> list[GradationCorrection]:
     """Predict the adjustment needed to bring out-of-band sieves in band.
 
-    For each sieve whose %passing falls outside ``band`` (IS 383 Table 4
-    fine zones / Table 7, ASTM C33 coarse sizes), a target at the band
+    For each sieve whose %passing falls outside ``band`` (IS 383 Table 9
+    fine zones / Table 7 coarse bands, ASTM C33 Tables 1 and 2), a target at the band
     midpoint and the corrective blend fraction are computed via the
     two-component blending mass balance (see module note above).
 

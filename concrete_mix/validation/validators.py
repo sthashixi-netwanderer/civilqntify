@@ -58,6 +58,19 @@ def _validate_is_input(inp: MixDesignInput) -> list[str]:
                 f"for '{display_name(inp.exposure_class)}' exposure per IS 456:2000 Table 5"
             )
 
+    # IS 10262 structural assumption
+    fc = inp.characteristic_strength
+    if fc < 25.0:
+        warnings.append(
+            f"IS 10262 structural design requires characteristic strength fck ≥ 25 MPa "
+            f"(IS 456 Table 5 for reinforced structural concrete). Got fck = {fc:.1f} MPa. "
+            f"This app assumes the mix is for structural elements."
+        )
+    else:
+        warnings.append(
+            f"IS 10262:2019: This app assumes structural concrete (fck = {fc:.1f} MPa ≥ 25 MPa)."
+        )
+
     # Cement type should be IS grade
     from concrete_mix.models.materials import CementType
 
@@ -97,6 +110,19 @@ def _validate_is_input(inp: MixDesignInput) -> list[str]:
 def _validate_aci_input(inp: MixDesignInput) -> list[str]:
     """ACI 211.1 specific validations."""
     warnings: list[str] = []
+
+    # ACI structural assumption
+    fc = inp.characteristic_strength
+    if fc < 25.0:
+        warnings.append(
+            f"ACI 211.1 structural design requires characteristic strength f'c ≥ 25 MPa "
+            f"(ACI 318 structural provisions). Got f'c = {fc:.1f} MPa. "
+            f"This app assumes the mix is for structural elements."
+        )
+    else:
+        warnings.append(
+            f"ACI PRC-211.1-22: This app assumes structural concrete (f'c = {fc:.1f} MPa ≥ 25 MPa)."
+        )
 
     # Cement type should be ACI type
     from concrete_mix.models.materials import CementType
@@ -146,6 +172,45 @@ def _validate_doe_input(inp: MixDesignInput) -> list[str]:
     if inp.nmsa not in (10, 20, 40):
         warnings.append(
             f"NMSA {inp.nmsa} mm is not a standard DOE size — use 10, 20, or 40 mm"
+        )
+
+    # DOE structural assumption — this app designs for structural elements only
+    fc = inp.characteristic_strength
+    if fc < 25.0:
+        warnings.append(
+            f"DOE structural design requires characteristic strength fc ≥ 25 MPa "
+            f"(BRE 331:1997 §4.4, Figure 3). Got fc = {fc:.1f} MPa. "
+            f"This app assumes the mix is for structural elements."
+        )
+    else:
+        warnings.append(
+            "DOE (BR 331:1997): This app assumes structural concrete "
+            f"(fc = {fc:.1f} MPa ≥ 25 MPa).  Standard deviation "
+            f"s = 8 MPa for n<20 (Line A) and s = 4 MPa for n≥20 (Line B, §4.4)."
+        )
+
+    n = getattr(inp, "num_test_cubes", None)
+    if n is not None:
+        if n < 20:
+            warnings.append(
+                f"Number of test cubes n = {n} (<20): standard deviation s = 8 MPa "
+                f"(BRE 331 Figure 3 Line A)."
+            )
+        else:
+            warnings.append(
+                f"Number of test cubes n = {n} (≥20): standard deviation s = 4 MPa "
+                f"(BRE 331 Figure 3 Line B, §4.4)."
+            )
+    else:
+        warnings.append(
+            "Number of test cubes (n) not specified — using classic Figure 3 "
+            "Line A/B (s = 8 MPa for <20 results, s = 4 MPa for ≥20). "
+            "For DOE structural designs specify n (n = number of test cubes)."
+        )
+
+    if inp.fine_aggregate.pct_passing_600um is None:
+        warnings.append(
+            "Fine aggregate % passing 600 µm not specified — 60% will be assumed for DOE Figure 6"
         )
 
     return warnings

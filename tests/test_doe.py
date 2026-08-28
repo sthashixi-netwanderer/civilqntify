@@ -378,3 +378,32 @@ class TestDOEWorkedExamples:
         assert result.cement_kg == 340.0
         assert result.fine_aggregate_kg == 515.0
         assert result.coarse_aggregate_kg == 1385.0
+
+    def test_doe_admixture_water_reduction(self):
+        """Verify that water-reducing admixture in DOE reduces water and calculates batch mass (BRE 331 §5.3)."""
+        from concrete_mix.models.materials import Admixture
+        designer = DOEMixDesign()
+        inp_plain = MixDesignInput(
+            code="doe",
+            target_strength_mpa=30.0,
+            slump_mm=50.0,
+        )
+        res_plain = designer.design(inp_plain)
+
+        inp_admix = MixDesignInput(
+            code="doe",
+            target_strength_mpa=30.0,
+            slump_mm=50.0,
+            admixture=Admixture(
+                type="superplasticizer",
+                dosage_percent=1.0,
+                water_reduction_percent=15.0,
+            ),
+        )
+        res_admix = designer.design(inp_admix)
+
+        assert res_admix.water_kg < res_plain.water_kg
+        assert res_admix.admixture_kg is not None
+        assert res_admix.admixture_kg > 0
+        assert res_admix.admixture_type == "superplasticizer"
+        assert res_admix.admixture_dosage_percent == 1.0

@@ -365,3 +365,99 @@ accuracy is within acceptable engineering tolerances.
 - `IS-10262-2019-NewConcreteMix-design.md`
 - `BRE-331-1997-DOE-Mix-Design.md`  
 - `31-ACI 211.1-22.md`
+
+---
+
+# Conformance Correction Pass — 2026-08-26
+
+**Scope:** Full re-audit of the DOE, IS 10262:2019 and ACI engines against the
+extracted standards **and** the six referenced DOE/ACI/IS worked-example video
+lectures, followed by correction of every confirmed error. All fixes are
+locked in by `tests/test_standard_examples.py`, which reproduces the
+standards' own worked examples end-to-end.
+
+**Test Status:** 281/281 passing (includes 11 worked-example regression tests).
+
+## Verified against the standards' own worked examples
+
+| Example | Source | Result |
+|---------|--------|--------|
+| BRE 331 Ex. 1 (30 N/mm², 20 mm, 70 % p600) | §7.1 / Table 4 form | W/C 0.47, W 160, C 340, fine 27 % (515 kg) — exact ✓ |
+| BRE 331 Ex. 2 (25 N/mm², max W/C 0.50, 40 mm) | §7.2 / Table 5 form | W/C 0.50, C 320, fine 22 % (405 kg) — exact ✓ |
+| BRE 331 Ex. 3 (min cement 290) | §7.3 / Table 6 form | W 115, C 290, modified W/C 0.40, fine 15–18 % ✓ |
+| BRE 331 Ex. 4 (max cement 550, mixed agg.) | §7.4 / Table 7 form | W/C 0.37, W = ⅓·230+⅔·205 = 215, capped 550 ✓ |
+| IS 10262 Annex A (M40 PPC + SP) | A-3…A-9 | f'tm 48.25, W/C 0.36, W 147.5≈148, CA frac 0.648 ✓ |
+| IS 10262 Annex B (M40 + 30 % fly ash) | B-3…B-9 | W 155, cementitious 474, fly ash 142, OPC 332 ✓ |
+| ACI PRC-211.1-22 Example 1 | §9.2 | W 178, w/cm 0.62, C 287, CA(SSD) 1142, FA ≈776 ✓ |
+
+## Errors found and corrected
+
+### ACI PRC-211.1-22
+
+1. **Table 5.3.4 w/cm–strength relationship was wrong for both non-air and
+   air-entrained concrete** (values like 0.55 @ 28 MPa, and the air table was
+   a copy of the non-air table). Replaced with the published values
+   (non-air: 0.41 @ 41.4 MPa … 0.82 @ 13.8 MPa; air: 0.33 @ 41.4 … 0.74 @ 13.8).
+   This materially changed every ACI cement content.
+2. **Air-entrainment target air contents were wrong** (e.g. 4.5 % for F1 at
+   20 mm). Corrected to Table 5.3.3: F1 → 6.0/5.0/4.5 % and F2/F3 →
+   7.5/6.0/5.5 % for 10/20/40 mm.
+3. **6–7 in. slump class missing** from the water tables — added (410/360/315
+   lb non-air; 365/325/290 lb air for 3/8–1-1/2 in.).
+4. **Coarse aggregate was not converted from oven-dry-rodded to SSD** before
+   the absolute-volume step; §5.3.6 and Example 1 require ×(1 + A). Added.
+5. **No-data overdesign breakpoint**: f'c = 20 MPa applied +8.5 MPa, but
+   20 MPa < 3000 psi (20.7 MPa) → must be +7 MPa (f'cr = 27.0). Fixed.
+6. **Batch weights ignored the /(1 + A) divisor** of the §5.3.9.1 formula
+   w_batched = w_SSD × (1 + MC %)/(1 + A %). Fixed in
+   `engine/moisture_correction.py` (shared with the IS engine).
+
+### IS 10262:2019
+
+7. **PPC and PSC were mapped to the OPC 33 curve (Curve 1)** of Figure 1.
+   Figure 1 Note 2 requires Curve 2 (OPC 43) when cement strength data are
+   unavailable. Fixed (this made PPC mixes significantly richer than needed).
+8. **Water content sequence with superplasticizer was wrong**: the app applied
+   the admixture reduction to the 50 mm-slump base water. The standard
+   (Annex A/B) adjusts water for the *actual* slump first (186 → 191.58 at
+   75 mm), *then* applies the reduction (×0.77 → 148). Fixed in both the
+   engine and the UI live display.
+9. **Invented grading-zone water adjustment** (Zone I −3 %, III +3 %, IV +6 %)
+   — no such adjustment exists in IS 10262:2019 (the zone only changes the
+   coarse-aggregate fraction, Table 5). Removed; an invented per-slump water
+   sub-table was removed with it.
+10. **Aggregate shape adjustment**: plain "gravel" reduced water by 20 kg;
+    Clause 5.3 gives −15 kg for *gravel with some crushed particles* (−20 kg
+    is for rounded gravel). Fixed.
+11. **Coarse-aggregate fraction adjustment was rounded** to whole 0.01 steps;
+    the standard's own Annex A applies it proportionally (0.62 + 0.028 =
+    0.648 at W/C 0.36). Fixed.
+12. **Target strength was ceiling-rounded** (48.25 → 48.3); the standard keeps
+    48.25. Fixed.
+13. **Missing Clause 5.4.1 rule**: with ≥ 20 % fly ash the cementitious
+    content is increased 10 % for the preliminary trial (Annex B: 431 → 474).
+    Implemented.
+
+### BRE 331:1997 (DOE)
+
+14. **The digitized Figure 6 (fine-aggregate proportion) tables were wrong in
+    direction and magnitude** — they increased the fine-aggregate proportion
+    with % passing 600 µm (the real Figure 6 *decreases* it) and read 40–70 %
+    where the standard's examples read 16–36 %. The validated linear model
+    (exact at the standard's Examples 1–2 and consistent with Examples 3, and
+    the lecture examples 31 % and 36 %) was kept and the tables were
+    regenerated from it; the inconsistent Figure 4 digitized curves were
+    regenerated from the validated log-quadratic fit likewise.
+15. **Warning added** when a class 32.5/33 cement is used, because BRE Table 2
+    only has 42.5/52.5 curves and the app must approximate with 42.5.
+
+## Known gaps (documented, not implemented)
+
+- DOE air-entrained modifications (§8: target mean /(1 − 0.055a), water from
+  one workability class lower, density −10·a·RD_A) and PFA mix design (Part B
+  of Table 9) are not implemented.
+- IS 10262 high-strength grades (M65+, Section 6), SCC (Annex E) and mass
+  concrete (Annex F) procedures are not implemented.
+- ACI Table 5.3.3.1 optional water adjustments (rounded aggregate −8 %,
+  WRA −5 %, HRWRA −12 %, fly ash/slag/temperature terms) are not applied —
+  the guide's own Example 1 does not apply them either.

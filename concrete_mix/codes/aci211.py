@@ -1,7 +1,8 @@
-"""ACI 211.1-91 concrete mix design implementation.
+"""ACI PRC-211.1-22 concrete mix design implementation.
 
 Implements the absolute volume method for proportioning normal-weight concrete
-per ACI 211.1 Standard Practice.
+per ACI PRC-211.1-22 "Selecting Proportions for Normal-Density and
+High-Density Concrete" (guide). Overdesign criteria per ACI 318.
 """
 
 from __future__ import annotations
@@ -23,7 +24,7 @@ from concrete_mix.utils.constants import SG_WATER
 
 
 class ACI211MixDesign(MixDesignCode):
-    """ACI 211.1-91 mix design method — absolute volume method."""
+    """ACI PRC-211.1-22 mix design method — absolute volume method."""
 
     @property
     def code_name(self) -> str:
@@ -31,7 +32,7 @@ class ACI211MixDesign(MixDesignCode):
 
     @property
     def code_full_name(self) -> str:
-        return "ACI 211.1-91"
+        return "ACI PRC-211.1-22"
 
     def calculate_target_mean_strength(
         self, target_strength_mpa: float, std_dev: float | None = None,
@@ -69,19 +70,19 @@ class ACI211MixDesign(MixDesignCode):
     def get_water_content(
         self, nmsa: int, slump_mm: float, **kwargs
     ) -> float:
-        """Get water content from ACI Table 6.3.3."""
+        """Get water content from ACI Table 5.3.3."""
         air_entrained = kwargs.get("air_entrained", False)
         return interpolate_water_content(nmsa, slump_mm, air_entrained)
 
     def get_w_c_ratio(
         self, target_mean_strength_mpa: float, **kwargs
     ) -> float:
-        """Get W/C ratio from ACI Table 6.3.4(a)/(b)."""
+        """Get w/cm ratio from ACI PRC-211.1-22 Table 5.3.4."""
         air_entrained = kwargs.get("air_entrained", False)
         return interpolate_w_c_ratio(target_mean_strength_mpa, air_entrained)
 
     def get_coarse_aggregate_volume(self, nmsa: int, **kwargs) -> float:
-        """Get CA volume fraction from ACI Table 6.3.6.
+        """Get CA volume fraction from ACI Table 5.3.6.
 
         Returns volume of dry-rodded CA per unit volume of concrete.
         """
@@ -89,7 +90,7 @@ class ACI211MixDesign(MixDesignCode):
         return interpolate_ca_volume(nmsa, fm)
 
     def get_air_content(self, nmsa: int, **kwargs) -> float:
-        """Get air content from ACI Table 6.3.3."""
+        """Get air content from ACI Table 5.3.3."""
         exposure = kwargs.get("exposure", "moderate")
         air_entrained = kwargs.get("air_entrained", False)
         return get_air_content(nmsa, exposure, air_entrained)
@@ -134,18 +135,30 @@ class ACI211MixDesign(MixDesignCode):
             "Selected based on structural element type",
             {"slump_mm": inp.slump_mm},
             inp.slump_mm, "mm",
-            "ACI 211.1 Table 6.3.1"
+            "ACI PRC-211.1-22 Table 5.3.1"
         ))
 
         # Step 3: Water content
-        water_kg = self.get_water_content(nmsa, inp.slump_mm, air_entrained=inp.air_entrained)
-        steps.append(self._make_step(
-            3, "Water content",
-            "From Table 6.3.3 by NMSA and slump",
-            {"nmsa": nmsa, "slump": inp.slump_mm, "air_entrained": inp.air_entrained},
-            water_kg, "kg/m³",
-            "ACI 211.1 Table 6.3.3"
-        ))
+        base_water_kg = self.get_water_content(nmsa, inp.slump_mm, air_entrained=inp.air_entrained)
+        water_kg = base_water_kg
+        if inp.admixture and inp.admixture.water_reduction_percent > 0:
+            reduction_pct = inp.admixture.water_reduction_percent
+            water_kg = base_water_kg * (1.0 - reduction_pct / 100.0)
+            steps.append(self._make_step(
+                3, "Water content (with admixture reduction)",
+                f"Base water {base_water_kg:.1f} kg/m³ reduced by {reduction_pct:.1f}% ({inp.admixture.type_string})",
+                {"base_water": base_water_kg, "reduction_pct": reduction_pct, "admixture_type": inp.admixture.type_string},
+                water_kg, "kg/m³",
+                "ACI PRC-211.1-22 §6.3 / Table 5.3.3"
+            ))
+        else:
+            steps.append(self._make_step(
+                3, "Water content",
+                "From Table 5.3.3 by NMSA and slump",
+                {"nmsa": nmsa, "slump": inp.slump_mm, "air_entrained": inp.air_entrained},
+                water_kg, "kg/m³",
+                "ACI PRC-211.1-22 Table 5.3.3"
+            ))
 
         # Step 4: Air content
         air_percent = self.get_air_content(
@@ -153,10 +166,10 @@ class ACI211MixDesign(MixDesignCode):
         )
         steps.append(self._make_step(
             4, "Air content",
-            "From Table 6.3.3 by NMSA and exposure",
+            "From Table 5.3.3 by NMSA and exposure (ACI 318 F-class)",
             {"nmsa": nmsa, "exposure": exposure, "air_entrained": inp.air_entrained},
             air_percent, "%",
-            "ACI 211.1 Table 6.3.3"
+            "ACI PRC-211.1-22 Table 5.3.3"
         ))
 
         # Step 5: W/C ratio
@@ -178,10 +191,10 @@ class ACI211MixDesign(MixDesignCode):
 
         steps.append(self._make_step(
             5, "Water-cement ratio",
-            "From Table 6.3.4 by target mean strength",
+            "From Table 5.3.4 by required average strength (interpolated)",
             {"f'cr": fcr, "air_entrained": inp.air_entrained, "sulfate_class": sulfate_class},
             wc, "",
-            "ACI 211.1 Table 6.3.4 / ACI 318 Table 19.3.2"
+            "ACI PRC-211.1-22 Table 5.3.4 / ACI 318 Table 19.3.2"
         ))
 
         # Step 6: Cement content
@@ -192,10 +205,10 @@ class ACI211MixDesign(MixDesignCode):
 
         steps.append(self._make_step(
             6, "Cement content",
-            "Cement = Water / W/C ratio",
+            "Cementitious = Water / w/cm ratio",
             {"water": water_kg, "wc": wc, "scm_replacement_pct": scm_replacement},
             cement_kg, "kg/m³",
-            "ACI 211.1"
+            "ACI PRC-211.1-22 §5.3.5"
         ))
 
         if scm_kg > 0:
@@ -207,20 +220,50 @@ class ACI211MixDesign(MixDesignCode):
                 "ACI 211.1"
             ))
 
-        # Step 7: Coarse aggregate volume
+        # Admixture content & volume
+        admixture_mass_kg = 0.0
+        vol_admixture = 0.0
+        admixture_type_result = None
+        admixture_dosage_result = None
+
+        if inp.admixture and inp.admixture.dosage_percent > 0:
+            admixture_mass_kg = cementitious_total * (inp.admixture.dosage_percent / 100.0)
+            admixture_type_result = inp.admixture.type_string
+            admixture_dosage_result = inp.admixture.dosage_percent
+            admixture_sg = getattr(inp.admixture, "specific_gravity", 1.15)
+            vol_admixture = absolute_volume(admixture_mass_kg, admixture_sg)
+            steps.append(self._make_step(
+                6.2, "Chemical admixture content",
+                f"Admixture = {inp.admixture.dosage_percent:.2f}% by mass of cementitious material",
+                {"cementitious_total": cementitious_total, "dosage_pct": inp.admixture.dosage_percent, "admixture_mass_kg": admixture_mass_kg},
+                admixture_mass_kg, "kg/m³",
+                "ACI PRC-211.1-22 §4.5 / §6.3"
+            ))
+
+        # Step 7: Coarse aggregate volume (ACI PRC-211.1-22 §5.3.6)
         ca_vol_fraction = self.get_coarse_aggregate_volume(
             nmsa, fineness_modulus=inp.fine_aggregate.fineness_modulus
         )
         # CA volume = fraction × total concrete volume (1 m³)
         ca_vol_m3 = ca_vol_fraction  # per 1 m³ of concrete
-        ca_kg = ca_vol_m3 * inp.coarse_aggregate.bulk_density_kg_m3
+        # Oven-dry-rodded weight = dry-rodded volume × dry-rodded density;
+        # convert to SSD basis by multiplying by (1 + absorption), exactly as
+        # ACI PRC-211.1-22 Example 1 (§9.2.6):
+        #   1917 lb/yd³ × (1 + 0.5%) = 1927 lb/yd³ (SSD)
+        ca_dry_kg = ca_vol_m3 * inp.coarse_aggregate.bulk_density_kg_m3
+        ca_kg = ca_dry_kg * (1.0 + inp.coarse_aggregate.absorption_percent / 100.0)
 
         steps.append(self._make_step(
             7, "Coarse aggregate volume",
-            "CA volume = Table 6.3.6 value × 1 m³",
-            {"nmsa": nmsa, "fm": inp.fine_aggregate.fineness_modulus},
-            ca_vol_m3, "m³/m³",
-            "ACI 211.1 Table 6.3.6"
+            f"CA (SSD) = Table 5.3.6 value × dry-rodded density × (1 + {inp.coarse_aggregate.absorption_percent:.1f}%)",
+            {
+                "nmsa": nmsa,
+                "fm": inp.fine_aggregate.fineness_modulus,
+                "dry_rodded_kg": ca_dry_kg,
+                "absorption_pct": inp.coarse_aggregate.absorption_percent,
+            },
+            ca_kg, "kg/m³",
+            "ACI PRC-211.1-22 Table 5.3.6 + §5.3.6 (SSD conversion)"
         ))
 
         # Step 8: Fine aggregate volume (by absolute volume method)
@@ -230,15 +273,16 @@ class ACI211MixDesign(MixDesignCode):
         vol_ca = absolute_volume(ca_kg, inp.coarse_aggregate.specific_gravity)
         vol_air = air_percent / 100.0
 
-        vol_fa = 1.0 - (vol_cement + vol_scm + vol_water + vol_ca + vol_air)
+        vol_fa = 1.0 - (vol_cement + vol_scm + vol_water + vol_ca + vol_air + vol_admixture)
         fa_kg = vol_fa * inp.fine_aggregate.specific_gravity * 1000.0
 
         steps.append(self._make_step(
-            8, "Fine aggregate volume (absolute volume method)",
-            "FA vol = 1.0 - (cement + water + CA + air) volumes",
-            {"vol_cement": vol_cement, "vol_water": vol_water, "vol_ca": vol_ca, "vol_air": vol_air},
-            vol_fa, "m³/m³",
-            "ACI 211.1"
+            8, "Fine aggregate content (absolute volume method)",
+            "FA vol = 1.0 - (cement + water + CA(SSD) + air + admixture) volumes; "
+            "FA mass = vol × SG × 1000",
+            {"vol_cement": vol_cement, "vol_water": vol_water, "vol_ca": vol_ca, "vol_air": vol_air, "vol_admixture": vol_admixture},
+            fa_kg, "kg/m³",
+            "ACI PRC-211.1-22 §5.3.7"
         ))
 
         # Step 9: Moisture correction
@@ -250,10 +294,10 @@ class ACI211MixDesign(MixDesignCode):
         if abs(adjusted_water - water_kg) > 0.5:
             steps.append(self._make_step(
                 9, "Moisture-corrected water",
-                "Adjusted water = Design water - free moisture from aggregates",
+                "Adjusted water = Design water - free moisture on aggregates",
                 {"design_water": water_kg, "adjusted": adjusted_water},
                 adjusted_water, "kg/m³",
-                "ACI 211.1"
+                "ACI PRC-211.1-22 §5.3.9.1"
             ))
 
         # Field batch weights
@@ -283,7 +327,7 @@ class ACI211MixDesign(MixDesignCode):
             )
 
         return MixDesignResult(
-            code_used="ACI 211.1-91",
+            code_used="ACI PRC-211.1-22",
             target_mean_strength_mpa=fcr,
             w_c_ratio=wc,
             water_kg=round(water_kg, 1),
@@ -298,4 +342,7 @@ class ACI211MixDesign(MixDesignCode):
             adjusted_water_kg=round(field_water, 1),
             field_fine_aggregate_kg=round(field_fa, 1),
             field_coarse_aggregate_kg=round(field_ca, 1),
+            admixture_kg=round(admixture_mass_kg, 2) if admixture_mass_kg > 0 else None,
+            admixture_type=admixture_type_result,
+            admixture_dosage_percent=admixture_dosage_result,
         )

@@ -108,21 +108,44 @@ def collect_mix_inputs() -> dict:
     # Standard
     code = _prompt_choice(
         "Select design standard",
-        ["ACI 211.1 (American)", "IS 10262 (Indian)"],
+        ["ACI 211.1 (American)", "IS 10262 (Indian)", "DOE (BR 331:1997) British"],
         default="IS 10262 (Indian)",
     )
     is_aci = "ACI" in code
-    code_key = "aci211" if is_aci else "is10262"
+    is_doe = "DOE" in code
+    if is_aci:
+        code_key = "aci211"
+    elif is_doe:
+        code_key = "doe"
+    else:
+        code_key = "is10262"
 
     # Target strength
     strength_unit = "psi" if is_aci else "MPa"
-    strength_default = 3000.0 if is_aci else 25.0
-    strength_lo = 2000.0 if is_aci else 10.0
-    strength_hi = 10000.0 if is_aci else 80.0
+    strength_default = 4000.0 if is_aci else 25.0
+    strength_lo = 3625.0 if is_aci else 25.0
+    strength_hi = 14500.0 if is_aci else 100.0
+    print("\n  Note: This app assumes concrete mix design is for structural use")
+    print("  (characteristic strength ≥ 25 MPa / 3625 psi across all standards).\n")
+    if is_doe:
+        print("  DOE (BR 331:1997) Standard deviation:")
+        print("  n < 20 → s = 8 MPa (Line A), n ≥ 20 → s = 4 MPa (Line B).\n")
     strength = _prompt_float(f"Target compressive strength ({strength_unit})", strength_default, strength_lo, strength_hi)
     if is_aci:
         target_strength_mpa = strength / 145.038
         characteristic_strength = target_strength_mpa
+    elif is_doe:
+        # DOE — user enters characteristic strength fc (structural, ≥25 MPa)
+        characteristic_strength = strength
+        target_strength_mpa = strength  # fc; target mean computed as fm = fc + k*s
+        # Show expected margin for context (s depends on n, asked later)
+        k = 1.64
+        ftm_8 = round(characteristic_strength + k * 8.0, 2)
+        ftm_4 = round(characteristic_strength + k * 4.0, 2)
+        print(f"\n  DOE structural: fm = fc + k×s  (k=1.64 for 5% defectives)")
+        print(f"    n < 20 → s=8 MPa → f_m = {characteristic_strength} + {k}×8.0 = {ftm_8} MPa")
+        print(f"    n ≥ 20 → s=4 MPa → f_m = {characteristic_strength} + {k}×4.0 = {ftm_4} MPa")
+        print(f"  → Target mean strength depends on n (asked next).\n")
     else:
         # IS 10262:2019 — user enters characteristic strength (fck)
         characteristic_strength = strength
@@ -131,24 +154,28 @@ def collect_mix_inputs() -> dict:
         print(f"  → f'ck = {ftm} MPa\n")
         target_strength_mpa = ftm
 
-    # Slump (ACI only — IS 10262 uses Table 4 values by NMSA)
+    # Slump
     slump = 75.0
-    if is_aci:
+    if is_aci or is_doe:
         slump = _prompt_float("Slump (mm)", 75.0, 10.0, 250.0)
+        if is_doe and not 0.0 <= slump <= 180.0:
+            print("    DOE Table 3 slump must be 0–180 mm; clamping.")
+            slump = max(0.0, min(180.0, slump))
+    # For IS, slump is not separately prompted; water is from Table 4 by NMSA
 
     # NMSA
     nmsa = _prompt_choice("Nominal max aggregate size", ["10 mm", "20 mm", "40 mm"], "20 mm")
     nmsa_val = int(nmsa.split()[0])
 
     # IS 10262:2019 — Show water content from Table 4 (read-only)
-    if not is_aci and nmsa_val in WATER_CONTENT:
+    if not is_aci and not is_doe and nmsa_val in WATER_CONTENT:
         water_content_base = WATER_CONTENT[nmsa_val]
         print(f"\n  Water content (IS 10262:2019 Table 4): {water_content_base} kg/m³")
         print(f"  — Determined by NMSA ({nmsa_val}mm), not editable.\n")
 
     # IS 10262:2019 — CA volume fraction selection (Table 5)
     ca_fraction_override = None
-    if not is_aci and nmsa_val in CA_VOLUME_FRACTION:
+    if not is_aci and not is_doe and nmsa_val in CA_VOLUME_FRACTION:
         options = CA_VOLUME_FRACTION[nmsa_val]
         zone_fractions = list(options.values())
         print(f"  Select Coarse Aggregate Volume Fraction (IS 10262:2019 Table 5, NMSA {nmsa_val}mm):")
@@ -198,18 +225,24 @@ def collect_mix_inputs() -> dict:
     ca_sg = _prompt_float("Specific gravity", 2.70, 2.2, 3.2)
     ca_absorption = _prompt_float("Water absorption (%)", 0.5, 0.0, 10.0)
     ca_moisture = _prompt_float("Free moisture content (%)", 0.0, 0.0, 20.0)
-    ca_bulk_density = _prompt_float("Dry rodded bulk density (kg/m\u00b3)", 1600.0, 1000.0, 2000.0)
+    ca_bulk_density = 1600.0
+    if is_aci:
+        ca_bulk_density = _prompt_float("Dry rodded bulk density (kg/m\u00b3)", 1600.0, 1000.0, 2000.0)
 
-    # Aggregate shape (IS only)
+    # Aggregate shape (IS only) / Coarse aggregate type (DOE only)
     agg_shape = "gravel"
-    if not is_aci:
+    if is_is:
         shapes = ["Rounded Gravel", "Gravel", "Sub-angular", "Angular", "Crushed Fragments"]
-        shape_choice = _prompt_choice("Aggregate shape", shapes, "Gravel")
+        shape_choice = _prompt_choice("Aggregate shape (IS 10262 Table 6)", shapes, "Angular")
         agg_shape = shape_choice.lower().replace(" ", "_").replace("-", "_")
+    elif is_doe:
+        ca_types = ["Uncrushed (Gravel)", "Crushed (Crushed Rock)"]
+        ca_type_choice = _prompt_choice("Coarse aggregate type (BRE 331 Table 2/3)", ca_types, "Uncrushed (Gravel)")
+        agg_shape = "crushed" if "Crushed" in ca_type_choice else "uncrushed"
 
     # Exposure (IS only)
     exposure_class = None
-    if not is_aci:
+    if not is_aci and not is_doe:
         exp_choices = ["None", "Mild", "Moderate", "Severe", "Very Severe", "Extreme"]
         exp = _prompt_choice("Exposure class (IS 456)", exp_choices, "None")
         if exp != "None":
@@ -229,30 +262,126 @@ def collect_mix_inputs() -> dict:
         sulf = _prompt_choice("Sulfate exposure class", sulf_choices, "S0 (None)")
         sulfate_class = sulf.split()[0]
 
+    # DOE-specific: number of test cubes n, defective %, age, cement limits, etc.
+    n_cubes = 20
+    defective_percent = 5.0
+    age_days = 28
+    min_cement_kg = None
+    max_cement_kg = None
+    max_wc = None
+    pct_passing_600um = 60.0
+    fine_agg_shape = agg_shape
+    std_deviation = None
+    if is_doe:
+        print("\n  --- DOE (BR 331:1997) Structural Parameters ---")
+        print("  This app assumes structural concrete (fc ≥ 25 MPa) per BRE 331 §4.4.")
+        n_cubes = _prompt_int(
+            "Number of test cubes (n) cast for strength testing", 20, 1, 200
+        )
+        print(f"    → n = {n_cubes}")
+        if n_cubes < 20:
+            print("    → Standard deviation s = 8 MPa (Figure 3 Line A, n<20)")
+        else:
+            print("    → Standard deviation s = 4 MPa (Figure 3 Line B, n≥20, §4.4)")
+        defective_percent = _prompt_float("Defective percent (%) [1=2.33, 2.5=1.96, 5=1.64, 10=1.28]", 5.0, 1.0, 10.0)
+        age_choices = ["3", "7", "28", "91"]
+        age_str = _prompt_choice("Test age (days)", age_choices, "28")
+        age_days = int(age_str)
+        pct_passing_600um = _prompt_float("Fine aggregate % passing 600 µm sieve", 60.0, 0.0, 100.0)
+        # Fine aggregate type separate from coarse (DOE weighted water formula)
+        fa_types = ["Uncrushed (Natural Sand)", "Crushed (Crushed Rock Sand)"]
+        fa_type_choice = _prompt_choice("Fine aggregate type (BRE 331 Table 3)", fa_types, "Uncrushed (Natural Sand)")
+        fine_agg_shape = "crushed" if "Crushed" in fa_type_choice else "uncrushed"
+        # Optional durability limits
+        if _prompt_yes_no("Specify minimum cement content limit?", default=False):
+            min_cement_kg = _prompt_float("Min cement (kg/m³)", 290.0, 100.0, 600.0)
+        if _prompt_yes_no("Specify maximum cement content limit?", default=False):
+            max_cement_kg = _prompt_float("Max cement (kg/m³)", 500.0, 300.0, 700.0)
+        if _prompt_yes_no("Specify maximum W/C ratio (durability)?", default=False):
+            max_wc = _prompt_float("Max W/C ratio", 0.50, 0.30, 0.80)
+        # Std deviation override (optional)
+        if _prompt_yes_no("Override standard deviation s (default Auto → n<20:8, n≥20:4 MPa)?", default=False):
+            default_s = 8.0 if n_cubes < 20 else 4.0
+            std_deviation = _prompt_float("Standard deviation s (MPa)", default_s, 1.0, 15.0)
+        else:
+            std_deviation = None
+
     # SCM
     print("\n  --- Supplementary Cementitious Material ---")
-    scm_types = ["None", "Fly Ash", "GGBFS", "Silica Fume"]
+    if is_is:
+        scm_types = ["None", "Fly Ash", "GGBFS", "Silica Fume", "Metakaolin"]
+    elif is_aci:
+        scm_types = ["None", "Fly Ash Class F", "Fly Ash Class C", "Slag Cement", "Silica Fume", "Metakaolin"]
+    else:  # doe
+        scm_types = ["None", "Pulverised-Fuel Ash (pfa)", "Ground Granulated Blastfurnace Slag (ggbs)"]
+
     scm_type_choice = _prompt_choice("SCM type", scm_types, "None")
     scm_pct = 0.0
     scm_type_key = "fly_ash"
     scm_sg = 2.20
     if scm_type_choice != "None":
-        scm_type_key = scm_type_choice.lower().replace(" ", "_")
-        scm_pct = _prompt_float("Replacement percentage (%)", 20.0, 5.0, 60.0)
-        scm_sg_defaults = {"fly_ash": 2.20, "ggbfs": 2.90, "silica_fume": 2.20}
-        scm_sg = _prompt_float("Specific gravity", scm_sg_defaults.get(scm_type_key, 2.20), 1.5, 4.0)
+        if "ggb" in scm_type_choice.lower() or "slag" in scm_type_choice.lower():
+            scm_type_key = "ggbfs"
+            scm_sg_default = 2.90
+        elif "silica" in scm_type_choice.lower():
+            scm_type_key = "silica_fume"
+            scm_sg_default = 2.20
+        elif "metakaolin" in scm_type_choice.lower():
+            scm_type_key = "metakaolin"
+            scm_sg_default = 2.60
+        elif "class c" in scm_type_choice.lower():
+            scm_type_key = "fly_ash_c"
+            scm_sg_default = 2.60
+        else:
+            scm_type_key = "fly_ash"
+            scm_sg_default = 2.20
+
+        scm_pct = _prompt_float("Replacement percentage (%)", 20.0, 5.0, 70.0)
+        scm_sg = _prompt_float("Specific gravity", scm_sg_default, 1.5, 4.0)
 
     # Admixture
-    print("\n  --- Admixture ---")
-    admix_types = ["None", "Superplasticizer", "Plasticizer", "Retarder", "Accelerator"]
+    print("\n  --- Chemical Admixture ---")
+    if is_is:
+        admix_types = ["None", "Superplasticizer", "Plasticizer", "Retarder", "Accelerator", "Air-Entraining"]
+    elif is_aci:
+        admix_types = [
+            "None",
+            "Type A (Water-Reducing)",
+            "Type B (Retarding)",
+            "Type C (Accelerating)",
+            "Type D (WR & Retarding)",
+            "Type F (HRWRA / Superplasticizer)",
+            "Air-Entraining",
+        ]
+    else:  # doe
+        admix_types = ["None", "Water-Reducing Plasticiser", "Superplasticiser", "Retarder", "Accelerator"]
+
     admix_type_choice = _prompt_choice("Admixture type", admix_types, "None")
     admix_type = ""
     admix_dosage = 1.0
     admix_wr = 0.0
+    admix_sg = 1.15
     if admix_type_choice != "None":
-        admix_type = admix_type_choice.lower()
-        admix_dosage = _prompt_float("Dosage (% by weight of cement)", 1.0, 0.0, 5.0)
-        admix_wr = _prompt_float("Water reduction (%)", 10.0, 0.0, 30.0)
+        if "superplastic" in admix_type_choice.lower() or "hrwra" in admix_type_choice.lower():
+            admix_type = "superplasticizer"
+            def_wr = 20.0
+        elif "plastic" in admix_type_choice.lower() or "type a" in admix_type_choice.lower():
+            admix_type = "plasticizer"
+            def_wr = 10.0
+        elif "retard" in admix_type_choice.lower():
+            admix_type = "retarder"
+            def_wr = 0.0
+        elif "accelerat" in admix_type_choice.lower():
+            admix_type = "accelerator"
+            def_wr = 0.0
+        else:
+            admix_type = "air_entraining"
+            def_wr = 0.0
+
+        admix_dosage = _prompt_float("Dosage (% by weight of cementitious material)", 1.0, 0.0, 5.0)
+        admix_wr = _prompt_float("Water reduction (%)", def_wr, 0.0, 40.0)
+        if not is_doe:
+            admix_sg = _prompt_float("Admixture specific gravity (IS/ACI)", 1.15, 1.0, 1.5)
 
     # Volume
     volume = _prompt_float("Target concrete volume (m\u00b3)", 1.0, 0.1, 10000.0)
@@ -293,9 +422,20 @@ def collect_mix_inputs() -> dict:
         "admixture_type": admix_type,
         "admixture_dosage": admix_dosage,
         "admixture_water_reduction": admix_wr,
+        "admixture_sg": admix_sg,
         "volume_m3": volume,
         "has_production_data": has_production_data,
         "sulfate_exposure_class": sulfate_class,
+        "defective_percent": defective_percent if is_doe else 5.0,
+        "age_days": age_days if is_doe else 28,
+        "min_cement_kg": min_cement_kg if is_doe else None,
+        "max_cement_kg": max_cement_kg if is_doe else None,
+        "w_c_ratio": max_wc if is_doe else None,
+        "fine_agg_pct_passing_600um": pct_passing_600um if is_doe else None,
+        "fine_agg_shape": fine_agg_shape if is_doe else agg_shape,
+        "std_deviation": std_deviation if is_doe else None,
+        "num_test_cubes": n_cubes if is_doe else None,
+        "n_cubes": n_cubes if is_doe else None,
     }
 
 

@@ -8,7 +8,6 @@ import pytest
 from concrete_mix.codes.is10262 import IS10262MixDesign
 from concrete_mix.codes.tables.is_tables import (
     CURVE_RESTRAINTS,
-    GRADING_ZONE_ADJUSTMENT,
     IS456_EXPOSURE_LIMITS,
     STANDARD_DEVIATION,
     WATER_CONTENT,
@@ -223,33 +222,16 @@ class TestWaterContent:
 
 
 # ---------------------------------------------------------------------------
-# Phase 8: Grading Zone Adjustments
+# Grading zone — water content is NOT adjusted by zone in IS 10262:2019
 # ---------------------------------------------------------------------------
-class TestGradingZoneAdjustment:
-    """Verify grading zone water adjustment factors."""
+class TestGradingZoneNoWaterAdjustment:
+    """The grading zone affects only the CA fraction (Table 5), not water."""
 
-    def test_zone_ii_is_reference(self):
-        assert GRADING_ZONE_ADJUSTMENT["II"] == 1.0
-
-    def test_zone_i_reduces_water(self):
-        """Regression: was 1.0, should be 0.97."""
-        assert GRADING_ZONE_ADJUSTMENT["I"] == 0.97
-
-    def test_zone_iii_increases_water(self):
-        assert GRADING_ZONE_ADJUSTMENT["III"] == 1.03
-
-    def test_zone_iv_increases_water(self):
-        assert GRADING_ZONE_ADJUSTMENT["IV"] == 1.06
-
-    def test_water_with_zone_i(self):
-        result = interpolate_water_content(20, 50, "I")
-        expected = 186 * 0.97  # = 180.42
-        assert abs(result - expected) < 0.1
-
-    def test_water_with_zone_iii(self):
-        result = interpolate_water_content(20, 50, "III")
-        expected = 186 * 1.03  # = 191.58
-        assert abs(result - expected) < 0.1
+    @pytest.mark.parametrize("zone", ["I", "II", "III", "IV"])
+    def test_water_same_for_all_zones(self, zone):
+        """IS 10262:2019 has no grading-zone water adjustment."""
+        result = interpolate_water_content(20, 50, zone)
+        assert abs(result - 186.0) < 0.1
 
 
 # ---------------------------------------------------------------------------
@@ -445,3 +427,102 @@ class TestISDesignIntegration:
         designer = IS10262MixDesign()
         air = designer.get_air_content(10)
         assert air == 1.5
+
+
+# ---------------------------------------------------------------------------
+# IS 10262:2019 Clause 5.8 — Trial Mixes and Reporting
+# ---------------------------------------------------------------------------
+
+class TestIS10262TrialMixesClause58:
+    """Verify Section 5.8 Trial Mixes calculation and Clause 5.8.1 reporting protocol."""
+
+    def test_trial_mixes_protocol_calculation(self):
+        """Verify 4 trial mixes generation with ±10% W/C variation."""
+        from concrete_mix import design_mix_simple
+        from concrete_mix.codes.is10262 import calculate_is10262_trial_mixes
+
+        result = design_mix_simple(
+            code="is10262",
+            target_strength_mpa=25.0,
+            slump_mm=75.0,
+            nmsa=20,
+            exposure_class="mild",
+        )
+        inp = getattr(result, "_input", None)
+
+        protocol = calculate_is10262_trial_mixes(result, inp)
+        assert protocol["standard"] == "IS 10262:2019"
+        assert "5.8" in protocol["clause"]
+        assert len(protocol["trials"]) == 4
+
+        t1, t2, t3, t4 = protocol["trials"]
+
+        # Trial 1 & 2 at design W/C
+        assert t1["trial_number"] == 1
+        assert t1["w_c_ratio"] == result.w_c_ratio
+        assert t1["water_kg"] == result.water_kg
+        assert t1["cement_kg"] == result.cement_kg
+
+        assert t2["trial_number"] == 2
+        assert t2["w_c_ratio"] == result.w_c_ratio
+        assert t2["water_kg"] == result.water_kg
+
+        # Trial 3 at -10% W/C (higher cement)
+        assert t3["trial_number"] == 3
+        assert t3["w_c_ratio"] == pytest.approx(round(result.w_c_ratio * 0.90, 2))
+        assert t3["water_kg"] == result.water_kg
+        assert t3["cement_kg"] > result.cement_kg
+
+        # Trial 4 at +10% W/C (lower cement)
+        assert t4["trial_number"] == 4
+        assert t4["w_c_ratio"] == pytest.approx(round(result.w_c_ratio * 1.10, 2))
+        assert t4["water_kg"] == result.water_kg
+        assert t4["cement_kg"] < result.cement_kg
+
+        # All trials have positive aggregate quantities
+        for t in (t1, t2, t3, t4):
+            assert t["fine_agg_kg"] > 0
+            assert t["coarse_agg_kg"] > 0
+            assert t["water_kg"] > 0
+            assert t["cement_kg"] > 0
+
+    def test_reporting_checklist_contains_clause_5_8_1_items(self):
+        """Verify Clause 5.8.1 reporting checklist items (a to g)."""
+        from concrete_mix.codes.is10262 import calculate_is10262_trial_mixes
+
+        designer = IS10262MixDesign()
+        inp = MixDesignInput(code="is10262", target_strength_mpa=30.0)
+        result = designer.design(inp)
+
+        protocol = calculate_is10262_trial_mixes(result, inp)
+        checklist = protocol["reporting_checklist"]
+        assert len(checklist) == 7
+        codes = [item[0] for item in checklist]
+        assert codes == ["a", "b", "c", "d", "e", "f", "g"]
+
+        # Check content of items
+        assert "Period of testing" in checklist[0][1]
+        assert "Details of work" in checklist[1][1]
+        assert "Recommended final mix" in checklist[6][1]
+
+    def test_design_includes_clause_5_8_step_and_warning(self):
+        """Verify design result includes Clause 5.8 step and warnings."""
+        designer = IS10262MixDesign()
+        inp = MixDesignInput(code="is10262", target_strength_mpa=25.0)
+        result = designer.design(inp)
+
+        # Check calculation steps
+        trial_steps = [s for s in result.steps if "5.8" in s.clause_ref or "Trial" in s.description]
+        assert len(trial_steps) >= 1
+        assert trial_steps[0].result == 4.0
+
+        # Check warnings
+        trial_warnings = [w for w in result.warnings if "5.8" in w and "trial" in w.lower()]
+        assert len(trial_warnings) >= 1
+        assert "±10%" in trial_warnings[0]
+
+    def test_structural_strength_minimum_enforced(self):
+        """Verify IS 10262 rejects non-structural characteristic strength < 25 MPa."""
+        with pytest.raises(ValueError, match="IS10262 structural design requires characteristic strength"):
+            MixDesignInput(code="is10262", target_strength_mpa=20.0)
+

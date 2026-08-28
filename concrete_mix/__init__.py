@@ -14,7 +14,12 @@ Usage:
     print(result.cement_kg, result.water_kg)
 """
 
+from concrete_mix.engine.psd_link import PSDLinkage, derive_mix_design_params
 from concrete_mix.engine.proportioner import design_mix, get_code_implementation
+from concrete_mix.engine.target_strength import (
+    TargetStrengthResult,
+    calculate_target_strength,
+)
 from concrete_mix.estimators.carbon import carbon_savings_vs_opc, estimate_carbon
 from concrete_mix.estimators.cost import MaterialPrices, estimate_cost
 from concrete_mix.export.csv_export import export_to_csv
@@ -32,6 +37,7 @@ from concrete_mix.models.materials import (
 )
 from concrete_mix.models.mix_input import MixDesignInput
 from concrete_mix.models.mix_result import CalculationStep, MixDesignResult
+from concrete_mix.codes.is10262 import calculate_is10262_trial_mixes
 
 from concrete_mix.validation.validators import validate_mix_input
 
@@ -78,7 +84,9 @@ def design_mix_simple(
     coarse_agg_moisture: float = 0.0,
     coarse_agg_bulk_density: float = 1600.0,
     aggregate_shape: str = "gravel",
+    coarse_agg_type: str | None = None,
     fine_agg_shape: str | None = None,
+    fine_agg_type: str | None = None,
     air_entrained: bool = False,
     exposure_class: str | None = None,
     concrete_type: str = "reinforced",
@@ -88,6 +96,7 @@ def design_mix_simple(
     admixture_type: str = "",
     admixture_dosage: float = 1.0,
     admixture_water_reduction: float = 0.0,
+    admixture_sg: float = 1.15,
     volume_m3: float = 1.0,
     has_production_data: bool = True,
     sulfate_exposure_class: str = "S0",
@@ -99,6 +108,8 @@ def design_mix_simple(
     fine_agg_pct_passing_600um: float | None = None,
     std_deviation: float | None = None,
     margin_mpa: float | None = None,
+    num_test_cubes: int | None = None,
+    n_cubes: int | None = None,  # alias for num_test_cubes
 ) -> MixDesignResult:
     """Simplified API for quick mix design calculations.
 
@@ -140,6 +151,11 @@ def design_mix_simple(
         fine_agg_pct_passing_600um: Fine aggregate % passing 600µm (DOE only)
         std_deviation: User-provided standard deviation in MPa (DOE only).
             If provided, overrides automatic calculation from Figure 3.
+        num_test_cubes: DOE structural — number of test cubes (n) cast for
+            strength testing. When supplied, BRE 331:1997 Figure 3 structural
+            rule applies: n<20 → s=8 MPa (Line A), n≥20 → s=4 MPa (Line B).
+            n_cubes is an alias.
+            This app assumes DOE mixes are for structural elements (fc≥25 MPa).
 
     Returns:
         MixDesignResult with all proportions
@@ -183,22 +199,34 @@ def design_mix_simple(
             type=admixture_type,
             dosage_percent=admixture_dosage,
             water_reduction_percent=admixture_water_reduction,
+            specific_gravity=admixture_sg,
         )
     elif admixture_water_reduction > 0:
-        admixture = Admixture(water_reduction_percent=admixture_water_reduction)
+        admixture = Admixture(
+            water_reduction_percent=admixture_water_reduction,
+            specific_gravity=admixture_sg,
+        )
 
-    # Resolve aggregate shape
-    try:
-        agg_shape = AggregateShape(aggregate_shape)
-    except ValueError:
-        agg_shape = AggregateShape.GRAVEL
-
-    # Resolve fine aggregate shape (DOE: separate from coarse)
-    if fine_agg_shape is not None:
+    # Resolve coarse aggregate shape / type
+    effective_ca = coarse_agg_type if coarse_agg_type is not None else aggregate_shape
+    if isinstance(effective_ca, str) and effective_ca.lower() in ("crushed", "uncrushed"):
+        agg_shape = AggregateShape.ANGULAR if effective_ca.lower() == "crushed" else AggregateShape.GRAVEL
+    else:
         try:
-            fa_agg_shape = AggregateShape(fine_agg_shape)
+            agg_shape = AggregateShape(effective_ca)
         except ValueError:
-            fa_agg_shape = agg_shape
+            agg_shape = AggregateShape.GRAVEL
+
+    # Resolve fine aggregate shape / type (DOE: separate from coarse)
+    effective_fa = fine_agg_type if fine_agg_type is not None else fine_agg_shape
+    if effective_fa is not None:
+        if isinstance(effective_fa, str) and effective_fa.lower() in ("crushed", "uncrushed"):
+            fa_agg_shape = AggregateShape.ANGULAR if effective_fa.lower() == "crushed" else AggregateShape.GRAVEL
+        else:
+            try:
+                fa_agg_shape = AggregateShape(effective_fa)
+            except ValueError:
+                fa_agg_shape = agg_shape
     else:
         fa_agg_shape = agg_shape  # Default to coarse aggregate shape
 
@@ -220,6 +248,8 @@ def design_mix_simple(
         shape=agg_shape,
     )
 
+    # Resolve DOE structural n alias
+    _n_cubes = num_test_cubes if num_test_cubes is not None else n_cubes
     inp = MixDesignInput(
         code=code,
         target_strength_mpa=target_strength_mpa,
@@ -244,6 +274,7 @@ def design_mix_simple(
         max_cement_kg=max_cement_kg,
         std_deviation=std_deviation,
         margin_mpa=margin_mpa,
+        num_test_cubes=_n_cubes,
     )
 
     res = design_mix(inp)
@@ -256,6 +287,11 @@ __all__ = [
     "design_mix",
     "design_mix_simple",
     "get_code_implementation",
+    "calculate_target_strength",
+    "TargetStrengthResult",
+    "derive_mix_design_params",
+    "PSDLinkage",
+    "calculate_is10262_trial_mixes",
     # Models
     "MixDesignInput",
     "MixDesignResult",

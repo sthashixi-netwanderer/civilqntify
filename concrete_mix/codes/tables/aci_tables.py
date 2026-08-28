@@ -7,78 +7,90 @@ Source: ACI PRC-211.1-22 Table 5.3.3 and Table 5.3.6.
 from __future__ import annotations
 
 # Table 5.3.3: Approximate mixing water and air content requirements per ACI PRC-211.1-22
-# Format: {nmsa_mm: {slump_mm: water_kg_m3}} — converted from lb/yd³
-# 10 mm ≈ 3/8", 19 mm ≈ 3/4", 40 mm ≈ 1-1/2" (standard sizes)
+# Format: {nmsa_mm: {slump_mm: water_kg_m3}} — converted from lb/yd³ (× 0.5933)
+# 10 mm ≈ 3/8", 19 mm ≈ 3/4", 40 mm ≈ 1-1/2"
+# Slump classes: 1-2"→25/50 mm, 3-4"→75/100 mm, 5-6"→125/150 mm, 6-7"→175 mm
+# (>7" slump is normally obtained with water-reducing admixtures.)
 WATER_CONTENT_NON_AIR_ENTRAINED: dict[int, dict[int, float]] = {
     10: {
-        25: 208,  # 350 lb/yd³
-        50: 208,  # 350
-        75: 228,  # 385
-        100: 228,  # 385
+        25: 208,  # 350 lb/yd³ (1-2" slump)
+        50: 208,
+        75: 228,  # 385 (3-4")
+        100: 228,
         150: 237,  # 400 (5-6")
+        175: 243,  # 410 (6-7")
     },
     19: {
         25: 187,  # 315
-        50: 187,  # 315
+        50: 187,
         75: 202,  # 340
-        100: 202,  # 340
-        150: 208,  # 350 (5-6")
+        100: 202,
+        150: 208,  # 350
+        175: 214,  # 360
     },
     20: {
         25: 187,  # 315 (approx 19 mm)
-        50: 187,  # 315
+        50: 187,
         75: 202,  # 340
-        100: 202,  # 340
+        100: 202,
         150: 208,  # 350
+        175: 214,  # 360
     },
     40: {
         25: 163,  # 275
-        50: 163,  # 275
+        50: 163,
         75: 178,  # 300
-        100: 178,  # 300
+        100: 178,
         150: 181,  # 305 (5-6")
+        175: 187,  # 315 (6-7")
     },
 }
 
 # Table 5.3.3: Air-entrained concrete per ACI PRC-211.1-22
-# Converted from lb/yd³ (305 lb/yd³ = 181 kg/m³ at 3/4" 75-100 mm)
 WATER_CONTENT_AIR_ENTRAINED: dict[int, dict[int, float]] = {
     10: {
-        25: 181,  # 305
-        50: 181,  # 305
-        75: 202,  # 340
-        100: 202,  # 340
-        150: 211,  # 355
+        25: 181,  # 305 (1-2" slump)
+        50: 181,
+        75: 202,  # 340 (3-4")
+        100: 202,
+        150: 211,  # 355 (5-6")
+        175: 217,  # 365 (6-7")
     },
     19: {
         25: 166,  # 280
-        50: 166,  # 280
+        50: 166,
         75: 181,  # 305
-        100: 181,  # 305
+        100: 181,
         150: 187,  # 315
+        175: 193,  # 325
     },
     20: {
         25: 166,  # 280
-        50: 166,  # 280
+        50: 166,
         75: 181,  # 305
-        100: 181,  # 305
+        100: 181,
         150: 187,  # 315
+        175: 193,  # 325
     },
     40: {
         25: 148,  # 250
-        50: 148,  # 250
+        50: 148,
         75: 163,  # 275
-        100: 163,  # 275
+        100: 163,
         150: 166,  # 280
+        175: 172,  # 290
     },
 }
 
-# Table 6.3.3: Target air content (%) by NMSA and exposure level
-# Exposure: "mild", "moderate", "severe"
+# Table 5.3.3: Required total air content (%) by NMSA and ACI 318 exposure
+# class — "mild" maps to F0 (no frost exposure: entrapped air only),
+# "moderate" to F1, "severe" to F2/F3.
+# F1:   3/8"→6.0, 3/4"→5.0, 1-1/2"→4.5
+# F2/F3: 3/8"→7.5, 3/4"→6.0, 1-1/2"→5.5
 AIR_CONTENT: dict[int, dict[str, float]] = {
-    10: {"mild": 3.0, "moderate": 5.0, "severe": 7.0},
-    20: {"mild": 2.0, "moderate": 4.5, "severe": 6.0},
-    40: {"mild": 1.0, "moderate": 3.5, "severe": 5.0},
+    10: {"mild": 3.0, "moderate": 6.0, "severe": 7.5},
+    20: {"mild": 2.0, "moderate": 5.0, "severe": 6.0},
+    40: {"mild": 1.0, "moderate": 4.5, "severe": 5.5},
 }
 
 # Entrapped air (non-air-entrained concrete) per ACI PRC-211.1-22 Table 5.3.3
@@ -90,45 +102,38 @@ AIR_CONTENT_ENTRAPPED: dict[int, float] = {
     40: 1.0,  # 1-1/2"
 }
 
-# Table 6.3.4(a): Water-cementitious ratio for non-air-entrained concrete
-# Key: compressive strength at 28 days (MPa), Value: w/cm ratio
-# ACI 211.1 Table 6.3.4(a) — metric converted
+# Table 5.3.4 — Relationship between w/cm and compressive strength of
+# concrete (ACI PRC-211.1-22), converted from psi to MPa.
+# Non-air-entrained concrete:
+#   7000 psi (48.3 MPa) → 0.34;  6000 (41.4) → 0.41;  5000 (34.5) → 0.48
+#   4000 (27.6) → 0.57;          3000 (20.7) → 0.68;  2000 (13.8) → 0.82
 WC_RATIO_NON_AIR_ENTRAINED: dict[float, float] = {
-    70.0: 0.29,
-    60.0: 0.32,
-    50.0: 0.37,
-    45.0: 0.40,
-    40.0: 0.42,
-    35.0: 0.47,
-    30.0: 0.52,
-    28.0: 0.55,
-    25.0: 0.58,
-    21.0: 0.63,
-    17.0: 0.69,
-    14.0: 0.75,
+    48.3: 0.34,
+    41.4: 0.41,
+    34.5: 0.48,
+    27.6: 0.57,
+    20.7: 0.68,
+    13.8: 0.82,
 }
 
-# Table 6.3.4(b): Water-cementitious ratio for air-entrained concrete
+# Table 5.3.4 — Air-entrained concrete:
+#   7000 psi (48.3 MPa) → <0.33; 6000 (41.4) → 0.33; 5000 (34.5) → 0.40
+#   4000 (27.6) → 0.48;            3000 (20.7) → 0.59; 2000 (13.8) → 0.74
+# (Table note: w/cm < 0.33 for 7000 psi may require chemical admixtures,
+#  SCMs and higher cementitious content.)
 WC_RATIO_AIR_ENTRAINED: dict[float, float] = {
-    70.0: 0.29,
-    60.0: 0.32,
-    50.0: 0.37,
-    45.0: 0.40,
-    40.0: 0.42,
-    35.0: 0.47,
-    30.0: 0.52,
-    28.0: 0.55,
-    25.0: 0.58,
-    21.0: 0.63,
-    17.0: 0.69,
-    14.0: 0.75,
-    10.0: 0.82,
+    48.3: 0.33,
+    41.4: 0.33,
+    34.5: 0.40,
+    27.6: 0.48,
+    20.7: 0.59,
+    13.8: 0.74,
 }
 
-# Table 6.3.6: Volume of coarse aggregate per unit volume of concrete
-# Key: (nmsa_mm, fineness_modulus) -> volume fraction
-# Based on ACI 211.1 Table 6.3.6 — dry-rodded CA volume per m³ of concrete
-# 19mm (3/4") calibrated to Chapter Four TC-ACI-05 expectation 0.62 at FM 2.80
+# Table 5.3.6 — Bulk volume of coarse aggregate per unit volume of concrete
+# Key: (nmsa_mm, fineness_modulus) -> volume fraction (oven-dry-rodded basis)
+# ACI PRC-211.1-22 Table 5.3.6: 3/8": 0.50-0.44; 3/4": 0.66-0.60;
+# 1-1/2": 0.75-0.69 (2022 guide values)
 CA_VOLUME_FRACTION: dict[tuple[int, float], float] = {
     # NMSA 10mm
     (10, 2.40): 0.50,
@@ -270,13 +275,12 @@ ACI_MAX_WC_FOR_EXPOSURE: dict[str, float] = {
 
 # ACI 318 Table 26.4.3.1(b) — Required average compressive strength (f'cr)
 # when NO prior test data is available (less than 30 tests).
-# Key: specified f'c (MPa), Value: required f'cr (MPa)
-# Metric conversion of the PSI table values.
+# Metric: f'c < 21 MPa → +7;  21 ≤ f'c ≤ 35 → +8.5;  f'c > 35 → +10.
 ACI_NO_DATA_OVERDESIGN: dict[float, float] = {
     # f'c (MPa) : f'cr (MPa)
-    17.0: 24.0,   # < 20 MPa: f'c + 7 MPa
-    20.0: 28.5,   # 20-35 MPa: f'c + 8.5 MPa
-    25.0: 33.5,
+    17.0: 24.0,   # < 21 MPa: f'c + 7 MPa
+    20.0: 27.0,   # still < 21 MPa → +7 (3000 psi = 20.7 MPa breakpoint)
+    25.0: 33.5,   # 21-35 MPa: f'c + 8.5 MPa
     28.0: 36.5,
     30.0: 38.5,
     35.0: 43.5,

@@ -1,25 +1,12 @@
-"""Grading-limit band data for particle-size-distribution plots.
+"""Standard-specific grading-limit bands for PSD plots.
 
-Provides the standard passing-percent bands used as the shaded conformance
-overlay on the PSD curve:
+IS 383:2016 fine grading zones and Table 7 coarse bands are kept separate from
+ASTM C33/C33M Table 1 and Table 2 bands. All values are inclusive percentage-
+passing limits keyed by sieve opening in millimetres.
 
-- **Fine aggregate** — IS 383 grading Zones I–IV (re-exported from
-  ``is_tables.GRADING_ZONE_LIMITS``). Each zone gives ``(lower%, upper%)``
-  passing for sieves 10, 4.75, 2.36, 1.18, 0.600, 0.300, 0.150 mm.
-- **Coarse aggregate** — IS 383 Table 7 / ASTM C33 size-number grading
-  requirements for the common nominal maximum sizes (10, 20, 40 mm).
-
-Source standards:
-  - IS 383:2016 Table 7 — Coarse aggregate grading for single-sized and
-    graded aggregates.
-  - ASTM C33/C33M — Standard Specification for Concrete Aggregates, Table 2
-    (coarse aggregate grading requirements).
-  - ACI 211.1-22 §A.4.2 — aggregate grading determined by sieve analysis
-    (ASTM C136); ASTM C33 provides suitable sizes and gradings.
-
-All band entries are ``(lower_passing%, upper_passing%)`` for a given sieve
-size in millimetres. ``100`` means 100 % passing (sieve larger than NMSA);
-sieves smaller than the finest specified are omitted.
+A dash, ellipsis, or blank standard-table cell means no grading requirement.
+Such sieves remain available for laboratory input but are deliberately absent
+from the band mapping and therefore excluded from conformance checking.
 """
 
 from __future__ import annotations
@@ -28,74 +15,94 @@ from __future__ import annotations
 # band data from a single module.
 from concrete_mix.codes.tables.is_tables import GRADING_ZONE_LIMITS
 
+FINE_ZONES: list[str] = ["I", "II", "III", "IV"]
+
+# ASTM C33/C33M Table 1 — Fine aggregate grading requirements.
+ASTM_FINE_BAND: dict[float, tuple[float, float]] = {
+    9.5: (100, 100),
+    4.75: (95, 100),
+    2.36: (80, 100),
+    1.18: (50, 85),
+    0.600: (25, 60),
+    0.300: (5, 30),
+    0.150: (0, 10),
+}
+
+# IS 383:2016 Table 7 — single-sized coarse aggregate.
+IS_COARSE_SINGLE_SIZED_BANDS: dict[
+    int | float, dict[float, tuple[float, float]]
+] = {
+    63: {80.0: (100, 100), 63.0: (85, 100), 40.0: (0, 30), 20.0: (0, 5), 10.0: (0, 5)},
+    40: {63.0: (100, 100), 40.0: (85, 100), 20.0: (0, 20), 10.0: (0, 5)},
+    20: {40.0: (100, 100), 20.0: (85, 100), 10.0: (0, 20), 4.75: (0, 5)},
+    16: {20.0: (100, 100), 16.0: (85, 100), 10.0: (0, 30), 4.75: (0, 5)},
+    12.5: {16.0: (100, 100), 12.5: (85, 100), 10.0: (0, 45), 4.75: (0, 10)},
+    10: {12.5: (100, 100), 10.0: (85, 100), 4.75: (0, 20), 2.36: (0, 5)},
+}
+
+# IS 383:2016 Table 7 — graded coarse aggregate.
+IS_COARSE_GRADED_BANDS: dict[
+    int | float, dict[float, tuple[float, float]]
+] = {
+    40: {80.0: (100, 100), 40.0: (90, 100), 20.0: (30, 70), 10.0: (10, 35), 4.75: (0, 5)},
+    20: {40.0: (100, 100), 20.0: (90, 100), 10.0: (25, 55), 4.75: (0, 10)},
+    16: {20.0: (100, 100), 16.0: (90, 100), 10.0: (30, 70), 4.75: (0, 10)},
+    12.5: {20.0: (100, 100), 12.5: (90, 100), 10.0: (40, 85), 4.75: (0, 10)},
+}
+
+IS_SINGLE_SIZED_NOMINAL_SIZES: list[int | float] = [63, 40, 20, 16, 12.5, 10]
+IS_GRADED_NOMINAL_SIZES: list[int | float] = [40, 20, 16, 12.5]
+
 # ---------------------------------------------------------------------------
-# IS 383:2016 Table 7 — Coarse aggregate grading requirements
+# ASTM C33/C33M Table 2 — Coarse aggregate grading requirements
 # ---------------------------------------------------------------------------
-# Percent passing by sieve size (mm) for graded aggregates of common nominal
-# maximum sizes. Values are the (lower, upper) passing limits.
+# Percent passing by sieve size (mm). Values are inclusive (lower, upper)
+# limits copied from the indicated ASTM size-number row. Only specified cells
+# are represented; Table 2 ellipses mean "no requirement".
 #
-# Sources: IS 383:2016 Table 7; ASTM C33/C33M Table 2 (size numbers 7, 57, 6
-# correspond approximately to 10, 20, 40 mm graded aggregates). Where the two
-# standards differ slightly, the IS 383 value is used for the mm sizes.
-#
-# Sieve   10 mm graded   20 mm graded   40 mm graded
-#  75 mm     100            100            100
-#  37.5      100            100           90–100
-#  19.0      85–100        90–100         35–70
-#  9.5       0–25          40–85          10–40
-#  4.75      0–5            0–10           0–5
-#  2.36      —              0–5            0–5
+# App reference   ASTM size no.   Nominal size range
+# 10 mm           8               9.5 to 2.36 mm (3/8 in. to No. 8)
+# 20 mm           67              19.0 to 4.75 mm (3/4 in. to No. 4)
+# 40 mm           467             37.5 to 4.75 mm (1-1/2 in. to No. 4)
 # ---------------------------------------------------------------------------
 
-COARSE_BANDS: dict[int | float, dict[float, tuple[float, float]]] = {
-    # 10 mm nominal maximum size (IS 383 Table 7 / ASTM C33 size 7 / 8)
+ASTM_COARSE_BANDS: dict[int, dict[float, tuple[float, float]]] = {
+    # ASTM C33/C33M Table 2, Size 8
     10: {
-        75.0: (100, 100),
-        37.5: (100, 100),
-        19.0: (100, 100),
         12.5: (100, 100),
         9.5: (85, 100),
-        4.75: (0, 20),
-        2.36: (0, 5),
+        4.75: (10, 30),
+        2.36: (0, 10),
+        1.18: (0, 5),
     },
-    # 12.5 mm nominal maximum size (IS 383:2016 Table 7 / ASTM C33 size 7)
-    12.5: {
-        75.0: (100, 100),
-        37.5: (100, 100),
-        19.0: (100, 100),
-        12.5: (90, 100),
-        9.5: (40, 85),
-        4.75: (0, 10),
-        2.36: (0, 5),
-    },
-    # 20 mm nominal maximum size (IS 383 Table 7 / ASTM C33 size 57)
+    # ASTM C33/C33M Table 2, Size 67
     20: {
-        75.0: (100, 100),
-        37.5: (100, 100),
+        25.0: (100, 100),
         19.0: (90, 100),
-        12.5: (25, 60),
-        9.5: (40, 85),
+        9.5: (20, 55),
         4.75: (0, 10),
         2.36: (0, 5),
     },
-    # 40 mm nominal maximum size (IS 383 Table 7 / ASTM C33 size 6 / 467)
+    # ASTM C33/C33M Table 2, Size 467
     40: {
-        75.0: (100, 100),
-        37.5: (90, 100),
+        50.0: (100, 100),
+        37.5: (95, 100),
         19.0: (35, 70),
-        9.5: (10, 40),
+        9.5: (10, 30),
         4.75: (0, 5),
-        2.36: (0, 5),
     },
 }
 
-# Available choices for the UI combo boxes
-FINE_ZONES: list[str] = ["I", "II", "III", "IV"]
-COARSE_NOMINAL_SIZES: list[int | float] = [10, 12.5, 20, 40]
+# Project-supported ASTM coarse references. Do not add other ASTM size rows.
+ASTM_COARSE_NOMINAL_SIZES: list[int] = [10, 20, 40]
+
+# Backward-compatible names used by existing callers and tests.
+COARSE_BANDS = ASTM_COARSE_BANDS
+COARSE_NOMINAL_SIZES = ASTM_COARSE_NOMINAL_SIZES
 
 
 def get_fine_band(zone: str) -> dict[float, tuple[float, float]]:
-    """Return the IS 383 passing-percent band for a fine-aggregate grading zone.
+    """Return an IS 383 fine-aggregate grading-zone band.
 
     Args:
         zone: One of "I", "II", "III", "IV" (IS 383 grading zones).
@@ -114,24 +121,51 @@ def get_fine_band(zone: str) -> dict[float, tuple[float, float]]:
     return GRADING_ZONE_LIMITS[zone]
 
 
-def get_coarse_band(nominal_size_mm: int | float) -> dict[float, tuple[float, float]]:
-    """Return the coarse-aggregate passing-percent band for a nominal max size.
+def get_astm_fine_band() -> dict[float, tuple[float, float]]:
+    """Return ASTM C33/C33M Table 1 fine-aggregate limits."""
+    return ASTM_FINE_BAND
 
-    Args:
-        nominal_size_mm: Nominal maximum size — 10, 12.5, 20, or 40 mm.
 
-    Returns:
-        Dict of ``{sieve_mm: (lower_passing%, upper_passing%)}``.
+def _normalise_size_key(
+    nominal_size_mm: int | float,
+    bands: dict[int | float, dict[float, tuple[float, float]]],
+) -> int | float:
+    if nominal_size_mm in bands:
+        return nominal_size_mm
+    if isinstance(nominal_size_mm, float) and nominal_size_mm.is_integer():
+        integer_size = int(nominal_size_mm)
+        if integer_size in bands:
+            return integer_size
+    raise KeyError(
+        f"Unsupported nominal size {nominal_size_mm} mm. "
+        f"Valid sizes: {list(bands)}"
+    )
 
-    Raises:
-        KeyError: if *nominal_size_mm* is not in ``COARSE_BANDS``.
-    """
-    # Allow integer equivalents (e.g. 20.0 -> 20)
-    if nominal_size_mm not in COARSE_BANDS:
-        if isinstance(nominal_size_mm, float) and nominal_size_mm.is_integer() and int(nominal_size_mm) in COARSE_BANDS:
-            return COARSE_BANDS[int(nominal_size_mm)]
-        raise KeyError(
-            f"Unsupported coarse nominal size {nominal_size_mm} mm. "
-            f"Valid sizes: {list(COARSE_BANDS)}"
-        )
-    return COARSE_BANDS[nominal_size_mm]
+
+def get_is_coarse_band(
+    grading_type: str,
+    nominal_size_mm: int | float,
+) -> dict[float, tuple[float, float]]:
+    """Return an IS 383:2016 Table 7 coarse aggregate band."""
+    if grading_type == "single":
+        bands = IS_COARSE_SINGLE_SIZED_BANDS
+    elif grading_type == "graded":
+        bands = IS_COARSE_GRADED_BANDS
+    else:
+        raise KeyError("grading_type must be 'single' or 'graded'")
+    return bands[_normalise_size_key(nominal_size_mm, bands)]
+
+
+def get_astm_coarse_band(
+    nominal_size_mm: int | float,
+) -> dict[float, tuple[float, float]]:
+    """Return a supported ASTM C33/C33M Table 2 coarse aggregate band."""
+    key = _normalise_size_key(nominal_size_mm, ASTM_COARSE_BANDS)
+    return ASTM_COARSE_BANDS[key]
+
+
+def get_coarse_band(
+    nominal_size_mm: int | float,
+) -> dict[float, tuple[float, float]]:
+    """Backward-compatible alias for :func:`get_astm_coarse_band`."""
+    return get_astm_coarse_band(nominal_size_mm)

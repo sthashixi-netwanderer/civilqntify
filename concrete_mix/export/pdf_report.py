@@ -276,7 +276,7 @@ def _generate_pdf_via_fpdf(result: MixDesignResult, input_params: dict[str, Any]
     pdf.alias_nb_pages()
     pdf.add_page()
     pdf.section_title("1. Executive Summary")
-    code_label = "ACI 211.1-91 (American)" if "ACI" in result.code_used else "IS 10262:2019 (Indian)"
+    code_label = "ACI PRC-211.1-22 (American)" if "ACI" in result.code_used else "IS 10262:2019 (Indian)"
     pdf.body_text(f"This report presents a concrete mix design performed in accordance with {code_label}. The design targets a characteristic compressive strength of {result.target_mean_strength_mpa:.1f} MPa with a water-cement ratio of {result.w_c_ratio:.3f}.")
     if result.volume_m3 != 1.0:
         pdf.body_text(f"The total volume requested is {result.volume_m3:.1f} m\u00b3. All quantities below are shown per cubic metre and as total batch amounts.")
@@ -406,8 +406,18 @@ def _generate_pdf_via_fpdf(result: MixDesignResult, input_params: dict[str, Any]
         pdf.body_text("IS 456:2000 Table 5 defines exposure conditions that govern durability:\n  \u2022  Mild: Min 220 kg/m\u00b3 cement, W/C \u2264 0.60\n  \u2022  Moderate: Min 240 kg/m\u00b3 cement, W/C \u2264 0.60, grade M20\n  \u2022  Severe: Min 250 kg/m\u00b3 cement, W/C \u2264 0.50, grade M25\n  \u2022  Very Severe: Min 260 kg/m\u00b3 cement, W/C \u2264 0.45, grade M30\n  \u2022  Extreme: Min 280 kg/m\u00b3 cement, W/C \u2264 0.40, grade M35\nThese limits ensure adequate durability for the intended service environment.")
         pdf.subsection_title("Grading Zones")
         pdf.body_text("Fine aggregate (sand) is classified into Grading Zones I\u2013IV based on particle size distribution per IS 383. Zone II is the reference; coarser sand (Zone I) requires slightly less water, while finer sand (Zone III/IV) requires more. The water content is adjusted by \u22123% for Zone I and +3%/+6% for Zone III/IV.")
-    pdf.subsection_title("Trial Batches")
-    pdf.body_text("This mix design is a theoretical starting point. Before use in construction, the designer must prepare and test at least 3 trial batches to verify that the target strength and workability are achieved. Adjustments to water content, admixture dosage, or aggregate proportions may be needed based on trial results.")
+    pdf.subsection_title("Trial Batches (IS 10262:2019 Clause 5.8)")
+    if "IS" in result.code_used or "10262" in result.code_used:
+        wc = result.w_c_ratio
+        pdf.body_text(
+            f"Per IS 10262:2019 Clause 5.8, calculated proportions must be checked and adjusted using 4 trial batches:\n"
+            f"  \u2022  Trial Mix 1: Initial calculated proportions (W/C = {wc:.2f}) — measure slump and inspect for segregation/bleeding and finishing properties.\n"
+            f"  \u2022  Trial Mix 2: If workability differs from target, adjust water/admixture keeping W/C constant at {wc:.2f}.\n"
+            f"  \u2022  Trial Mixes 3 & 4: Same water content as Trial 2 with W/C varied by \u00b110% ({wc*0.9:.2f} & {wc*1.1:.2f}) to establish the compressive strength vs. W/C relationship.\n"
+            f"  \u2022  Clause 5.8.1 Reporting: Mix design report shall document testing period, structural details, material test data/brands, trial records, and recommended final proportions."
+        )
+    else:
+        pdf.body_text("This mix design is a theoretical starting point. Before use in construction, the designer must prepare and test trial batches to verify that target strength and workability are achieved.")
     pdf.subsection_title("Moisture Correction")
     pdf.body_text("The aggregate quantities in this report are in saturated surface-dry (SSD) condition. In practice, the actual water added must be adjusted for the moisture content and absorption of the aggregates. If the aggregates are wetter than SSD, reduce the mixing water; if drier, increase it.")
     pdf.subsection_title("Volume Method")
@@ -712,8 +722,14 @@ Coarse aggregate & {result.coarse_aggregate_kg * v:.1f} kg \\\\
 % ── 6. Engineering Context ─────────────────────────────────────────
 \\section{{Engineering Context \\& Glossary}}
 {context_latex}
-\\subsection{{Trial Batches}}
-This mix design is a theoretical starting point. Before construction the designer must prepare and test at least three trial batches to verify target strength and workability. Adjustments to water, admixture or aggregate proportions may be needed.
+\\subsection{{Trial Batches (IS 10262:2019 Clause 5.8)}}
+This mix design provides theoretical baseline proportions. Per \\textbf{{IS 10262:2019 Clause 5.8}}, the calculated proportions must be validated using 4 trial batches:
+\\begin{{itemize}}
+  \\item \\textbf{{Trial Mix 1}}: Initial calculated proportions (W/C $= {result.w_c_ratio:.2f}$) --- test slump/flow, observe freedom from segregation and bleeding, and check surface finish.
+  \\item \\textbf{{Trial Mix 2}}: If measured workability differs from target, adjust water and/or admixture while holding free W/C constant at ${result.w_c_ratio:.2f}$.
+  \\item \\textbf{{Trial Mixes 3 \\& 4}}: Same water content with W/C varied by $\\pm 10\\%$ (${result.w_c_ratio*0.90:.2f}$ \\& ${result.w_c_ratio*1.10:.2f}$) to plot the compressive strength vs.~W/C curve.
+  \\item \\textbf{{Clause 5.8.1 Reporting}}: The final report shall document testing period, structural details, material test data/brands, trial records, and recommended final proportions.
+\\end{{itemize}}
 
 \\subsection{{Moisture Correction}}
 Aggregate quantities are in saturated surface-dry (SSD) condition. In practice the mixing water must be adjusted for the aggregates' moisture content and absorption. If aggregates are wetter than SSD, reduce water; if drier, increase it.

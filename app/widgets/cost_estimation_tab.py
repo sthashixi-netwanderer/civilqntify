@@ -42,6 +42,11 @@ from app.widgets.cost_result_panel import CostResultPanel
 from app.widgets.info_button import InfoButton, set_label_with_info_text
 from app.widgets.report_preview_dialog import ReportPreviewDialog
 from app.widgets.unit_spin import UnitSpinBox
+from material_quantify.cost import (
+    ProjectCostOptions,
+    ProjectMaterialPrices,
+    estimate_project_cost,
+)
 
 # Default material prices in GH₵ (Ghana Cedis)
 _DEFAULT_PRICES = {
@@ -116,7 +121,17 @@ class CostEstimationTab(QWidget):
         self._form.setSpacing(8)
         self._build_form()
         input_scroll.setWidget(input_widget)
-        splitter.addWidget(input_scroll)
+
+        # Wrap the scroll area in a pane container and pin the estimate
+        # button below it, so it stays visible without scrolling to the
+        # bottom of the input form.
+        left_pane = QWidget()
+        pane_layout = QVBoxLayout(left_pane)
+        pane_layout.setContentsMargins(0, 0, 0, 0)
+        pane_layout.setSpacing(0)
+        pane_layout.addWidget(input_scroll, 1)
+        pane_layout.addLayout(self._action_bar)
+        splitter.addWidget(left_pane)
 
         # Right: result panel — expands
         self._result_panel = CostResultPanel()
@@ -525,11 +540,16 @@ class CostEstimationTab(QWidget):
         self._form.addWidget(grp_proj)
 
         # ── Estimate Button ──
-        self._form.addSpacing(8)
+        # Built as a standalone action bar and pinned below the scroll area
+        # by _build_ui, so it is always reachable without scrolling to the
+        # end of the form.
+        action_bar = QHBoxLayout()
+        action_bar.setContentsMargins(16, 6, 12, 14)
         self.calc_btn = QPushButton("  Estimate Project Cost")
         self.calc_btn.setMinimumHeight(44)
         self.calc_btn.clicked.connect(self._on_estimate)
-        self._form.addWidget(self.calc_btn)
+        action_bar.addWidget(self.calc_btn)
+        self._action_bar = action_bar
 
         self._form.addStretch()
 
@@ -689,116 +709,35 @@ class CostEstimationTab(QWidget):
             )
             return
 
-        # Material prices (GH₵)
-        cement_price = self._price_spins["cement_per_bag"].value()
-        fa_price = self._price_spins["fine_agg_per_m3"].value()
-        ca_price = self._price_spins["coarse_agg_per_m3"].value()
-        water_price = self._price_spins["water_per_1000l"].value()
-        admix_price = self._price_spins["admixture_per_kg"].value()
-
-        # Material costs
-        cement_cost = bill.total_cement_bags * cement_price
-        fa_cost = bill.total_fine_aggregate_bulk_m3 * fa_price
-        ca_cost = bill.total_coarse_aggregate_bulk_m3 * ca_price
-        water_cost = (bill.total_water_liters / 1000.0) * water_price
-        admix_cost = bill.total_admixture_kg * admix_price
-        total_material = cement_cost + fa_cost + ca_cost + water_cost + admix_cost
-
-        # Per m³
-        mat_cost_m3 = total_material / gross_vol if gross_vol > 0 else 0.0
-
-        # Additional costs
-        labour_count = self._addl_spins["labour_count"].value()
-        labour_cost_per_unit = self._addl_spins["labour_cost_per_unit"].value()
-        labour = labour_count * labour_cost_per_unit
-        transport = self._addl_spins["transport_per_m3"].value() * gross_vol
-        overhead_pct = self._addl_spins["plant_overhead_pct"].value() / 100.0
-        profit_pct = self._addl_spins["profit_pct"].value() / 100.0
-        contingency_pct = self._addl_spins["contingency_pct"].value() / 100.0
-
-        overhead_profit = (total_material + labour + transport) * (
-            overhead_pct + profit_pct
+        prices = ProjectMaterialPrices(
+            cement_per_bag=self._price_spins["cement_per_bag"].value(),
+            fine_aggregate_per_m3=self._price_spins["fine_agg_per_m3"].value(),
+            coarse_aggregate_per_m3=self._price_spins["coarse_agg_per_m3"].value(),
+            water_per_1000_liters=self._price_spins["water_per_1000l"].value(),
+            admixture_per_kg=self._price_spins["admixture_per_kg"].value(),
         )
-        subtotal = total_material + labour + transport + overhead_profit
-        contingency = subtotal * contingency_pct
-        grand_total = subtotal + contingency
-
-        # Cost per bag of concrete
-        cost_per_bag = (
-            grand_total / bill.total_cement_bags if bill.total_cement_bags > 0 else 0.0
+        options = ProjectCostOptions(
+            labour_count=self._addl_spins["labour_count"].value(),
+            labour_cost_per_unit=self._addl_spins["labour_cost_per_unit"].value(),
+            transport_per_m3=self._addl_spins["transport_per_m3"].value(),
+            plant_overhead_percent=self._addl_spins["plant_overhead_pct"].value(),
+            profit_percent=self._addl_spins["profit_pct"].value(),
+            contingency_percent=self._addl_spins["contingency_pct"].value(),
         )
-
-        # Build result data
-        self._last_cost_data = {
-            "material_cost_per_m3": mat_cost_m3,
-            "total_material_cost": total_material,
-            "total_project_cost": grand_total,
-            "cost_per_bag": cost_per_bag,
-            "material_breakdown": [
-                # qty/unit are metric; kind lets the panel convert for
-                # display (unit_price is currency per metric unit).
-                {
-                    "name": "Cement",
-                    "qty": bill.total_cement_bags,
-                    "unit": "bags",
-                    "kind": "count",
-                    "unit_price": cement_price,
-                    "total": cement_cost,
-                },
-                {
-                    "name": "Fine Aggregate",
-                    "qty": bill.total_fine_aggregate_bulk_m3,
-                    "unit": "m\u00b3",
-                    "kind": "volume",
-                    "unit_price": fa_price,
-                    "total": fa_cost,
-                },
-                {
-                    "name": "Coarse Aggregate",
-                    "qty": bill.total_coarse_aggregate_bulk_m3,
-                    "unit": "m\u00b3",
-                    "kind": "volume",
-                    "unit_price": ca_price,
-                    "total": ca_cost,
-                },
-                {
-                    "name": "Water",
-                    "qty": bill.total_water_liters,
-                    "unit": "L",
-                    "kind": "water",
-                    "unit_price": water_price,
-                    "total": water_cost,
-                },
-                {
-                    "name": "Admixture",
-                    "qty": bill.total_admixture_kg,
-                    "unit": "kg",
-                    "kind": "mass",
-                    "unit_price": admix_price,
-                    "total": admix_cost,
-                },
-            ],
-            "summary_rows": [
-                {"label": "Material Cost", "amount": total_material},
-                {"label": "Labour & Transport", "amount": labour + transport},
-                {
-                    "label": f"Overhead & Profit ({(overhead_pct + profit_pct) * 100:.0f}%)",
-                    "amount": overhead_profit,
-                },
-                {"label": "Subtotal", "amount": subtotal, "is_subtotal": True},
-                {
-                    "label": f"Contingency ({contingency_pct * 100:.0f}%)",
-                    "amount": contingency,
-                },
-                {"label": "GRAND TOTAL", "amount": grand_total, "is_total": True},
-            ],
-            "project_info": {
+        self._last_cost_data = estimate_project_cost(
+            bill,
+            prices=prices,
+            options=options,
+            project_info={
                 "name": self._proj_name.text(),
                 "location": self._proj_location.text(),
                 "client": self._proj_client.text(),
                 "date": self._proj_date.date().toString("yyyy-MM-dd"),
             },
-        }
+        )
+        mat_cost_m3 = self._last_cost_data["material_cost_per_m3"]
+        total_material = self._last_cost_data["total_material_cost"]
+        grand_total = self._last_cost_data["total_project_cost"]
 
         self._result_panel.display_cost(self._last_cost_data)
         self.cost_estimated.emit(self._last_cost_data)

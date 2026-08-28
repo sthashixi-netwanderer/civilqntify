@@ -112,10 +112,16 @@ def _doe_target(fck: float) -> tuple[float, float, str]:
     """Return (target, std_dev, description) per BRE 331:1997 §4.
 
     k = 1.64 (5% defective level).
-    Standard deviation from DOE Figure 3 Line B (≥20 results).
+    Structural assumption (this app): DOE mixes are for structural elements
+    (fc ≥ 25 MPa).  Standard deviation per BRE 331 Figure 3:
+    n < 20 → s = 8 MPa (Line A), n ≥ 20 → s = 4 MPa (Line B, §4.4).
+    This estimator defaults to the well-controlled case (n≥20, s=4 MPa)
+    when n is not supplied; for fc ≤ 20 MPa the ramps fc×8/20 (n<20)
+    and fc×4/20 (n≥20) are retained for completeness although
+    MixDesignInput enforces fc ≥ 25 MPa.
     """
     k = 1.64
-    # DOE Figure 3 Line B approximation (conservative, ≥20 results)
+    # DOE Line B (n≥20, s=4 MPa) for fc ≥ 20 MPa — default for estimator
     if fck <= 20:
         s = round(fck * 4.0 / 20.0, 2)
     else:

@@ -23,17 +23,17 @@ import math
 # Table 4: Approximate water content (kg/m³) for concrete per IS 10262:2019
 # Based on angular coarse aggregate and 50 mm slump (Clause 5.3)
 # Format: {nmsa_mm: water_kg_m3}
+#
+# IS 10262:2019 Table 4 gives a single value per NMSA (for 50 mm slump).
+# Adjustments (Clause 5.3):
+#   - Slump  : ±3 % per 25 mm change from 50 mm
+#   - Shape  : sub-angular −10 kg, gravel with some crushed particles −15 kg,
+#              rounded gravel −20 kg
+#   - Admixture: water reduction per Clause 5.3 / Annex G
 WATER_CONTENT: dict[int, float] = {
-    10: 208,  # 20 mm slump: 200, 50 mm slump: 208 (reference), 75: 220, 100: 228, 150: 240
-    20: 186,  # 50 mm slump: 186 (reference)
-    40: 165,  # 50 mm slump: 165 (reference)
-}
-
-# Backward-compatible slug-based lookup for interpolation
-_WATER_CONTENT_BY_SLUMP: dict[int, dict[int, float]] = {
-    10: {25: 200, 50: 208, 75: 220, 100: 228, 150: 240},
-    20: {25: 165, 50: 186, 75: 196, 100: 205, 150: 215},
-    40: {25: 145, 50: 165, 75: 175, 100: 185, 150: 195},
+    10: 208,
+    20: 186,
+    40: 165,
 }
 
 # Table 5: Volume of coarse aggregate per unit volume of total aggregate
@@ -61,16 +61,9 @@ CA_VOLUME_FRACTION: dict[int, dict[str, float]] = {
     },
 }
 
-# Grading zone adjustment factors for water content
-# IS 10262:2019 Clause 5.2 — adjust water based on sand grading zone
-# Zone II is the reference. Coarser sand (Zone I) needs less water,
-# finer sand (Zone III/IV) needs more water.
-GRADING_ZONE_ADJUSTMENT: dict[str, float] = {
-    "I": 0.97,  # Zone I (coarsest) — 3% less water
-    "II": 1.0,  # Zone II (reference zone) — no adjustment
-    "III": 1.03,  # Zone III — 3% more water
-    "IV": 1.06,  # Zone IV — 6% more water
-}
+# NOTE — No grading-zone water adjustment exists in IS 10262:2019.
+# The fine-aggregate grading zone affects only the coarse aggregate
+# volume fraction (Table 5), never the water content.
 
 # IS 10262:2019 Figure 1 — Polynomial curve coefficients
 # f(x) = a*x² + b*x + c where x = w/c ratio, f(x) = compressive strength (MPa)
@@ -167,19 +160,19 @@ IS456_EXPOSURE_LIMITS: dict[str, dict[str, dict[str, float | str]]] = {
     },
 }
 
-# IS 10262:2019 Clause 5.2 — Water content adjustment for aggregate shape
+# IS 10262:2019 Clause 5.3 — Water content adjustment for aggregate shape
 # Table 4 states: "water content in Table 4 is for angular coarse aggregate"
 # Therefore angular is the BASE condition (no adjustment).
-# Adjustments from standard (in kg/m³, not percentages):
+# Adjustments from Clause 5.3 (in kg/m³):
 #   Sub-angular: -10 kg
-#   Gravel with crushed particles: -15 kg
+#   Gravel with some crushed particles: -15 kg
 #   Rounded gravel: -20 kg
 AGGREGATE_SHAPE_ADJUSTMENT_KG: dict[str, float] = {
     "angular": 0.0,  # Angular crushed rock — base condition (no adjustment)
     "crushed_fragments": 0.0,  # Crushed fragments — same as angular
     "sub_angular": -10.0,  # Sub-angular — reduce water by 10 kg/m³
+    "gravel": -15.0,  # Gravel with some crushed particles — reduce by 15 kg/m³
     "rounded_gravel": -20.0,  # Rounded gravel — reduce water by 20 kg/m³
-    "gravel": -20.0,  # Natural gravel — reduce water by 20 kg/m³
 }
 
 # Standard deviation values by concrete grade
@@ -296,17 +289,16 @@ def wc_ratio_from_strength(
     Returns:
         Free water-cement ratio
     """
-    # Cement grade offset per IS Fig.1: stronger cement → higher w/c at same target
-    # OPC 43 is the reference (0 offset). OPC 33 (33 MPa) is weaker by ~10 MPa,
-    # OPC 53 (53 MPa) is stronger by ~10 MPa. Empirically 0.004 per MPa (~0.04
-    # per grade) reproduces the standard's curve spacing while keeping annex
-    # examples exact.
+    # Cement grade offset per IS 10262:2019 Fig. 1: stronger cement → higher
+    # w/c at same target strength. OPC 43 is the reference (Curve 2, 0 offset).
+    # Per Fig. 1 Note 2, PPC/PSC use Curve 2 (OPC 43) in the absence of actual
+    # 28-day cement strength data.
     cement_strength = {
         "OPC_33": 33.0,
         "OPC_43": 43.0,
         "OPC_53": 53.0,
-        "PPC": 33.0,  # PPC ≈ OPC 33 per IS 1489
-        "PSC": 33.0,
+        "PPC": 43.0,  # Fig. 1 Note 2 — use Curve 2 (OPC 43)
+        "PSC": 43.0,  # Fig. 1 Note 2 — use Curve 2 (OPC 43)
     }.get(cement_type_str, 43.0)
 
     # Solve quadratic for base (OPC 43): a*x² + b*x + (c - target) = 0
@@ -377,13 +369,18 @@ def get_w_c_ratio_table(cement_type_str: str) -> dict[float, float]:
 def interpolate_water_content(
     nmsa: int, slump_mm: float, grading_zone: str = "II"
 ) -> float:
-    """Get water content (kg/m³) from IS 10262:2019 Clause 5.3.
+    """Get water content (kg/m³) from IS 10262:2019 Clause 5.3 / Table 4.
 
-    Uses the 50mm slump value as the base, then applies:
-    +3% for each 25mm increase in slump above 50mm
-    -3% for each 25mm decrease in slump below 50mm
+    Uses the 50 mm slump value from Table 4 as the base, then applies the
+    Clause 5.3 slump rule:
+    +3% for each 25 mm increase in slump above 50 mm
+    -3% for each 25 mm decrease in slump below 50 mm
 
-    Finally applies the grading zone adjustment factor.
+    ``grading_zone`` is accepted for call-site compatibility but has no
+    effect: IS 10262:2019 contains no grading-zone water adjustment (the
+    zone only affects the coarse aggregate fraction, Table 5).
+    Aggregate shape and admixture adjustments are applied separately in
+    the design method (Clause 5.3 / Annex G).
     """
     if nmsa not in WATER_CONTENT:
         raise ValueError(f"NMSA {nmsa}mm not in IS water content table")
@@ -395,11 +392,7 @@ def interpolate_water_content(
     delta_slump = slump_mm - 50.0
     num_25mm_steps = delta_slump / 25.0
     pct_change = 3.0 * num_25mm_steps  # +3% per 25mm up, -3% per 25mm down
-    water_kg = base_water * (1.0 + pct_change / 100.0)
-
-    # Apply grading zone adjustment
-    adjustment = GRADING_ZONE_ADJUSTMENT.get(grading_zone, 1.0)
-    return water_kg * adjustment
+    return base_water * (1.0 + pct_change / 100.0)
 
 
 # IS 10262:2019 Table 1 — X values for target strength calculation
@@ -464,13 +457,11 @@ def calculate_target_strength(
     f'ck = fck + 1.65 × S   (if higher)
     f'ck = fck + X           (if higher)
 
-    Both formulae are evaluated; the higher value is selected.
-    Result is ceiled to 1 decimal place.
+    Both formulae are evaluated; the higher value is selected, as in the
+    standard's Annex A worked example (M40 → 48.25 N/mm², kept unrounded).
 
     Returns (target_strength, description_string).
     """
-    import math
-
     grade = _grade_from_fck(fck)
     x_val = X_VALUES.get(grade, 6.5)
 
@@ -480,27 +471,27 @@ def calculate_target_strength(
     ftm_sigma = fck + 1.65 * std_dev
     ftm_x = fck + x_val
 
-    # Ceil to 1 decimal place
-    ftm_sigma_ceil = math.ceil(ftm_sigma * 10) / 10
-    ftm_x_ceil = math.ceil(ftm_x * 10) / 10
+    # Keep exact values (Annex A: 48.25 stays 48.25); round only for display
+    ftm_sigma_r = round(ftm_sigma, 2)
+    ftm_x_r = round(ftm_x, 2)
 
-    sigma_desc = f"f'ck = {fck} + 1.65 × {std_dev} = {ftm_sigma_ceil:.1f} MPa"
-    x_desc = f"f'ck = {fck} + {x_val} = {ftm_x_ceil:.1f} MPa"
+    sigma_desc = f"f'ck = {fck} + 1.65 × {std_dev} = {ftm_sigma_r:.2f} MPa"
+    x_desc = f"f'ck = {fck} + {x_val} = {ftm_x_r:.2f} MPa"
 
-    if ftm_sigma_ceil >= ftm_x_ceil:
+    if ftm_sigma_r >= ftm_x_r:
         desc = (
             f"Formula 1: {sigma_desc}\n"
             f"Formula 2: {x_desc}\n"
-            f"→ Higher value = Formula 1 (1.65×S) = {ftm_sigma_ceil:.1f} MPa"
+            f"→ Higher value = Formula 1 (1.65×S) = {ftm_sigma_r:.2f} MPa"
         )
-        return ftm_sigma_ceil, desc
+        return ftm_sigma_r, desc
     else:
         desc = (
             f"Formula 1: {sigma_desc}\n"
             f"Formula 2: {x_desc}\n"
-            f"→ Higher value = Formula 2 (X factor) = {ftm_x_ceil:.1f} MPa"
+            f"→ Higher value = Formula 2 (X factor) = {ftm_x_r:.2f} MPa"
         )
-        return ftm_x_ceil, desc
+        return ftm_x_r, desc
 
 
 def adjust_ca_volume_for_wcr(ca_fraction: float, wcr: float) -> float:
@@ -509,11 +500,16 @@ def adjust_ca_volume_for_wcr(ca_fraction: float, wcr: float) -> float:
     IS 10262:2019 Clause 5.5.1:
     Base at W/C = 0.50. Increase 0.01 for every 0.05 decrease in W/C,
     decrease 0.01 for every 0.05 increase in W/C.
+
+    The adjustment is applied proportionally, exactly as in the standard's
+    own Annex A worked example: for W/C = 0.36 (0.14 below 0.50) the coarse
+    aggregate fraction 0.62 is increased by 0.028 (not a rounded 0.03),
+    giving 0.648.
     """
     delta = (0.50 - wcr) / 0.05
-    adjusted = ca_fraction + round(delta) * 0.01
+    adjusted = ca_fraction + delta * 0.01
     # Clamp to reasonable range
-    return round(max(0.30, min(0.85, adjusted)), 2)
+    return round(max(0.30, min(0.85, adjusted)), 3)
 
 
 def interpolate_w_c_ratio(target_strength_mpa: float, cement_type_str: str) -> float:
@@ -576,42 +572,49 @@ def get_std_dev(grade: str) -> float:
     return 5.0
 
 
-# ── IS 10262:2019 Annex G — Admixture water reduction ranges ──
-# (dosage_min%, dosage_max%) → (reduction_min%, reduction_max%)
-# Linear interpolation within these ranges per Annex G-3.
+# ── IS 10262:2019 Annex G / ACI / BS Admixture water reduction ranges ──
+# (min_dosage%, max_dosage%, min_reduction%, max_reduction%)
 ADMIXTURE_WATER_REDUCTION_RANGES: dict[str, tuple[float, float, float, float]] = {
-    # G-3: Plasticizers (lignosulphonates): 0.3–0.5% → 8–12% water reduction
+    # IS 10262:2019 Annex G / BS 5075
     "plasticizer": (0.3, 0.5, 8.0, 12.0),
-    # G-3: Superplasticizers (SMFC/SNFC): 0.5–1.5% → 15–30% water reduction
     "smfc": (0.5, 1.5, 15.0, 30.0),
     "snfc": (0.5, 1.5, 15.0, 30.0),
-    # G-3: PCE type — lower dosages, 30%+ water reduction
     "pce": (0.3, 1.0, 25.0, 35.0),
-    # Generic superplasticizer (same as SMFC/SNFC range)
     "superplasticizer": (0.5, 1.5, 15.0, 30.0),
-    # HRWRA — high range water reducing admixture
     "hrwra": (0.5, 1.5, 20.0, 35.0),
+    # ACI 211.1-22 Chapter 6 / ASTM C494
+    "water_reducer": (0.2, 0.6, 5.0, 12.0),
+    "water_reducer_retarder": (0.2, 0.6, 5.0, 12.0),
+    "water_reducer_accelerator": (0.2, 0.6, 5.0, 12.0),
+    "hrwra_retarder": (0.5, 1.5, 15.0, 35.0),
+    "retarder": (0.2, 0.5, 0.0, 5.0),
+    "accelerator": (0.5, 2.0, 0.0, 5.0),
+    "air_entraining": (0.05, 0.2, 0.0, 5.0),
 }
 
 
 def compute_water_reduction(
-    admixture_type: str, dosage_percent: float
+    admixture_type: str, dosage_percent: float, code: str = "is10262"
 ) -> tuple[float, str]:
-    """Compute water reduction % from admixture type and dosage per IS 10262:2019 Annex G.
+    """Compute water reduction % from admixture type and dosage per relevant standard.
 
-    Uses linear interpolation within the IS standard ranges:
+    IS 10262:2019 Annex G:
         Plasticizer:       0.3–0.5%  →  8–12% water reduction
         Superplasticizer:  0.5–1.5%  → 15–30% water reduction
+    ACI 211.1-22 §6.3 / ASTM C494:
+        Water Reducer:     0.2–0.6%  →  5–12% water reduction
+        HRWRA:             0.5–1.5%  → 12–40% water reduction
 
     Args:
-        admixture_type: One of "plasticizer", "superplasticizer"
+        admixture_type: Admixture key
         dosage_percent: Dosage as % by weight of cementitious material
+        code: Active mix design code
 
     Returns:
         (water_reduction_percent, description_string)
     """
     if admixture_type not in ADMIXTURE_WATER_REDUCTION_RANGES:
-        return 0.0, f"Admixture type '{admixture_type}' not in IS 10262 Annex G ranges"
+        return 0.0, f"Admixture type '{admixture_type}' not in standard ranges"
 
     d_min, d_max, r_min, r_max = ADMIXTURE_WATER_REDUCTION_RANGES[admixture_type]
 
@@ -620,14 +623,14 @@ def compute_water_reduction(
     elif dosage_percent >= d_max:
         reduction = r_max
     else:
-        # Linear interpolation
         fraction = (dosage_percent - d_min) / (d_max - d_min)
         reduction = r_min + fraction * (r_max - r_min)
 
     reduction = round(reduction, 1)
+    std_name = "IS 10262:2019 Annex G" if code == "is10262" else ("ACI 211.1-22 §6.3" if code == "aci211" else "BRE 331:1997 §5.3")
     desc = (
-        f"IS 10262:2019 Annex G\n"
-        f"  {admixture_type.title()}: dosage {d_min}–{d_max}% → water reduction {r_min}–{r_max}%\n"
+        f"{std_name}\n"
+        f"  {admixture_type.replace('_', ' ').title()}: dosage {d_min}–{d_max}% → water reduction {r_min}–{r_max}%\n"
         f"  Input dosage: {dosage_percent:.1f}%\n"
         f"  Computed water reduction: {reduction:.1f}%"
     )

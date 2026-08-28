@@ -1,14 +1,14 @@
 """Material Quantification tab — element inputs + material bill dashboard.
 
-Layout follows the same Stitch design system as ConcreteMixTab:
-- Left panel: mix design inputs (editable), element definition, wastage
+Provides two quantification workflows via subtabs:
+1. Design Mix Proportions: Per-m³ batch inputs / automated transfer from Mix Design tab
+2. Mix Ratios & Volume: Volumetric nominal mix ratios (e.g. 1:2:4, 1:1.5:3, 1:1:2, mortars)
+   with dry volume shrinkage factor (1.54 / 1.33) and cement bag volume (1 bag = 0.035 m³).
+
+Layout follows the Stitch design system:
+- Left panel: subtabbed input forms (Design Mix Proportions / Mix Ratios & Volume)
 - Right panel: material bill summary cards, detailed breakdown table, export
 - Real-time recalculation when inputs change (debounced via worker thread)
-
-Data flow:
-  ConcreteMixTab → MixDesignResult → MixDesignTransferData → this tab
-  OR standalone: user enters mix parameters directly
-  User edits overrides / adds elements → MaterialQuantifier → MaterialBill → display
 """
 
 from __future__ import annotations
@@ -31,11 +31,18 @@ from PyQt6.QtWidgets import (
     QSplitter,
     QTableWidget,
     QTableWidgetItem,
+    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
 
-from material_quantify import StructuralElement
+from material_quantify import (
+    MIX_RATIO_PRESETS,
+    MaterialQuantifier,
+    MixRatioPreset,
+    MixRatioQuantifier,
+    StructuralElement,
+)
 from material_quantify.models.bill import MaterialBill
 from material_quantify.models.transfer_data import MixDesignTransferData
 from app.unit_preferences import get_unit_prefs
@@ -85,7 +92,7 @@ class ManualTransferData:
 
 
 class MaterialQuantifyTab(QWidget):
-    """Tab for material quantification from mix design results."""
+    """Tab for material quantification from mix designs or mix ratios."""
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -112,19 +119,51 @@ class MaterialQuantifyTab(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(splitter)
 
-        # Left: scrollable input form — responsive
-        input_scroll = QScrollArea()
-        input_scroll.setWidgetResizable(True)
-        input_scroll.setFrameShape(QScrollArea.Shape.NoFrame)
-        input_scroll.setMinimumWidth(360)
-        input_scroll.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
-        input_widget = QWidget()
-        self._form = QVBoxLayout(input_widget)
+        # Left: tabbed input panel — responsive: min 360, stretchable via splitter
+        self._left_tabs = QTabWidget()
+        self._left_tabs.setMinimumWidth(360)
+        self._left_tabs.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
+        self._left_tabs.currentChanged.connect(self._on_subtab_changed)
+
+        # Subtab 1: Design Mix Proportions
+        design_scroll = QScrollArea()
+        design_scroll.setWidgetResizable(True)
+        design_scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        design_widget = QWidget()
+        self._form = QVBoxLayout(design_widget)
         self._form.setContentsMargins(16, 16, 12, 16)
         self._form.setSpacing(8)
         self._build_form()
-        input_scroll.setWidget(input_widget)
-        splitter.addWidget(input_scroll)
+        design_scroll.setWidget(design_widget)
+
+        design_page = QWidget()
+        design_layout = QVBoxLayout(design_page)
+        design_layout.setContentsMargins(0, 0, 0, 0)
+        design_layout.setSpacing(0)
+        design_layout.addWidget(design_scroll, 1)
+        design_layout.addLayout(self._action_bar)
+        self._left_tabs.addTab(design_page, "Design Mix Proportions")
+
+        # Subtab 2: Mix Ratios & Volume
+        ratio_scroll = QScrollArea()
+        ratio_scroll.setWidgetResizable(True)
+        ratio_scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        ratio_widget = QWidget()
+        self._ratio_form = QVBoxLayout(ratio_widget)
+        self._ratio_form.setContentsMargins(16, 16, 12, 16)
+        self._ratio_form.setSpacing(8)
+        self._build_ratio_form()
+        ratio_scroll.setWidget(ratio_widget)
+
+        ratio_page = QWidget()
+        ratio_layout = QVBoxLayout(ratio_page)
+        ratio_layout.setContentsMargins(0, 0, 0, 0)
+        ratio_layout.setSpacing(0)
+        ratio_layout.addWidget(ratio_scroll, 1)
+        ratio_layout.addLayout(self._ratio_action_bar)
+        self._left_tabs.addTab(ratio_page, "Mix Ratios & Volume")
+
+        splitter.addWidget(self._left_tabs)
 
         # Right: result panel — expands
         self._result_panel = QuantResultPanel()
@@ -145,6 +184,7 @@ class MaterialQuantifyTab(QWidget):
         self._result_panel.btn_report.clicked.connect(self._show_preview)
 
     def _build_form(self) -> None:
+        """Build Subtab 1: Design Mix Proportions form."""
         # ── Status Banner ──
         self._status_banner = QLabel("Standalone mode — enter mix parameters manually.")
         self._status_banner.setObjectName("info-banner")
@@ -502,13 +542,301 @@ class MaterialQuantifyTab(QWidget):
         self._form.addWidget(grp_wastage)
 
         # ── Calculate Button ──
-        self._form.addSpacing(8)
+        action_bar = QHBoxLayout()
+        action_bar.setContentsMargins(16, 6, 12, 14)
         self.calc_btn = QPushButton("  Calculate Material Quantities")
         self.calc_btn.setMinimumHeight(44)
         self.calc_btn.clicked.connect(self._run_quantification)
-        self._form.addWidget(self.calc_btn)
+        action_bar.addWidget(self.calc_btn)
+        self._action_bar = action_bar
 
         self._form.addStretch()
+
+    # ── Subtab 2: Mix Ratios & Volume ─────────────────────────────────
+
+    def _build_ratio_form(self) -> None:
+        """Build Subtab 2: Mix Ratios & Volume form."""
+        # ── Status / Info Banner ──
+        self._ratio_status_banner = QLabel(
+            "Mix Ratio Mode \u2014 enter mix proportions (Cement : Sand : Coarse Agg) and work volume. "
+            "Note: 1 bag of cement = 0.035 m\u00b3."
+        )
+        self._ratio_status_banner.setObjectName("info-banner")
+        self._ratio_status_banner.setWordWrap(True)
+        self._ratio_status_banner.setStyleSheet(
+            "background-color: #dbeafe; color: #1e40af; "
+            "border: 1px solid #3b82f6; border-radius: 4px; "
+            "padding: 10px 14px; font-weight: 600;"
+        )
+        self._ratio_form.addWidget(self._ratio_status_banner)
+
+        # ── Mix Preset & Proportions ──
+        grp_ratio = self._group("Mix Proportions (Cement : Sand : Coarse Agg)")
+        ratio_form = QFormLayout()
+        ratio_form.setSpacing(6)
+        ratio_form.setContentsMargins(12, 16, 12, 12)
+
+        # Presets dropdown
+        preset_items = [(name, name) for name in MIX_RATIO_PRESETS.keys()]
+        preset_items.append(("Custom Ratio", "Custom"))
+        self.ratio_preset_combo = self._combo(preset_items, default="M20 (1:1.5:3)")
+        self.ratio_preset_combo.currentIndexChanged.connect(self._on_ratio_preset_changed)
+        ratio_form.addRow(
+            self._label_with_info(
+                "Standard Preset",
+                "Select a standard nominal concrete or mortar mix preset,\n"
+                "or choose 'Custom Ratio' to specify any arbitrary proportion.\n\n"
+                "Standard Nominal Mixes:\n"
+                "  M25 (1:1:2): Heavy RCC, columns, water tanks\n"
+                "  M20 (1:1.5:3): Standard RCC slabs, beams, columns\n"
+                "  M15 (1:2:4): General RCC, small slabs, mass work\n"
+                "  M10 (1:3:6): Plain cement concrete (PCC), bedding\n"
+                "  M7.5 (1:4:8): Foundation leveling bed\n"
+                "  M5 (1:5:10): Lean concrete base\n\n"
+                "Mortar Mixes (Sand only, Coarse Agg = 0):\n"
+                "  1:3: Pointing, repairs, waterproof plaster\n"
+                "  1:4: External plastering, loadbearing masonry\n"
+                "  1:5: General brick/block masonry\n"
+                "  1:6: Internal plastering, partition walls",
+            ),
+            self.ratio_preset_combo,
+        )
+
+        # Cement parts
+        self.ratio_cement_spin = self._spin(1.0, 0.1, 100.0, 0.1, 2)
+        self.ratio_cement_spin.valueChanged.connect(self._on_ratio_spin_changed)
+        ratio_form.addRow(
+            self._label_with_info(
+                "Cement Ratio (Parts)",
+                "Volumetric proportion of cement (normally 1.0 part).\n"
+                "1 bag of cement occupies 0.035 m³.",
+            ),
+            self.ratio_cement_spin,
+        )
+
+        # Fine Aggregate (Sand) parts
+        self.ratio_sand_spin = self._spin(1.5, 0.0, 100.0, 0.1, 2)
+        self.ratio_sand_spin.valueChanged.connect(self._on_ratio_spin_changed)
+        ratio_form.addRow(
+            self._label_with_info(
+                "Fine Agg / Sand (Parts)",
+                "Volumetric proportion of fine aggregate (sand).\n"
+                "e.g., 1.5 in a 1:1.5:3 mix.",
+            ),
+            self.ratio_sand_spin,
+        )
+
+        # Coarse Aggregate (Gravel/Stone) parts
+        self.ratio_gravel_spin = self._spin(3.0, 0.0, 100.0, 0.1, 2)
+        self.ratio_gravel_spin.valueChanged.connect(self._on_ratio_spin_changed)
+        ratio_form.addRow(
+            self._label_with_info(
+                "Coarse Agg / Stone (Parts)",
+                "Volumetric proportion of coarse aggregate (gravel/crushed stone).\n"
+                "Set to 0.0 for mortar / plaster mixes.",
+            ),
+            self.ratio_gravel_spin,
+        )
+
+        # Water-Cement Ratio
+        self.ratio_wc_spin = self._spin(0.50, 0.20, 1.50, 0.01, 3)
+        self.ratio_wc_spin.valueChanged.connect(self._on_ratio_spin_changed)
+        ratio_form.addRow(
+            self._label_with_info(
+                "Water-Cement Ratio (W/C)",
+                "Ratio of water mass to cement mass.\n"
+                "Typical values:\n"
+                "  0.45: M25 high strength\n"
+                "  0.50: M20 standard RCC (~25 L per 50 kg bag)\n"
+                "  0.55: M15 general concrete (~27.5 L per bag)\n"
+                "  0.60: M10 / PCC (~30 L per bag)",
+            ),
+            self.ratio_wc_spin,
+        )
+
+        # Ratio summary label
+        self.ratio_summary_lbl = QLabel("Proportion: 1 : 1.5 : 3  (Total Parts = 5.50)")
+        self.ratio_summary_lbl.setStyleSheet(
+            "font-weight: 700; color: #1e40af; font-family: 'JetBrains Mono', monospace; padding: 4px 0;"
+        )
+        ratio_form.addRow(self.ratio_summary_lbl)
+
+        grp_ratio.setLayout(ratio_form)
+        self._ratio_form.addWidget(grp_ratio)
+
+        # ── Quantification Mode ──
+        grp_ratio_mode = self._group("Volume of Work Basis")
+        ratio_mode_form = QFormLayout()
+        ratio_mode_form.setSpacing(8)
+        ratio_mode_form.setContentsMargins(12, 16, 12, 12)
+        self.ratio_mode_combo = self._combo(
+            [
+                ("Total Work Volume", "volume"),
+                ("Structural Element Dimensions", "elements"),
+            ],
+            default="volume",
+        )
+        self.ratio_mode_combo.currentIndexChanged.connect(self._on_ratio_mode_changed)
+        ratio_mode_form.addRow(
+            self._label_with_info(
+                "Mode",
+                "Volume mode: enter total volume of concrete/mortar directly.\n"
+                "Element mode: define structural elements (slabs, beams, columns, etc.) and auto-calculate volume.",
+            ),
+            self.ratio_mode_combo,
+        )
+        grp_ratio_mode.setLayout(ratio_mode_form)
+        self._ratio_form.addWidget(grp_ratio_mode)
+
+        # ── Volume Mode Group ──
+        self._grp_ratio_volume = self._group("Total Volume of Work")
+        vol_form = QFormLayout()
+        vol_form.setSpacing(8)
+        vol_form.setContentsMargins(12, 16, 12, 12)
+        self.ratio_volume_spin = UnitSpinBox("volume", 10.0, 0.01, 100000.0, 1.0, 3)
+        self.ratio_volume_spin.valueChanged.connect(self._on_input_changed)
+        self._ratio_volume_label = self._label_with_info(
+            "Work Volume (m\u00b3)",
+            "Total net volume of concrete or mortar work in cubic metres.\n"
+            "Wastage and dry-volume void factors will be applied during estimation.",
+        )
+        vol_form.addRow(self._ratio_volume_label, self.ratio_volume_spin)
+        self._grp_ratio_volume.setLayout(vol_form)
+        self._ratio_form.addWidget(self._grp_ratio_volume)
+
+        # ── Element Mode Group ──
+        self._grp_ratio_elements = self._group("Structural Elements")
+        elem_layout = QVBoxLayout()
+        elem_layout.setSpacing(8)
+        elem_layout.setContentsMargins(12, 16, 12, 12)
+
+        self._ratio_elem_table = QTableWidget(0, len(_ELEM_HEADERS))
+        self._ratio_elem_table.setHorizontalHeaderLabels(self._element_headers())
+        self._ratio_elem_table.horizontalHeader().setSectionResizeMode(
+            QHeaderView.ResizeMode.Stretch
+        )
+        self._ratio_elem_table.setMinimumHeight(160)
+        self._ratio_elem_table.setMaximumHeight(260)
+        self._ratio_elem_table.itemChanged.connect(self._on_ratio_element_changed)
+        elem_layout.addWidget(self._ratio_elem_table)
+
+        elem_btn_row = QHBoxLayout()
+        elem_btn_row.setSpacing(8)
+        self._btn_add_ratio_elem = QPushButton("Add Element")
+        self._btn_add_ratio_elem.setObjectName("secondary")
+        self._btn_add_ratio_elem.clicked.connect(self._add_ratio_element)
+        self._btn_del_ratio_elem = QPushButton("Remove Selected")
+        self._btn_del_ratio_elem.setObjectName("secondary")
+        self._btn_del_ratio_elem.clicked.connect(self._remove_ratio_element)
+        self._ratio_elem_total_label = QLabel("Total: 0.000 m\u00b3")
+        self._ratio_elem_total_label.setStyleSheet(
+            "font-weight: 700; font-family: 'JetBrains Mono', monospace;"
+        )
+        elem_btn_row.addWidget(self._btn_add_ratio_elem)
+        elem_btn_row.addWidget(self._btn_del_ratio_elem)
+        elem_btn_row.addStretch()
+        elem_btn_row.addWidget(self._ratio_elem_total_label)
+        elem_layout.addLayout(elem_btn_row)
+
+        self._grp_ratio_elements.setLayout(elem_layout)
+        self._grp_ratio_elements.setVisible(False)
+        self._ratio_form.addWidget(self._grp_ratio_elements)
+
+        # ── Estimation Factors & Material Densities ──
+        grp_factors = self._group("Factors & Material Constants")
+        fact_form = QFormLayout()
+        fact_form.setSpacing(6)
+        fact_form.setContentsMargins(12, 16, 12, 12)
+
+        # Dry volume factor
+        self.ratio_dry_factor_spin = self._spin(1.54, 1.0, 2.50, 0.01, 2)
+        self.ratio_dry_factor_spin.valueChanged.connect(self._on_input_changed)
+        fact_form.addRow(
+            self._label_with_info(
+                "Dry Volume Factor",
+                "Multiplier to convert wet compacted volume into dry unmixed ingredient volume.\n\n"
+                "Standard engineering values:\n"
+                "  Concrete: 1.54 (54% extra for aggregate void filling and shrinkage)\n"
+                "  Mortar: 1.33 (33% extra for sand void filling)\n\n"
+                "Dry Volume = Wet Gross Volume × Dry Volume Factor.",
+            ),
+            self.ratio_dry_factor_spin,
+        )
+
+        # Wastage
+        self.ratio_wastage_spin = self._spin(5.0, 0.0, 30.0, 0.5, 1)
+        self.ratio_wastage_spin.valueChanged.connect(self._on_input_changed)
+        fact_form.addRow(
+            self._label_with_info(
+                "Wastage Factor (%)",
+                "Percentage added for handling, mixing, transporting, and compaction losses.\n"
+                "Typical: 3–5% for batch plant, 5–10% for site mixing.",
+            ),
+            self.ratio_wastage_spin,
+        )
+
+        # Cement Bag Volume
+        self.ratio_bag_vol_spin = self._spin(0.035, 0.010, 0.100, 0.001, 3, suffix=" m\u00b3")
+        self.ratio_bag_vol_spin.valueChanged.connect(self._on_input_changed)
+        fact_form.addRow(
+            self._label_with_info(
+                "Cement Bag Volume",
+                "Volume occupied by one bag of cement.\n\n"
+                "Standard: 1 bag (50 kg) = 0.035 m³\n"
+                "(1 m³ of dry cement = 1 / 0.035 ≈ 28.57 bags).\n\n"
+                "Cement Bags = Cement Volume (m³) ÷ 0.035 m³",
+            ),
+            self.ratio_bag_vol_spin,
+        )
+
+        # Cement Bag Weight
+        self.ratio_bag_weight_spin = UnitSpinBox("mass", 50.0, 20.0, 100.0, 1.0, 0)
+        self.ratio_bag_weight_spin.valueChanged.connect(self._on_input_changed)
+        fact_form.addRow(
+            self._label_with_info(
+                "Cement Bag Weight",
+                "Mass of one bag of cement (standard: 50 kg / 110.2 lb).",
+            ),
+            self.ratio_bag_weight_spin,
+        )
+
+        # Sand Bulk Density
+        self.ratio_sand_density_spin = self._spin(1600.0, 1000.0, 2500.0, 50.0, 0, suffix=" kg/m\u00b3")
+        self.ratio_sand_density_spin.valueChanged.connect(self._on_input_changed)
+        fact_form.addRow(
+            self._label_with_info(
+                "Sand Bulk Density",
+                "Bulk density of dry sand (typically 1450–1650 kg/m³).\n"
+                "Used to calculate total sand mass from volume.",
+            ),
+            self.ratio_sand_density_spin,
+        )
+
+        # Coarse Agg Bulk Density
+        self.ratio_gravel_density_spin = self._spin(1500.0, 1000.0, 2500.0, 50.0, 0, suffix=" kg/m\u00b3")
+        self.ratio_gravel_density_spin.valueChanged.connect(self._on_input_changed)
+        fact_form.addRow(
+            self._label_with_info(
+                "Coarse Agg Density",
+                "Bulk density of coarse aggregate (typically 1450–1600 kg/m³).\n"
+                "Used to calculate total coarse aggregate mass from volume.",
+            ),
+            self.ratio_gravel_density_spin,
+        )
+
+        grp_factors.setLayout(fact_form)
+        self._ratio_form.addWidget(grp_factors)
+
+        # Pinned Action Bar
+        ratio_action_bar = QHBoxLayout()
+        ratio_action_bar.setContentsMargins(16, 6, 12, 14)
+        self.ratio_calc_btn = QPushButton("  Calculate Material Quantities")
+        self.ratio_calc_btn.setMinimumHeight(44)
+        self.ratio_calc_btn.clicked.connect(self._run_quantification)
+        ratio_action_bar.addWidget(self.ratio_calc_btn)
+        self._ratio_action_bar = ratio_action_bar
+
+        self._ratio_form.addStretch()
 
     # ── Helpers ──────────────────────────────────────────────────────
 
@@ -521,8 +849,6 @@ class MaterialQuantifyTab(QWidget):
             "font-size: 11px; font-weight: 700; text-transform: uppercase; "
             "letter-spacing: 0.05em; color: #444653;"
         )
-        # Wrap so long labels reflow instead of forcing the sidebar wider
-        # than its 360px floor (content would clip behind the scroll area).
         lbl.setWordWrap(True)
         lbl.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
         return lbl
@@ -574,6 +900,163 @@ class MaterialQuantifyTab(QWidget):
         sb.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         return sb
 
+    # ── Mix Ratio Subtab Event Handlers ──────────────────────────────
+
+    def _block_ratio_signals(self, block: bool) -> None:
+        self.ratio_cement_spin.blockSignals(block)
+        self.ratio_sand_spin.blockSignals(block)
+        self.ratio_gravel_spin.blockSignals(block)
+        self.ratio_wc_spin.blockSignals(block)
+        self.ratio_dry_factor_spin.blockSignals(block)
+
+    def _on_ratio_preset_changed(self) -> None:
+        preset_name = self.ratio_preset_combo.currentText()
+        if preset_name in MIX_RATIO_PRESETS:
+            p = MIX_RATIO_PRESETS[preset_name]
+            self._block_ratio_signals(True)
+            self.ratio_cement_spin.setValue(p.cement_ratio)
+            self.ratio_sand_spin.setValue(p.sand_ratio)
+            self.ratio_gravel_spin.setValue(p.gravel_ratio)
+            self.ratio_wc_spin.setValue(p.w_c_ratio)
+            self.ratio_dry_factor_spin.setValue(p.dry_volume_factor)
+            self._block_ratio_signals(False)
+            self._update_ratio_summary()
+            self._on_input_changed()
+
+    def _on_ratio_spin_changed(self) -> None:
+        self._update_ratio_summary()
+        # Check if current ratio matches any preset
+        c = self.ratio_cement_spin.value()
+        s = self.ratio_sand_spin.value()
+        g = self.ratio_gravel_spin.value()
+        matched = False
+        for name, p in MIX_RATIO_PRESETS.items():
+            if (
+                abs(p.cement_ratio - c) < 0.001
+                and abs(p.sand_ratio - s) < 0.001
+                and abs(p.gravel_ratio - g) < 0.001
+            ):
+                self.ratio_preset_combo.blockSignals(True)
+                self.ratio_preset_combo.setCurrentText(name)
+                self.ratio_preset_combo.blockSignals(False)
+                matched = True
+                break
+        if not matched:
+            self.ratio_preset_combo.blockSignals(True)
+            self.ratio_preset_combo.setCurrentText("Custom Ratio")
+            self.ratio_preset_combo.blockSignals(False)
+        self._on_input_changed()
+
+    def _update_ratio_summary(self) -> None:
+        c = self.ratio_cement_spin.value()
+        s = self.ratio_sand_spin.value()
+        g = self.ratio_gravel_spin.value()
+        total = c + s + g
+        if g > 0:
+            text = f"Proportion: {c:g} : {s:g} : {g:g}  (Total Parts = {total:g})"
+        else:
+            text = f"Mortar Proportion: {c:g} : {s:g}  (Total Parts = {total:g})"
+        self.ratio_summary_lbl.setText(text)
+
+    def _on_ratio_mode_changed(self) -> None:
+        mode = self.ratio_mode_combo.currentData()
+        is_vol = mode == "volume"
+        self._grp_ratio_volume.setVisible(is_vol)
+        self._grp_ratio_elements.setVisible(not is_vol)
+        self._on_input_changed()
+
+    def _on_subtab_changed(self, index: int) -> None:
+        """Handle user switching subtabs."""
+        self._on_input_changed()
+
+    # ── Ratio Element Table ──────────────────────────────────────────
+
+    def _add_ratio_element(self) -> None:
+        """Add a new element row to the ratio elements table."""
+        self._ratio_elem_table.blockSignals(True)
+        row = self._ratio_elem_table.rowCount()
+        self._ratio_elem_table.insertRow(row)
+
+        type_combo = QComboBox()
+        for t in _ELEMENT_TYPES:
+            type_combo.addItem(t)
+        self._ratio_elem_table.setCellWidget(row, 0, type_combo)
+        type_combo.currentIndexChanged.connect(lambda: self._on_input_changed())
+
+        for col in range(1, 5):
+            if col < 4:
+                spin = UnitSpinBox("length_m", 1.0, 0.001, 1000.0, 0.1, 3)
+            else:
+                spin = QDoubleSpinBox()  # type: ignore[assignment]
+                spin.setRange(1, 10000)
+                spin.setDecimals(0)
+                spin.setValue(1)
+                spin.setSingleStep(1)
+            spin.valueChanged.connect(self._on_input_changed)
+            spin.valueChanged.connect(lambda _=None: self._update_ratio_element_volumes())
+            self._ratio_elem_table.setCellWidget(row, col, spin)
+
+        vol_item = QTableWidgetItem("1.000")
+        vol_item.setFlags(vol_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+        self._ratio_elem_table.setItem(row, 5, vol_item)
+
+        self._ratio_elem_table.blockSignals(False)
+        self._update_ratio_element_volumes()
+        self._on_input_changed()
+
+    def _remove_ratio_element(self) -> None:
+        """Remove the selected row from ratio elements table."""
+        row = self._ratio_elem_table.currentRow()
+        if row >= 0:
+            self._ratio_elem_table.removeRow(row)
+            self._update_ratio_element_volumes()
+            self._on_input_changed()
+
+    def _on_ratio_element_changed(self, item: QTableWidgetItem) -> None:
+        """Handle cell edit in ratio elements table."""
+        self._update_ratio_element_volumes()
+
+    def _update_ratio_element_volumes(self) -> None:
+        """Recalculate and display per-element and total volumes for ratio elements."""
+        up = self.unit_prefs or get_unit_prefs()
+        total = 0.0
+        for row in range(self._ratio_elem_table.rowCount()):
+            l_spin = self._ratio_elem_table.cellWidget(row, 1)
+            w_spin = self._ratio_elem_table.cellWidget(row, 2)
+            d_spin = self._ratio_elem_table.cellWidget(row, 3)
+            q_spin = self._ratio_elem_table.cellWidget(row, 4)
+            if all(w is not None for w in [l_spin, w_spin, d_spin, q_spin]):
+                vol = l_spin.value() * w_spin.value() * d_spin.value() * q_spin.value()
+                total += vol
+                vol_item = self._ratio_elem_table.item(row, 5)
+                if vol_item:
+                    vol_item.setText(f"{up.convert_volume_m3(vol):.3f}")
+        self._ratio_elem_total_label.setText(
+            f"Total: {up.convert_volume_m3(total):.3f} {up.volume_unit()}"
+        )
+
+    def _get_ratio_elements(self) -> list[StructuralElement]:
+        """Parse ratio elements table into StructuralElement list."""
+        elements: list[StructuralElement] = []
+        for row in range(self._ratio_elem_table.rowCount()):
+            type_combo: QComboBox = self._ratio_elem_table.cellWidget(row, 0)  # type: ignore[assignment]
+            l_spin: QDoubleSpinBox = self._ratio_elem_table.cellWidget(row, 1)  # type: ignore[assignment]
+            w_spin: QDoubleSpinBox = self._ratio_elem_table.cellWidget(row, 2)  # type: ignore[assignment]
+            d_spin: QDoubleSpinBox = self._ratio_elem_table.cellWidget(row, 3)  # type: ignore[assignment]
+            q_spin: QDoubleSpinBox = self._ratio_elem_table.cellWidget(row, 4)  # type: ignore[assignment]
+
+            if all(w is not None for w in [type_combo, l_spin, w_spin, d_spin, q_spin]):
+                elements.append(
+                    StructuralElement(
+                        element_type=type_combo.currentText().lower(),
+                        length_m=l_spin.value(),
+                        width_m=w_spin.value(),
+                        depth_m=d_spin.value(),
+                        quantity=int(q_spin.value()),
+                    )
+                )
+        return elements
+
     # ── Data Handoff (public API) ────────────────────────────────────
 
     def load_transfer_data(
@@ -606,6 +1089,8 @@ class MaterialQuantifyTab(QWidget):
                 f"Expected MixDesignResult or MixDesignTransferData, got {type(result_or_data)}"
             )
 
+        # Switch to Design Mix subtab
+        self._left_tabs.setCurrentIndex(0)
         self._transfer_data = td
         self._populate_data_from_transfer(td)
         up = self.unit_prefs or get_unit_prefs()
@@ -732,21 +1217,24 @@ class MaterialQuantifyTab(QWidget):
         self._on_input_changed()
 
     def on_unit_changed(self) -> None:
-        """Update unit-dependent labels when unit preferences change.
-
-        Input spinboxes are UnitSpinBox instances that re-derive their own
-        display from the stored metric value, so only static labels need
-        refreshing here.
-        """
+        """Update unit-dependent labels when unit preferences change."""
         if self.unit_prefs is None:
             return
         up = self.unit_prefs
 
+        # Design Mix subtab
         set_label_with_info_text(
             self._volume_label, f"Concrete Volume ({up.volume_unit()})"
         )
         self._elem_table.setHorizontalHeaderLabels(self._element_headers())
         self._update_element_volumes()
+
+        # Mix Ratio subtab
+        set_label_with_info_text(
+            self._ratio_volume_label, f"Work Volume ({up.volume_unit()})"
+        )
+        self._ratio_elem_table.setHorizontalHeaderLabels(self._element_headers())
+        self._update_ratio_element_volumes()
 
     def _element_headers(self) -> list[str]:
         up = self.unit_prefs or get_unit_prefs()
@@ -754,7 +1242,7 @@ class MaterialQuantifyTab(QWidget):
         vu = up.volume_unit()
         return ["Type", f"L ({lu})", f"W ({lu})", f"D ({lu})", "Qty", f"Vol ({vu})"]
 
-    # ── Element Table ────────────────────────────────────────────────
+    # ── Element Table (Design Mix Subtab) ─────────────────────────────
 
     def _add_element(self) -> None:
         """Add a new element row to the table."""
@@ -762,15 +1250,12 @@ class MaterialQuantifyTab(QWidget):
         row = self._elem_table.rowCount()
         self._elem_table.insertRow(row)
 
-        # Type combo
         type_combo = QComboBox()
         for t in _ELEMENT_TYPES:
             type_combo.addItem(t)
         self._elem_table.setCellWidget(row, 0, type_combo)
         type_combo.currentIndexChanged.connect(lambda: self._on_input_changed())
 
-        # Dimension spin boxes: cols 1-3 are L/W/D (unit-aware, metric base m),
-        # col 4 is the piece count (dimensionless).
         for col in range(1, 5):
             if col < 4:
                 spin = UnitSpinBox("length_m", 1.0, 0.001, 1000.0, 0.1, 3)
@@ -784,7 +1269,6 @@ class MaterialQuantifyTab(QWidget):
             spin.valueChanged.connect(lambda _=None: self._update_element_volumes())
             self._elem_table.setCellWidget(row, col, spin)
 
-        # Volume display (read-only)
         vol_item = QTableWidgetItem("1.000")
         vol_item.setFlags(vol_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
         self._elem_table.setItem(row, 5, vol_item)
@@ -815,8 +1299,6 @@ class MaterialQuantifyTab(QWidget):
             d_spin = self._elem_table.cellWidget(row, 3)
             q_spin = self._elem_table.cellWidget(row, 4)
             if all(w is not None for w in [l_spin, w_spin, d_spin, q_spin]):
-                # Spin values are metric metres; volume is m³, converted only
-                # for display.
                 vol = l_spin.value() * w_spin.value() * d_spin.value() * q_spin.value()
                 total += vol
                 vol_item = self._elem_table.item(row, 5)
@@ -858,36 +1340,69 @@ class MaterialQuantifyTab(QWidget):
 
     def _run_quantification(self) -> None:
         """Trigger async quantification via worker thread."""
-        # Build transfer data from current inputs
-        td = self._build_transfer_data_from_inputs()
-        self._transfer_data = td
-
         if self._worker.isRunning():
             return
 
         self._debounce.stop()
         self.calc_btn.setEnabled(False)
         self.calc_btn.setText("  Calculating...")
+        self.ratio_calc_btn.setEnabled(False)
+        self.ratio_calc_btn.setText("  Calculating...")
 
-        self._worker.set_transfer_data(td)
-
-        overrides = self._get_overrides()
-        self._worker.set_overrides(overrides)
-
-        mode = self.mode_combo.currentData()
-        wastage = self.wastage_spin.value()
+        active_tab = self._left_tabs.currentIndex()
 
         try:
-            if mode == "volume":
-                vol = self.volume_spin.value()
-                if vol <= 0:
-                    raise ValueError("Volume must be positive")
-                self._worker.set_volume_mode(vol, wastage)
+            if active_tab == 1:
+                # ── Mix Ratio Subtab ──
+                quantifier = MixRatioQuantifier(
+                    cement_ratio=self.ratio_cement_spin.value(),
+                    sand_ratio=self.ratio_sand_spin.value(),
+                    gravel_ratio=self.ratio_gravel_spin.value(),
+                    w_c_ratio=self.ratio_wc_spin.value(),
+                    dry_volume_factor=self.ratio_dry_factor_spin.value(),
+                    cement_bag_volume_m3=self.ratio_bag_vol_spin.value(),
+                    cement_bag_weight_kg=self.ratio_bag_weight_spin.value(),
+                    fine_agg_bulk_density_kg_m3=self.ratio_sand_density_spin.value(),
+                    coarse_agg_bulk_density_kg_m3=self.ratio_gravel_density_spin.value(),
+                    label=self.ratio_preset_combo.currentText(),
+                )
+                mode = self.ratio_mode_combo.currentData()
+                wastage = self.ratio_wastage_spin.value()
+
+                if mode == "volume":
+                    vol = self.ratio_volume_spin.value()
+                    if vol <= 0:
+                        raise ValueError("Volume must be positive")
+                    self._worker.set_ratio_volume_mode(quantifier, vol, wastage)
+                else:
+                    elements = self._get_ratio_elements()
+                    if not elements:
+                        raise ValueError("Add at least one structural element")
+                    self._worker.set_ratio_elements_mode(quantifier, elements, wastage)
+
             else:
-                elements = self._get_elements()
-                if not elements:
-                    raise ValueError("Add at least one structural element")
-                self._worker.set_elements_mode(elements, wastage)
+                # ── Design Mix Subtab ──
+                td = self._build_transfer_data_from_inputs()
+                self._transfer_data = td
+                self._worker.set_transfer_data(td)
+
+                overrides = self._get_overrides()
+                self._worker.set_overrides(overrides)
+
+                mode = self.mode_combo.currentData()
+                wastage = self.wastage_spin.value()
+
+                if mode == "volume":
+                    vol = self.volume_spin.value()
+                    if vol <= 0:
+                        raise ValueError("Volume must be positive")
+                    self._worker.set_volume_mode(vol, wastage)
+                else:
+                    elements = self._get_elements()
+                    if not elements:
+                        raise ValueError("Add at least one structural element")
+                    self._worker.set_elements_mode(elements, wastage)
+
         except Exception as e:
             self._on_error(str(e))
             return
@@ -900,8 +1415,10 @@ class MaterialQuantifyTab(QWidget):
         self._result_panel.display_bill(bill)
         self.calc_btn.setEnabled(True)
         self.calc_btn.setText("  Calculate Material Quantities")
+        self.ratio_calc_btn.setEnabled(True)
+        self.ratio_calc_btn.setText("  Calculate Material Quantities")
 
-        if hasattr(self.window(), "status_bar"):
+        if hasattr(self.window(), "status_bar") and self.window().status_bar:
             up = self.unit_prefs or get_unit_prefs()
             self.window().status_bar.showMessage(
                 f"Quantified \u2014 Gross: {up.convert_volume_m3(bill.gross_concrete_volume_m3):.3f} "
@@ -918,6 +1435,8 @@ class MaterialQuantifyTab(QWidget):
         """Handle quantification error."""
         self.calc_btn.setEnabled(True)
         self.calc_btn.setText("  Calculate Material Quantities")
+        self.ratio_calc_btn.setEnabled(True)
+        self.ratio_calc_btn.setText("  Calculate Material Quantities")
         QMessageBox.warning(self, "Quantification Error", msg)
 
     # ── History ──────────────────────────────────────────────────────
@@ -941,6 +1460,7 @@ class MaterialQuantifyTab(QWidget):
             return
         from history.serializers import deserialize_bill
         import json
+
         rec = self._history_db.get_calculation(calc_id)
         if rec is None:
             return
@@ -950,38 +1470,51 @@ class MaterialQuantifyTab(QWidget):
 
         # Restore inputs to UI if transfer_data is available
         if bill.transfer_data:
-            self._transfer_data = bill.transfer_data
-            self._populate_data_from_transfer(bill.transfer_data)
+            td = bill.transfer_data
+            self._transfer_data = td
 
-            # Select "volume" mode and populate inputs
-            idx = self.mode_combo.findData("volume")
-            if idx >= 0:
-                self.mode_combo.setCurrentIndex(idx)
-            self.volume_spin.setValue(bill.net_concrete_volume_m3)
-            self.wastage_spin.setValue(bill.wastage_percent)
+            if "Mix Ratio" in td.code_used or "Mortar" in td.code_used:
+                # Switch to Mix Ratio subtab
+                self._left_tabs.setCurrentIndex(1)
+                idx = self.ratio_mode_combo.findData("volume")
+                if idx >= 0:
+                    self.ratio_mode_combo.setCurrentIndex(idx)
+                self.ratio_volume_spin.setValue(bill.net_concrete_volume_m3)
+                self.ratio_wastage_spin.setValue(bill.wastage_percent)
+            else:
+                # Switch to Design Mix subtab
+                self._left_tabs.setCurrentIndex(0)
+                self._populate_data_from_transfer(td)
 
-            # Show group override and populate override values
-            self._grp_over.setVisible(True)
-            self._populate_override_defaults(bill.transfer_data)
+                # Select "volume" mode and populate inputs
+                idx = self.mode_combo.findData("volume")
+                if idx >= 0:
+                    self.mode_combo.setCurrentIndex(idx)
+                self.volume_spin.setValue(bill.net_concrete_volume_m3)
+                self.wastage_spin.setValue(bill.wastage_percent)
 
-            up = self.unit_prefs or get_unit_prefs()
-            cement_pv = (
-                bill.transfer_data.cement_kg_per_m3 * 1.68555
-                if up.is_imperial()
-                else bill.transfer_data.cement_kg_per_m3
-            )
-            self._status_banner.setText(
-                f"Loaded from history: {bill.transfer_data.code_used}  |  "
-                f"f'cr={up.convert_strength_mpa(bill.transfer_data.target_mean_strength_mpa):.1f} "
-                f"{up.strength_unit()}  |  "
-                f"W/C={bill.transfer_data.w_c_ratio:.3f}  |  "
-                f"Cement={cement_pv:.1f} {up.mass_per_volume_unit()}"
-            )
-            self._status_banner.setStyleSheet(
-                "background-color: #d1fae5; color: #065f46; "
-                "border: 1px solid #10b981; border-radius: 4px; "
-                "padding: 10px 14px; font-weight: 600;"
-            )
+                # Show group override and populate override values
+                self._grp_over.setVisible(True)
+                self._populate_override_defaults(td)
+
+                up = self.unit_prefs or get_unit_prefs()
+                cement_pv = (
+                    td.cement_kg_per_m3 * 1.68555
+                    if up.is_imperial()
+                    else td.cement_kg_per_m3
+                )
+                self._status_banner.setText(
+                    f"Loaded from history: {td.code_used}  |  "
+                    f"f'cr={up.convert_strength_mpa(td.target_mean_strength_mpa):.1f} "
+                    f"{up.strength_unit()}  |  "
+                    f"W/C={td.w_c_ratio:.3f}  |  "
+                    f"Cement={cement_pv:.1f} {up.mass_per_volume_unit()}"
+                )
+                self._status_banner.setStyleSheet(
+                    "background-color: #d1fae5; color: #065f46; "
+                    "border: 1px solid #10b981; border-radius: 4px; "
+                    "padding: 10px 14px; font-weight: 600;"
+                )
 
     # ── Export ────────────────────────────────────────────────────────
 
@@ -1032,14 +1565,15 @@ class MaterialQuantifyTab(QWidget):
                     mu,
                 ]
             )
-            writer.writerow(
-                [
-                    "Coarse Aggregate (field)",
-                    f"{pv(td.field_coarse_aggregate_kg_per_m3):.1f}",
-                    f"{up.convert_mass_kg(bill.total_coarse_aggregate_kg):.1f}",
-                    mu,
-                ]
-            )
+            if bill.total_coarse_aggregate_kg > 0:
+                writer.writerow(
+                    [
+                        "Coarse Aggregate (field)",
+                        f"{pv(td.field_coarse_aggregate_kg_per_m3):.1f}",
+                        f"{up.convert_mass_kg(bill.total_coarse_aggregate_kg):.1f}",
+                        mu,
+                    ]
+                )
             if bill.total_scm_kg > 0:
                 writer.writerow(
                     [
@@ -1071,7 +1605,8 @@ class MaterialQuantifyTab(QWidget):
 
             with open(path, "w", newline="") as f:
                 f.write(output.getvalue())
-            self.window().status_bar.showMessage(f"Exported to {path}", 5000)
+            if hasattr(self.window(), "status_bar") and self.window().status_bar:
+                self.window().status_bar.showMessage(f"Exported to {path}", 5000)
 
     def _generate_quant_report_html(self) -> str:
         """Generate HTML report for material quantification preview."""
@@ -1087,7 +1622,6 @@ class MaterialQuantifyTab(QWidget):
         mu = up.mass_unit()
         wu = up.water_unit()
         su = up.strength_unit()
-        # Per-volume content: kg/m³ (IS basis) ↔ lb/yd³ (ACI basis)
         pvu = up.mass_per_volume_unit()
 
         def pv(kg_m3: float) -> float:
@@ -1182,9 +1716,9 @@ class MaterialQuantifyTab(QWidget):
                 <h2 class="text-[12px] leading-[16px] tracking-[0.1em] text-on-surface-variant uppercase font-bold mt-2">MATERIAL QUANTIFICATION BILL</h2>
             </div>
             <div class="text-right flex flex-col gap-1">
-                <div class="text-[11px] leading-[16px] tracking-[0.05em] font-semibold text-primary uppercase">Mix Design Reference</div>
+                <div class="text-[11px] leading-[16px] tracking-[0.05em] font-semibold text-primary uppercase">Mix Specification</div>
                 <div class="text-[24px] leading-[32px] font-semibold text-on-surface">{td.code_used}</div>
-                <div class="text-on-surface-variant font-body-md mt-2">Target: {target_s:.1f} {su}</div>
+                <div class="text-on-surface-variant font-body-md mt-2">Target/Strength: {target_s:.1f} {su}</div>
                 <div class="text-on-surface-variant font-body-md">W/C Ratio: {td.w_c_ratio:.3f}</div>
             </div>
         </header>
@@ -1242,12 +1776,9 @@ class MaterialQuantifyTab(QWidget):
                             <span class="font-body-md text-on-surface">Fine Aggregate (Sand)</span>
                             <span class="text-[16px] leading-[24px] font-medium font-bold">{fa_bulk:,.3f} {vu}</span>
                         </div>
-                        <div class="flex justify-between items-center">
-                            <span class="font-body-md text-on-surface">Coarse Aggregate (20mm)</span>
-                            <span class="text-[16px] leading-[24px] font-medium font-bold">{ca_bulk:,.3f} {vu}</span>
-                        </div>
+                        {f'<div class="flex justify-between items-center"><span class="font-body-md text-on-surface">Coarse Aggregate</span><span class="text-[16px] leading-[24px] font-medium font-bold">{ca_bulk:,.3f} {vu}</span></div>' if bill.total_coarse_aggregate_kg > 0 else ""}
                         <div class="flex justify-between items-center text-on-surface-variant">
-                            <span class="font-body-md">Water (Field)</span>
+                            <span class="font-body-md">Water (Field/Mixing)</span>
                             <span class="text-[16px] leading-[24px] font-medium">{water_l:,.1f} {wu}</span>
                         </div>
                     </div>
@@ -1280,12 +1811,7 @@ class MaterialQuantifyTab(QWidget):
                         <td class="px-4 py-2 text-right">{t_fa:,.1f}</td>
                         <td class="px-4 py-2 text-right">{fa_bulk:,.3f} {vu}</td>
                     </tr>
-                    <tr class="zebra-row border-b border-outline-variant">
-                        <td class="px-4 py-2 text-on-surface font-semibold">Coarse Aggregate</td>
-                        <td class="px-4 py-2 text-right">{pv(td.field_coarse_aggregate_kg_per_m3):,.1f}</td>
-                        <td class="px-4 py-2 text-right">{t_ca:,.1f}</td>
-                        <td class="px-4 py-2 text-right">{ca_bulk:,.3f} {vu}</td>
-                    </tr>
+                    {f'<tr class="zebra-row border-b border-outline-variant"><td class="px-4 py-2 text-on-surface font-semibold">Coarse Aggregate</td><td class="px-4 py-2 text-right">{pv(td.field_coarse_aggregate_kg_per_m3):,.1f}</td><td class="px-4 py-2 text-right">{t_ca:,.1f}</td><td class="px-4 py-2 text-right">{ca_bulk:,.3f} {vu}</td></tr>' if bill.total_coarse_aggregate_kg > 0 else ""}
                     <tr class="zebra-row border-b border-outline-variant">
                         <td class="px-4 py-2 text-on-surface font-semibold">Water</td>
                         <td class="px-4 py-2 text-right">{pv(td.field_water_kg_per_m3):,.1f}</td>
@@ -1347,4 +1873,5 @@ class MaterialQuantifyTab(QWidget):
         if path:
             with open(path, "w") as f:
                 f.write(self._last_bill.format_report())
-            self.window().status_bar.showMessage(f"Report saved to {path}", 5000)
+            if hasattr(self.window(), "status_bar") and self.window().status_bar:
+                self.window().status_bar.showMessage(f"Report saved to {path}", 5000)

@@ -31,8 +31,10 @@ var/
 htmlcov/
 
 # IDEs and Tools
+.agents/
 .claude/
 .creep/
+.firecrawl/
 .zcode/
 .idea/
 .vscode/

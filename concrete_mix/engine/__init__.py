@@ -1,4 +1,8 @@
 from concrete_mix.engine.proportioner import design_mix, get_code_implementation
+from concrete_mix.engine.target_strength import (
+    TargetStrengthResult,
+    calculate_target_strength,
+)
 from concrete_mix.engine.moisture_correction import (
     adjust_water_for_aggregate_moisture,
     correct_for_moisture,
@@ -9,4 +13,8 @@ from concrete_mix.engine.grading import (
     determine_grading_zone,
     recommend_gradation_corrections,
     validate_grading,
+)
+from concrete_mix.engine.psd_link import (
+    PSDLinkage,
+    derive_mix_design_params,
 )

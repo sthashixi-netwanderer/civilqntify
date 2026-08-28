@@ -57,13 +57,23 @@ _KINDS: dict[str, _Kind] = {
         lambda up: up.strength_unit(),
         decimals_imperial=1,
     ),
-    # length with mm metric base (slump, aggregate sizes); metric shows m
+    # length with mm metric base; metric shows m (currently unused — kept
+    # for future mm-based fields whose magnitude suits metres)
     "length_mm": _Kind(
         lambda up, v: up.convert_length_mm(v),
         lambda up, v: up.to_metric_length(v),
         lambda up: up.length_unit(),
         decimals_metric=3,
         decimals_imperial=2,
+    ),
+    # slump: mm base unit; metric stays mm (metres are never used for slump),
+    # imperial shows inches (1 in = 25.4 mm exactly)
+    "slump": _Kind(
+        lambda up, v: v / 25.4 if up.is_imperial() else v,
+        lambda up, v: v * 25.4 if up.is_imperial() else v,
+        lambda up: "in" if up.is_imperial() else "mm",
+        decimals_metric=0,
+        decimals_imperial=1,
     ),
     # length with metre metric base (element dimensions)
     "length_m": _Kind(

@@ -56,6 +56,119 @@ class StatCard(QFrame):
         self._unit.setText(unit)
 
 
+class TargetStrengthResultPanel(QWidget):
+    """Right-side panel for target mean strength only.
+
+    This view deliberately contains no material quantities, W/C ratio, or mix
+    ratio because those values belong to the full mix-design workflow.
+    """
+
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        self._result = None
+        self.unit_prefs: UnitPreferences = get_unit_prefs()
+        self._build_ui()
+        self.unit_prefs.changed.connect(self.on_unit_changed)
+
+    def _build_ui(self) -> None:
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(12, 12, 12, 12)
+        outer.setSpacing(10)
+
+        title = QLabel("Target Strength")
+        title.setObjectName("section-title")
+        outer.addWidget(title)
+
+        subtitle = QLabel(
+            "Standard-based target mean strength. Mix proportions are not calculated in this mode."
+        )
+        subtitle.setWordWrap(True)
+        subtitle.setStyleSheet("font-size: 12px; color: #444653; padding-bottom: 4px;")
+        outer.addWidget(subtitle)
+
+        grid = QGridLayout()
+        grid.setSpacing(10)
+        self._cards: dict[str, StatCard] = {}
+        for i, (key, label) in enumerate(
+            (
+                ("characteristic", "Characteristic Strength"),
+                ("std_dev", "Standard Deviation"),
+                ("margin", "Strength Margin"),
+                ("target", "Target Mean Strength"),
+            )
+        ):
+            card = StatCard(label)
+            self._cards[key] = card
+            grid.addWidget(card, i // 2, i % 2)
+        outer.addLayout(grid)
+
+        self._formula_label = QLabel()
+        self._formula_label.setWordWrap(True)
+        self._formula_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        self._formula_label.setStyleSheet(
+            "font-size: 13px; padding: 12px; background: #eff4ff; "
+            "border: 1px solid #dbeafe; border-radius: 4px;"
+        )
+        outer.addWidget(self._formula_label)
+
+        self._reference_label = QLabel()
+        self._reference_label.setWordWrap(True)
+        self._reference_label.setStyleSheet("font-size: 12px; color: #444653; padding: 4px 0;")
+        outer.addWidget(self._reference_label)
+        outer.addStretch()
+        self.clear()
+
+    def display_result(self, result) -> None:
+        """Display a :class:`TargetStrengthResult` in the active units."""
+        self._result = result
+        self._refresh_display()
+
+    def _refresh_display(self) -> None:
+        if self._result is None:
+            return
+
+        up = self.unit_prefs
+        strength_unit = up.strength_unit()
+        characteristic = up.convert_strength_mpa(
+            self._result.characteristic_strength_mpa
+        )
+        target = up.convert_strength_mpa(self._result.target_mean_strength_mpa)
+        margin = up.convert_strength_mpa(self._result.margin_mpa)
+        self._cards["characteristic"].set_value(characteristic, strength_unit)
+        self._cards["margin"].set_value(margin, strength_unit)
+        self._cards["target"].set_value(target, strength_unit)
+
+        if self._result.standard_deviation_mpa is None:
+            self._cards["std_dev"].set_value(0.0, strength_unit)
+            self._cards["std_dev"]._value.setText("—")
+            self._cards["std_dev"]._unit.setText("not used")
+        else:
+            self._cards["std_dev"].set_value(
+                up.convert_strength_mpa(self._result.standard_deviation_mpa),
+                strength_unit,
+            )
+
+        self._formula_label.setText(
+            f"<b>{self._result.standard_name}</b><br/>"
+            f"{self._result.formula.replace(chr(10), '<br/>')}"
+        )
+        self._reference_label.setText(f"Reference: {self._result.reference}")
+
+    def on_unit_changed(self) -> None:
+        """Re-render strength values when the unit preference changes."""
+        self._refresh_display()
+
+    def clear(self) -> None:
+        """Reset the target-strength result view."""
+        self._result = None
+        for card in self._cards.values():
+            card.set_value(0.0)
+            card._value.setText("—")
+            card._unit.setText("")
+        self._formula_label.setText("Calculate a target strength to see the result.")
+        self._reference_label.setText("")
+
+
 class ResultPanel(QWidget):
     """Right-side panel showing calculation results."""
 
@@ -80,6 +193,37 @@ class ResultPanel(QWidget):
         self._warning_banner.setWordWrap(True)
         self._warning_banner.setVisible(False)
         outer.addWidget(self._warning_banner)
+
+        # IS 10262:2019 Clause 5.8 Trial Mixes Prompt (hidden by default)
+        self._is_trial_frame = QFrame()
+        self._is_trial_frame.setObjectName("result-card")
+        self._is_trial_frame.setStyleSheet(
+            "background-color: #f8fafc; border: 1px solid #cbd5e1; border-radius: 6px; padding: 4px;"
+        )
+        self._is_trial_frame.setVisible(False)
+        trial_layout = QVBoxLayout(self._is_trial_frame)
+        trial_layout.setContentsMargins(10, 8, 10, 8)
+        trial_layout.setSpacing(6)
+
+        trial_title = QLabel("IS 10262:2019 Clause 5.8 — Trial Mixes Protocol")
+        trial_title.setStyleSheet(
+            "font-size: 11px; font-weight: 700; text-transform: uppercase; "
+            "letter-spacing: 0.05em; color: #1e3a8a;"
+        )
+        trial_layout.addWidget(trial_title)
+
+        self._is_trial_lbl = QLabel()
+        self._is_trial_lbl.setWordWrap(True)
+        self._is_trial_lbl.setStyleSheet("font-size: 12px; color: #334155; line-height: 1.35;")
+        trial_layout.addWidget(self._is_trial_lbl)
+
+        self._btn_view_trials = QPushButton("📋 View 4-Trial Batches Protocol & Reporting Guide (Clause 5.8)")
+        self._btn_view_trials.setObjectName("secondary")
+        self._btn_view_trials.setStyleSheet("font-size: 12px; font-weight: 600; padding: 4px 10px;")
+        self._btn_view_trials.clicked.connect(self._on_view_is_trials)
+        trial_layout.addWidget(self._btn_view_trials)
+
+        outer.addWidget(self._is_trial_frame)
 
         # Strength estimation from mix ratio (hidden by default)
         self._strength_est_frame = QFrame()
@@ -331,6 +475,25 @@ class ResultPanel(QWidget):
         else:
             self._warning_banner.setVisible(False)
 
+        # IS 10262:2019 Clause 5.8 Trial Mixes Prompt
+        is_is_code = "is10262" in result.code_used.lower() or "is 10262" in result.code_used.lower()
+        if is_is_code:
+            wc = result.w_c_ratio
+            wc3 = round(wc * 0.90, 2)
+            wc4 = round(wc * 1.10, 2)
+            html = (
+                "<b>Mandatory Trial Mixes Procedure (IS 10262:2019 Clause 5.8):</b><br/>"
+                "Calculated laboratory proportions must be verified and adjusted using 4 trial batches:<br/>"
+                f"• <b>Trial 1</b>: Calculated proportions (W/C {wc:.2f}) — test slump/flow, observe bleeding/segregation & finish.<br/>"
+                f"• <b>Trial 2</b>: Adjust water/admixture if slump deviates, holding free W/C constant at {wc:.2f}.<br/>"
+                f"• <b>Trials 3 & 4</b>: Same water as Trial 2 with W/C varied by ±10% (<b>{wc3:.2f}</b> & <b>{wc4:.2f}</b>) to develop compressive strength vs. W/C curve.<br/>"
+                "• <b>Final Proportions & §5.8.1 Reporting</b>: Select final mix satisfying strength & IS 456 Table 5 durability, perform site field trials, and document full trial records."
+            )
+            self._is_trial_lbl.setText(html)
+            self._is_trial_frame.setVisible(True)
+        else:
+            self._is_trial_frame.setVisible(False)
+
         # Update header to show volume
         vol_display = up.convert_volume_m3(vol)
         self._cards_label.setText(f"Material Quantities (for {vol_display:.3f} {up.volume_unit()})")
@@ -413,6 +576,16 @@ class ResultPanel(QWidget):
             self._refresh_strength_estimate()
         self._refresh_display()
 
+    def _on_view_is_trials(self) -> None:
+        """Open the IS 10262 Clause 5.8 Trial Mixes protocol dialog."""
+        if self._result is None:
+            return
+        from app.widgets.is_trial_mixes_dialog import ISTrialMixesDialog
+
+        inp = getattr(self._result, "_input", None)
+        dlg = ISTrialMixesDialog(self._result, inp=inp, parent=self)
+        dlg.exec()
+
     def _on_send_to_quant(self) -> None:
         """Emit signal to transfer mix design data to quantification tab."""
         if self._result is not None:
@@ -421,6 +594,9 @@ class ResultPanel(QWidget):
     def clear(self) -> None:
         """Reset the panel to empty state."""
         self._result = None
+        self._strength_estimate = None
+        self._strength_est_frame.setVisible(False)
+        self._is_trial_frame.setVisible(False)
         self._warning_banner.setVisible(False)
         for card in self._cards.values():
             card.set_value(0)

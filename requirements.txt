@@ -1,6 +1,7 @@
 # CivilQntify Dependencies
 PyQt6>=6.5.0
 matplotlib>=3.7.0
+python-docx>=1.1.0
 # fpdf2 provides the 'fpdf' module used for PDF report export.
 # Imported at startup via concrete_mix.export.pdf_report — must be
 # installed at build time or the frozen app crashes on launch.

@@ -32,6 +32,11 @@ def serialize_mix_input(inp: Any) -> str:
         "sulfate_exposure_class": inp.sulfate_exposure_class,
         "defective_percent": getattr(inp, "defective_percent", 5.0),
         "age_days": getattr(inp, "age_days", 28),
+        "min_cement_kg": getattr(inp, "min_cement_kg", None),
+        "max_cement_kg": getattr(inp, "max_cement_kg", None),
+        "std_deviation": getattr(inp, "std_deviation", None),
+        "margin_mpa": getattr(inp, "margin_mpa", None),
+        "num_test_cubes": getattr(inp, "num_test_cubes", None),
     }
     return json.dumps(d, default=str)
 
@@ -48,6 +53,12 @@ def deserialize_mix_input(data: dict) -> Any:
         specific_gravity=data["cement"]["specific_gravity"],
     )
     fa = data["fine_aggregate"]
+    from concrete_mix.models.materials import AggregateShape as _AggShape
+    _fa_shape_val = fa.get("shape", "gravel")
+    try:
+        _fa_shape = _AggShape(_fa_shape_val)
+    except Exception:
+        _fa_shape = _AggShape.GRAVEL
     fine_agg = FineAggregate(
         specific_gravity=fa["specific_gravity"],
         fineness_modulus=fa.get("fineness_modulus", 2.7),
@@ -55,14 +66,21 @@ def deserialize_mix_input(data: dict) -> Any:
         moisture_content_percent=fa.get("moisture_content_percent", 0.0),
         grading_zone=fa.get("grading_zone"),
         pct_passing_600um=fa.get("pct_passing_600um"),
+        shape=_fa_shape,
     )
     ca = data["coarse_aggregate"]
+    from concrete_mix.models.materials import AggregateShape as _AggShape2
+    _ca_shape_val = ca.get("shape", "gravel")
+    try:
+        _ca_shape = _AggShape2(_ca_shape_val)
+    except Exception:
+        _ca_shape = _AggShape2.GRAVEL
     coarse_agg = CoarseAggregate(
         specific_gravity=ca["specific_gravity"],
         nominal_max_size_mm=ca["nominal_max_size_mm"],
         absorption_percent=ca.get("absorption_percent", 1.0),
         moisture_content_percent=ca.get("moisture_content_percent", 0.0),
-        shape=ca["shape"],
+        shape=_ca_shape,
         bulk_density_kg_m3=ca.get("bulk_density_kg_m3", 1600),
     )
     scms = []
@@ -95,6 +113,11 @@ def deserialize_mix_input(data: dict) -> Any:
         sulfate_exposure_class=data.get("sulfate_exposure_class", "S0"),
         defective_percent=data.get("defective_percent", 5.0),
         age_days=data.get("age_days", 28),
+        min_cement_kg=data.get("min_cement_kg"),
+        max_cement_kg=data.get("max_cement_kg"),
+        std_deviation=data.get("std_deviation"),
+        margin_mpa=data.get("margin_mpa"),
+        num_test_cubes=data.get("num_test_cubes"),
     )
 
 
@@ -276,6 +299,8 @@ def _fine_agg_dict(fa) -> dict:
     }
     if hasattr(fa, "pct_passing_600um"):
         d["pct_passing_600um"] = fa.pct_passing_600um
+    if hasattr(fa, "shape"):
+        d["shape"] = fa.shape.value if hasattr(fa.shape, "value") else str(fa.shape)
     return d
 
 def _coarse_agg_dict(ca) -> dict:

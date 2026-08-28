@@ -6,22 +6,34 @@ grading-band lookup tables.
 
 from __future__ import annotations
 
-import math
-
 import pytest
 
 from concrete_mix.codes.tables.grading_bands import (
+    ASTM_COARSE_BANDS,
+    ASTM_COARSE_NOMINAL_SIZES,
+    ASTM_FINE_BAND,
     COARSE_BANDS,
     COARSE_NOMINAL_SIZES,
     FINE_ZONES,
+    IS_COARSE_GRADED_BANDS,
+    IS_COARSE_SINGLE_SIZED_BANDS,
+    IS_GRADED_NOMINAL_SIZES,
+    IS_SINGLE_SIZED_NOMINAL_SIZES,
+    get_astm_coarse_band,
+    get_astm_fine_band,
     get_coarse_band,
     get_fine_band,
+    get_is_coarse_band,
 )
 from concrete_mix.engine.psd import (
+    ASTM_COARSE_SIEVES,
+    ASTM_FINE_SIEVES,
     COARSE_SIEVES,
     FINE_SIEVES,
+    IS_COARSE_SIEVES,
+    IS_FINE_SIEVES,
     STANDARD_SIEVES,
-    PSDResult,
+    STANDARD_SIEVES_BY_CODE,
     check_conformance,
     compute_psd,
 )
@@ -31,15 +43,45 @@ from concrete_mix.engine.psd import (
 # Standard sieve sets
 # ---------------------------------------------------------------------------
 class TestStandardSieves:
-    def test_fine_sieves_coarse_to_fine(self):
-        # ACI 211.1-22 §4.3.5 halving series, coarsest → finest
-        assert FINE_SIEVES == [10.0, 4.75, 2.36, 1.18, 0.600, 0.300, 0.150]
+    def test_is_sieves_match_is_383_designations(self):
+        assert IS_FINE_SIEVES == [
+            10.0, 4.75, 2.36, 1.18, 0.600, 0.300, 0.150
+        ]
+        assert IS_COARSE_SIEVES == [
+            80.0, 63.0, 40.0, 20.0, 16.0, 12.5, 10.0, 4.75, 2.36
+        ]
 
-    def test_coarse_sieves_coarse_to_fine(self):
-        # IS 383 Table 7 / ASTM C33 series
-        assert COARSE_SIEVES == [75.0, 37.5, 19.0, 12.5, 9.5, 4.75, 2.36]
+    def test_astm_sieves_match_c33_tables(self):
+        assert ASTM_FINE_SIEVES == [
+            9.5, 4.75, 2.36, 1.18, 0.600, 0.300, 0.150
+        ]
+        assert ASTM_COARSE_SIEVES == [
+            100.0,
+            90.0,
+            75.0,
+            63.0,
+            50.0,
+            37.5,
+            25.0,
+            19.0,
+            12.5,
+            9.5,
+            4.75,
+            2.36,
+            1.18,
+            0.300,
+        ]
 
-    def test_standard_sieves_keys(self):
+    def test_standard_sieve_mapping_keeps_codes_separate(self):
+        assert STANDARD_SIEVES_BY_CODE == {
+            "is383": {"fine": IS_FINE_SIEVES, "coarse": IS_COARSE_SIEVES},
+            "astm_c33": {
+                "fine": ASTM_FINE_SIEVES,
+                "coarse": ASTM_COARSE_SIEVES,
+            },
+        }
+        assert FINE_SIEVES is IS_FINE_SIEVES
+        assert COARSE_SIEVES is ASTM_COARSE_SIEVES
         assert set(STANDARD_SIEVES) == {"fine", "coarse"}
 
 
@@ -147,7 +189,10 @@ class TestPSDEdgeCases:
 
     def test_coarse_set_no_fineness_modulus(self):
         # FM is only defined for fine-aggregate sieves; coarse set → None
-        masses = [0.0, 50.0, 200.0, 100.0, 300.0, 150.0, 50.0]
+        masses = [
+            0.0, 0.0, 0.0, 0.0, 0.0, 50.0, 100.0,
+            200.0, 100.0, 300.0, 150.0, 50.0, 25.0, 10.0,
+        ]
         result = compute_psd(masses, COARSE_SIEVES, pan_mass=10.0)
         assert result.fineness_modulus is None
         assert result.total_mass == pytest.approx(sum(masses) + 10.0)
@@ -187,7 +232,13 @@ class TestConformance:
 
     def test_sieve_not_in_band_is_conforming(self):
         # Coarse sieves not present in the fine band → treated as conforming
-        result = compute_psd([0.0, 50.0, 200.0, 100.0, 300.0, 150.0, 50.0], COARSE_SIEVES)
+        result = compute_psd(
+            [
+                0.0, 0.0, 0.0, 0.0, 0.0, 50.0, 100.0,
+                200.0, 100.0, 300.0, 150.0, 50.0, 25.0, 10.0,
+            ],
+            COARSE_SIEVES,
+        )
         band = get_coarse_band(20)
         conforms = check_conformance(result, band)
         assert len(conforms) == len(COARSE_SIEVES)
@@ -200,30 +251,136 @@ class TestGradingBands:
     def test_fine_zones_available(self):
         assert FINE_ZONES == ["I", "II", "III", "IV"]
 
-    def test_coarse_sizes_available(self):
-        assert COARSE_NOMINAL_SIZES == [10, 12.5, 20, 40]
+    def test_reference_choices_available_by_standard(self):
+        assert ASTM_COARSE_NOMINAL_SIZES == [10, 20, 40]
+        assert IS_GRADED_NOMINAL_SIZES == [40, 20, 16, 12.5]
+        assert IS_SINGLE_SIZED_NOMINAL_SIZES == [63, 40, 20, 16, 12.5, 10]
+        assert COARSE_NOMINAL_SIZES is ASTM_COARSE_NOMINAL_SIZES
+        assert COARSE_BANDS is ASTM_COARSE_BANDS
 
-    def test_get_fine_band(self):
+    def test_get_is_fine_zone_band(self):
         band = get_fine_band("II")
-        assert 4.75 in band
-        lo, hi = band[4.75]
-        assert lo == 90 and hi == 100
+        assert band[10.0] == (100, 100)
+        assert band[4.75] == (90, 100)
 
-    def test_get_coarse_band_12_5mm(self):
-        band = get_coarse_band(12.5)
-        assert band[12.5] == (90, 100)
-        assert band[9.5] == (40, 85)
+    def test_get_astm_fine_table_1_band(self):
+        assert get_astm_fine_band() is ASTM_FINE_BAND
+        assert ASTM_FINE_BAND == {
+            9.5: (100, 100),
+            4.75: (95, 100),
+            2.36: (80, 100),
+            1.18: (50, 85),
+            0.600: (25, 60),
+            0.300: (5, 30),
+            0.150: (0, 10),
+        }
 
-    def test_get_coarse_band_20mm(self):
-        band = get_coarse_band(20)
-        # 19 mm passing for 20 mm graded aggregate: 90–100 %
-        assert band[19.0] == (90, 100)
-        assert band[9.5] == (40, 85)
+    def test_get_coarse_band_10mm_is_exact_astm_size_8(self):
+        assert get_coarse_band(10) == {
+            12.5: (100, 100),
+            9.5: (85, 100),
+            4.75: (10, 30),
+            2.36: (0, 10),
+            1.18: (0, 5),
+        }
 
-    def test_get_coarse_band_40mm(self):
-        band = get_coarse_band(40)
-        assert band[37.5] == (90, 100)
-        assert band[19.0] == (35, 70)
+    def test_get_coarse_band_20mm_is_exact_astm_size_67(self):
+        assert get_coarse_band(20) == {
+            25.0: (100, 100),
+            19.0: (90, 100),
+            9.5: (20, 55),
+            4.75: (0, 10),
+            2.36: (0, 5),
+        }
+
+    def test_get_coarse_band_40mm_is_exact_astm_size_467(self):
+        assert get_coarse_band(40) == {
+            50.0: (100, 100),
+            37.5: (95, 100),
+            19.0: (35, 70),
+            9.5: (10, 30),
+            4.75: (0, 5),
+        }
+
+    def test_unspecified_astm_cells_are_not_requirements(self):
+        assert 100.0 not in get_coarse_band(40)
+        assert 12.5 not in get_coarse_band(20)
+        assert 0.300 not in get_coarse_band(10)
+
+    def test_is_graded_table_7_bands_are_exact(self):
+        assert IS_COARSE_GRADED_BANDS == {
+            40: {
+                80.0: (100, 100),
+                40.0: (90, 100),
+                20.0: (30, 70),
+                10.0: (10, 35),
+                4.75: (0, 5),
+            },
+            20: {
+                40.0: (100, 100),
+                20.0: (90, 100),
+                10.0: (25, 55),
+                4.75: (0, 10),
+            },
+            16: {
+                20.0: (100, 100),
+                16.0: (90, 100),
+                10.0: (30, 70),
+                4.75: (0, 10),
+            },
+            12.5: {
+                20.0: (100, 100),
+                12.5: (90, 100),
+                10.0: (40, 85),
+                4.75: (0, 10),
+            },
+        }
+        assert get_is_coarse_band("graded", 20) == IS_COARSE_GRADED_BANDS[20]
+
+    def test_is_single_sized_table_7_bands_are_exact(self):
+        assert IS_COARSE_SINGLE_SIZED_BANDS == {
+            63: {
+                80.0: (100, 100),
+                63.0: (85, 100),
+                40.0: (0, 30),
+                20.0: (0, 5),
+                10.0: (0, 5),
+            },
+            40: {
+                63.0: (100, 100),
+                40.0: (85, 100),
+                20.0: (0, 20),
+                10.0: (0, 5),
+            },
+            20: {
+                40.0: (100, 100),
+                20.0: (85, 100),
+                10.0: (0, 20),
+                4.75: (0, 5),
+            },
+            16: {
+                20.0: (100, 100),
+                16.0: (85, 100),
+                10.0: (0, 30),
+                4.75: (0, 5),
+            },
+            12.5: {
+                16.0: (100, 100),
+                12.5: (85, 100),
+                10.0: (0, 45),
+                4.75: (0, 10),
+            },
+            10: {
+                12.5: (100, 100),
+                10.0: (85, 100),
+                4.75: (0, 20),
+                2.36: (0, 5),
+            },
+        }
+        assert get_is_coarse_band("single", 10) == IS_COARSE_SINGLE_SIZED_BANDS[10]
+
+    def test_astm_specific_getter_matches_backward_compatible_getter(self):
+        assert get_astm_coarse_band(20) == get_coarse_band(20)
 
     def test_unknown_zone_raises(self):
         with pytest.raises(KeyError):

@@ -38,10 +38,10 @@ def is_result():
 
 @pytest.fixture
 def aci_result():
-    """ACI 211.1 mix design result (3000 psi ≈ 20.7 MPa)."""
+    """ACI 211.1 mix design result (25 MPa structural concrete)."""
     return design_mix_simple(
         code="aci211",
-        target_strength_mpa=20.7,
+        target_strength_mpa=25.0,
         slump_mm=75.0,
         nmsa=20,
         cement_type="TYPE_I",
@@ -363,3 +363,191 @@ class TestEndToEndIntegration:
         assert bill.cement_bag_weight_kg == 42.64
         assert bill.gross_concrete_volume_m3 == pytest.approx(55.0)
         assert "ACI" in bill.format_report()
+
+
+# ---------------------------------------------------------------------------
+# Mix Ratio Quantifier (Nominal Mix Method)
+# ---------------------------------------------------------------------------
+
+class TestMixRatioQuantifier:
+    """Test MixRatioQuantifier nominal mix proportioning and 0.035 m³/bag rule."""
+
+    def test_one_bag_equals_0_035_cubic_meter(self):
+        """1 bag of cement = 0.035 m³ volume."""
+        from material_quantify import MixRatioQuantifier
+
+        # If total dry volume of cement needed is 0.035 m³, it must yield exactly 1.0 bag
+        # Mix 1:0:0 with dry_factor=1.0, 0% wastage, net_volume=0.035 m³
+        q = MixRatioQuantifier(
+            cement_ratio=1.0,
+            sand_ratio=0.0,
+            gravel_ratio=0.0,
+            w_c_ratio=0.50,
+            dry_volume_factor=1.0,
+            cement_bag_volume_m3=0.035,
+            cement_bag_weight_kg=50.0,
+        )
+        bill = q.quantify_by_volume(0.035, wastage_percent=0.0)
+        assert bill.total_cement_bags == 1
+        assert bill.total_cement_kg == pytest.approx(50.0)
+
+        # 0.070 m³ cement dry volume -> exactly 2 bags
+        bill2 = q.quantify_by_volume(0.070, wastage_percent=0.0)
+        assert bill2.total_cement_bags == 2
+        assert bill2.total_cement_kg == pytest.approx(100.0)
+
+        # 0.036 m³ cement dry volume -> 2 bags (rounded up ceiling)
+        bill3 = q.quantify_by_volume(0.036, wastage_percent=0.0)
+        assert bill3.total_cement_bags == 2
+
+    def test_m20_1_1_5_3_nominal_quantification(self):
+        """Test M20 (1:1.5:3) nominal concrete mix."""
+        from material_quantify import MixRatioQuantifier
+
+        q = MixRatioQuantifier(
+            cement_ratio=1.0,
+            sand_ratio=1.5,
+            gravel_ratio=3.0,
+            w_c_ratio=0.50,
+            dry_volume_factor=1.54,
+            cement_bag_volume_m3=0.035,
+            cement_bag_weight_kg=50.0,
+            fine_agg_bulk_density_kg_m3=1600.0,
+            coarse_agg_bulk_density_kg_m3=1500.0,
+            label="M20 (1:1.5:3)",
+        )
+        # 10 m³ net volume, 5% wastage -> gross = 10.5 m³
+        # Dry volume = 10.5 * 1.54 = 16.17 m³
+        # Sum parts = 1 + 1.5 + 3 = 5.5
+        bill = q.quantify_by_volume(10.0, wastage_percent=5.0)
+
+        assert bill.net_concrete_volume_m3 == 10.0
+        assert bill.wastage_percent == 5.0
+        assert bill.gross_concrete_volume_m3 == pytest.approx(10.5)
+
+        # Cement: (1 / 5.5) * 16.17 = 2.94 m³
+        # Bags = 2.94 / 0.035 = 84.0 bags -> 84 bags
+        # Cement mass = 84 * 50 = 4200.0 kg
+        assert bill.total_cement_bags == 84
+        assert bill.total_cement_kg == pytest.approx(4200.0, rel=1e-3)
+
+        # Sand: (1.5 / 5.5) * 16.17 = 4.41 m³
+        # Sand mass = 4.41 * 1600 = 7056.0 kg
+        assert bill.total_fine_aggregate_bulk_m3 == pytest.approx(4.41, rel=1e-3)
+        assert bill.total_fine_aggregate_kg == pytest.approx(7056.0, rel=1e-3)
+
+        # Coarse Agg: (3 / 5.5) * 16.17 = 8.82 m³
+        # Coarse Agg mass = 8.82 * 1500 = 13230.0 kg
+        assert bill.total_coarse_aggregate_bulk_m3 == pytest.approx(8.82, rel=1e-3)
+        assert bill.total_coarse_aggregate_kg == pytest.approx(13230.0, rel=1e-3)
+
+        # Water: 4200 * 0.5 = 2100.0 kg / Liters
+        assert bill.total_water_kg == pytest.approx(2100.0, rel=1e-3)
+        assert bill.total_water_liters == pytest.approx(2100.0, rel=1e-3)
+
+    def test_m15_1_2_4_quantification(self):
+        """Test M15 (1:2:4) nominal mix."""
+        from material_quantify import MixRatioQuantifier
+
+        q = MixRatioQuantifier(
+            cement_ratio=1.0,
+            sand_ratio=2.0,
+            gravel_ratio=4.0,
+            w_c_ratio=0.55,
+            dry_volume_factor=1.54,
+            label="M15 (1:2:4)",
+        )
+        bill = q.quantify_by_volume(1.0, wastage_percent=0.0)
+        # Gross = 1.0 m³, Dry vol = 1.54 m³
+        # Sum = 7.0
+        # Cement vol = (1/7)*1.54 = 0.22 m³
+        # Bags = 0.22 / 0.035 = 6.2857 -> 7 bags (ceil)
+        assert bill.total_cement_bags == 7
+        assert bill.total_fine_aggregate_bulk_m3 == pytest.approx((2 / 7) * 1.54, rel=1e-3)
+        assert bill.total_coarse_aggregate_bulk_m3 == pytest.approx((4 / 7) * 1.54, rel=1e-3)
+
+    def test_mortar_1_4_quantification(self):
+        """Test Mortar 1:4 mix (no coarse aggregate, dry factor 1.33)."""
+        from material_quantify import MixRatioQuantifier
+
+        q = MixRatioQuantifier(
+            cement_ratio=1.0,
+            sand_ratio=4.0,
+            gravel_ratio=0.0,
+            w_c_ratio=0.55,
+            dry_volume_factor=1.33,
+            label="Mortar 1:4",
+        )
+        bill = q.quantify_by_volume(5.0, wastage_percent=5.0)
+
+        # Gross = 5.25 m³, Dry vol = 5.25 * 1.33 = 6.9825 m³
+        # Sum = 5.0
+        # Cement vol = 6.9825 / 5 = 1.3965 m³
+        # Bags = 1.3965 / 0.035 = 39.9 -> 40 bags
+        assert bill.total_cement_bags == 40
+        assert bill.total_coarse_aggregate_kg == 0.0
+        assert bill.total_coarse_aggregate_bulk_m3 == 0.0
+        assert bill.total_fine_aggregate_bulk_m3 == pytest.approx((4 / 5) * 6.9825, rel=1e-3)
+
+    def test_presets_loading(self):
+        """Test creating quantifiers from presets."""
+        from material_quantify import MixRatioQuantifier, MIX_RATIO_PRESETS
+
+        for preset_name in MIX_RATIO_PRESETS:
+            q = MixRatioQuantifier.from_preset(preset_name)
+            bill = q.quantify_by_volume(1.0, wastage_percent=5.0)
+            assert bill.total_cement_bags > 0
+            assert bill.total_fine_aggregate_kg > 0
+
+    def test_quantify_by_elements(self):
+        """Test MixRatioQuantifier with structural elements."""
+        from material_quantify import MixRatioQuantifier, StructuralElement
+
+        q = MixRatioQuantifier.from_preset("M20 (1:1.5:3)")
+        elements = [
+            StructuralElement("footing", 2.0, 2.0, 0.5, quantity=2),  # 4 m³
+            StructuralElement("slab", 6.0, 4.0, 0.15, quantity=1),   # 3.6 m³
+        ]
+        bill = q.quantify_by_elements(elements, wastage_percent=5.0)
+        assert bill.net_concrete_volume_m3 == pytest.approx(7.6)
+        assert bill.gross_concrete_volume_m3 == pytest.approx(7.6 * 1.05)
+        assert bill.total_cement_bags > 0
+
+    def test_invalid_parameters_raise(self):
+        """Test validation and error raising."""
+        from material_quantify import MixRatioQuantifier
+
+        with pytest.raises(ValueError, match="Cement ratio must be positive"):
+            MixRatioQuantifier(cement_ratio=0.0)
+
+        with pytest.raises(ValueError, match="Sand ratio must be non-negative"):
+            MixRatioQuantifier(sand_ratio=-1.0)
+
+        with pytest.raises(ValueError, match="Dry volume factor must be positive"):
+            MixRatioQuantifier(dry_volume_factor=0.0)
+
+        with pytest.raises(ValueError, match="Cement bag volume must be positive"):
+            MixRatioQuantifier(cement_bag_volume_m3=-0.035)
+
+        q = MixRatioQuantifier()
+        with pytest.raises(ValueError, match="Volume must be positive"):
+            q.quantify_by_volume(0.0)
+
+        with pytest.raises(ValueError, match="Wastage must be non-negative"):
+            q.quantify_by_volume(10.0, wastage_percent=-5.0)
+
+        with pytest.raises(ValueError, match="At least one"):
+            q.quantify_by_elements([])
+
+    def test_report_formatting(self):
+        """Test that report formatting works cleanly for mix ratio bills."""
+        from material_quantify import MixRatioQuantifier
+
+        q = MixRatioQuantifier.from_preset("M20 (1:1.5:3)")
+        bill = q.quantify_by_volume(10.0, wastage_percent=5.0)
+        report = bill.format_report()
+
+        assert "MATERIAL BILL OF QUANTITIES" in report
+        assert "M20" in report
+        assert "Cement" in report
+        assert "Fine Aggregate" in report

@@ -68,14 +68,30 @@ class MixDesignInput:
     max_cement_kg: float | None = None
     std_deviation: float | None = None  # DOE: user-provided standard deviation (MPa)
     margin_mpa: float | None = None  # DOE: user-specified margin (MPa), overrides k×s calculation
+    num_test_cubes: int | None = None  # DOE: number of test cubes (n) for std-dev determination; structural assumption
+    # DOE structural: n<20 → s=8 MPa (Line A), n≥20 → s=4 MPa (Line B) per BRE 331 §4.4
 
     def __post_init__(self) -> None:
+        # Structural concrete design assumption across all standards (BRE 331 §4, IS 456, ACI 318)
+        # This application assumes the mix is for structural elements, therefore
+        # characteristic compressive strength fc (or target strength) must be >= 25 MPa.
+        fc_eff = (
+            self.characteristic_strength_mpa
+            if self.characteristic_strength_mpa is not None
+            else self.target_strength_mpa
+        )
+        if fc_eff < 25.0:
+            raise ValueError(
+                f"{self.code.upper()} structural design requires characteristic strength "
+                f"fc ≥ 25 MPa. Got {fc_eff:.1f} MPa. This application assumes the mix is for structural use."
+            )
+        if not 25.0 <= self.target_strength_mpa <= 100.0:
+            raise ValueError(
+                f"Characteristic strength {self.target_strength_mpa} MPa outside valid range [25, 100] "
+                f"for structural mix design."
+            )
+
         if self.code == "doe":
-            # DOE uses wider strength range (28-day characteristic)
-            if not 5.0 <= self.target_strength_mpa <= 100.0:
-                raise ValueError(
-                    f"Characteristic strength {self.target_strength_mpa} MPa outside valid range [5, 100]"
-                )
             # DOE Table 3: NMSA must be 10, 20, or 40 mm
             valid_nmsa = (10, 20, 40)
             nmsa = self.coarse_aggregate.nominal_max_size_mm
@@ -89,11 +105,6 @@ class MixDesignInput:
                 raise ValueError(
                     f"Slump {self.slump_mm} mm outside valid range [0, 180] for DOE method. "
                     f"See BRE 331:1997 Table 3"
-                )
-        else:
-            if not 10.0 <= self.target_strength_mpa <= 80.0:
-                raise ValueError(
-                    f"Target strength {self.target_strength_mpa} MPa outside valid range [10, 80]"
                 )
         min_slump = 0.0 if self.code == "doe" else 10.0
         if not min_slump <= self.slump_mm <= 250.0:
@@ -119,6 +130,12 @@ class MixDesignInput:
             raise ValueError("Minimum cement content must be positive")
         if self.max_cement_kg is not None and self.max_cement_kg <= 0:
             raise ValueError("Maximum cement content must be positive")
+        if self.num_test_cubes is not None and self.num_test_cubes <= 0:
+            raise ValueError("Number of test cubes (n) must be positive")
+        if self.std_deviation is not None and self.std_deviation < 0:
+            raise ValueError("Standard deviation must be non-negative")
+        if self.defective_percent is not None and not 0.5 <= self.defective_percent <= 15.0:
+            raise ValueError("Defective percent must be between 0.5 and 15%")
 
     @property
     def nmsa(self) -> int:

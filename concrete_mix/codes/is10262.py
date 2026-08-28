@@ -51,9 +51,11 @@ class IS10262MixDesign(MixDesignCode):
         return ftm
 
     def get_water_content(self, nmsa: int, slump_mm: float, **kwargs) -> float:
-        """Get water content from IS 10262:2019 Table 4, adjusted for grading zone."""
-        grading_zone = kwargs.get("grading_zone", "II")
-        return interpolate_water_content(nmsa, slump_mm, grading_zone)
+        """Get water content from IS 10262:2019 Table 4 (base + slump rule).
+
+        The grading zone does not affect water content in IS 10262:2019.
+        """
+        return interpolate_water_content(nmsa, slump_mm)
 
     def get_water_content_by_nmsa(self, nmsa: int) -> float:
         """Get water content from Table 4 (read-only, depends only on NMSA)."""
@@ -118,18 +120,20 @@ class IS10262MixDesign(MixDesignCode):
             )
         )
 
-        # Step 2: Water content (IS 10262:2019 Table 4)
-        # Base water content from Table 4 by NMSA
+        # Step 2: Water content (IS 10262:2019 Table 4 + Clause 5.3)
+        # Sequence per the standard's Annex A/B worked examples:
+        #   1. Base water from Table 4 (angular aggregate, 50 mm slump)
+        #   2. Slump adjustment: ±3% per 25 mm from 50 mm (Clause 5.3)
+        #   3. Aggregate shape adjustment in kg (Clause 5.3)
+        #   4. Admixture water reduction (Clause 5.3 + Annex G)
+        # (Annex A: 186 → 191.58 at 75 mm slump → 148 after 23% reduction.)
         base_water = WATER_CONTENT.get(nmsa, 186)
-        water_kg = base_water
+        water_kg = interpolate_water_content(nmsa, inp.slump_mm, grading_zone)
 
-        # Adjust for grading zone (and slump if no admixture is used)
-        effective_slump = 50.0 if (inp.admixture and inp.admixture.water_reduction_percent > 0) else inp.slump_mm
-        water_kg = interpolate_water_content(nmsa, effective_slump, grading_zone)
-
-        # IS 10262:2019 Clause 5.2 — Adjust for aggregate shape
+        # IS 10262:2019 Clause 5.3 — Adjust for aggregate shape
         # Table 4 assumes angular aggregate as base. Adjustments are in kg/m³:
-        #   Sub-angular: -10 kg, Rounded gravel: -20 kg
+        #   Sub-angular: -10 kg, gravel with some crushed particles: -15 kg,
+        #   Rounded gravel: -20 kg
         agg_shape = inp.coarse_aggregate.shape.value
         shape_adj_kg = AGGREGATE_SHAPE_ADJUSTMENT_KG.get(agg_shape, 0.0)
         if shape_adj_kg != 0:
@@ -137,22 +141,22 @@ class IS10262MixDesign(MixDesignCode):
             if shape_adj_kg < 0:
                 warnings.append(
                     f"Water reduced by {abs(shape_adj_kg):.0f} kg/m³ "
-                    f"for '{display_name(agg_shape)}' aggregate per IS 10262:2019 Clause 5.2"
+                    f"for '{display_name(agg_shape)}' aggregate per IS 10262:2019 Clause 5.3"
                 )
             else:
                 warnings.append(
                     f"Water increased by {shape_adj_kg:.0f} kg/m³ "
-                    f"for '{display_name(agg_shape)}' aggregate per IS 10262:2019 Clause 5.2"
+                    f"for '{display_name(agg_shape)}' aggregate per IS 10262:2019 Clause 5.3"
                 )
 
         # IS 10262:2019 Clause 5.3 — Admixture water reduction
         # Reference: Annex G for admixture types and typical water reduction
-        water_before_admixture = water_kg  # base + shape adjusted, before admixture
+        water_before_admixture = water_kg  # slump + shape adjusted, before admixture
         admixture_mass_kg = 0.0
 
         # Step 2: Water content (IS 10262:2019 Table 4) — show water before
-        # admixture reduction, including slump/grading/shape adjustments.
-        _slump_delta_pct = (effective_slump - 50.0) / 25.0 * 3.0
+        # admixture reduction, including slump/shape adjustments.
+        _slump_delta_pct = (inp.slump_mm - 50.0) / 25.0 * 3.0
         _formula_parts = [f"NMSA {nmsa}mm → {base_water} kg/m³"]
         if abs(_slump_delta_pct) > 0.01:
             _formula_parts.append(f"slump adj {_slump_delta_pct:+.1f}%")
@@ -171,7 +175,7 @@ class IS10262MixDesign(MixDesignCode):
                 },
                 water_before_admixture,
                 "kg/m³",
-                "IS 10262:2019 Table 4 + Clause 5.2",
+                "IS 10262:2019 Table 4 + Clause 5.3",
             )
         )
 
@@ -230,6 +234,30 @@ class IS10262MixDesign(MixDesignCode):
         # Step 4: Cement content
         scm_replacement = inp.total_scm_replacement_percent
         cementitious_total = water_kg / wc
+
+        # IS 10262:2019 Clause 5.4.1 / Annex B — for fly ash (or other mineral
+        # admixture) replacement of 20 percent or more, the cementitious
+        # materials content may be increased by 10 percent for the preliminary
+        # trial (Annex B: 431 × 1.10 = 474 kg/m³ at 30 % fly ash).
+        if scm_replacement >= 20.0:
+            cementitious_total *= 1.10
+            warnings.append(
+                f"SCM replacement {scm_replacement:.0f}% ≥ 20% — cementitious content "
+                f"increased by 10% for preliminary trial per IS 10262:2019 Clause 5.4.1 "
+                f"(Annex B practice)"
+            )
+            steps.append(
+                self._make_step(
+                    4.05,
+                    "Cementitious increase (≥20% SCM)",
+                    "Cementitious × 1.10 per Clause 5.4.1",
+                    {"cementitious_before": water_kg / wc, "increase_pct": 10.0},
+                    cementitious_total,
+                    "kg/m³",
+                    "IS 10262:2019 Clause 5.4.1, Annex B",
+                )
+            )
+
         scm_kg = cementitious_total * (scm_replacement / 100.0)
         cement_kg = cementitious_total - scm_kg
 
@@ -423,9 +451,31 @@ class IS10262MixDesign(MixDesignCode):
                 f"Total absolute volume {actual_vol:.4f} m³ deviates from 1.0 m³"
             )
 
-        # Trial batch recommendation
+        # Step 8: Trial Mixes Protocol per IS 10262:2019 Clause 5.8
+        wc_trial3 = round(wc * 0.90, 2)
+        wc_trial4 = round(wc * 1.10, 2)
+        steps.append(
+            self._make_step(
+                8,
+                "Trial mixes protocol",
+                "4 trial batches: Trial 1 (initial) → Trial 2 (workability adj) → Trials 3 & 4 (W/C ±10%)",
+                {
+                    "trial_1_2_wc": round(wc, 2),
+                    "trial_3_wc": wc_trial3,
+                    "trial_4_wc": wc_trial4,
+                },
+                4.0,
+                "batches",
+                "IS 10262:2019 Clause 5.8",
+            )
+        )
+
+        # Trial batch recommendation per Clause 5.8
         warnings.append(
-            "IS 10262:2019 recommends minimum 3 trial batches for validation"
+            "IS 10262:2019 Clause 5.8: Mandatory 4-trial batch protocol required — "
+            "Trial 1 (workability & segregation/bleeding check), Trial 2 (water/admixture adjustment at constant W/C), "
+            f"Trials 3 & 4 (same water with W/C ±10%: {wc_trial3:.2f} & {wc_trial4:.2f} to establish strength vs. W/C curve), "
+            "followed by field trials and Clause 5.8.1 reporting."
         )
 
         # Calculate admixture mass for result
@@ -464,3 +514,178 @@ class IS10262MixDesign(MixDesignCode):
             admixture_dosage_percent=admixture_dosage_result,
             water_reduction_percent=water_reduction_result,
         )
+
+
+def calculate_is10262_trial_mixes(
+    result: MixDesignResult,
+    inp: MixDesignInput | None = None,
+) -> dict[str, Any]:
+    """Calculate the 4 trial mix batches per IS 10262:2019 Clause 5.8.
+
+    IS 10262:2019 Clause 5.8 specifies:
+    - Trial Mix 1: Initial laboratory batch with calculated proportions. Measure
+      workability (slump/flow), observe freedom from segregation and bleeding, and
+      check finishing properties.
+    - Trial Mix 2: If measured workability differs from target, adjust water and/or
+      admixture content while keeping free W/C at the design value.
+    - Trial Mixes 3 & 4: Water content is kept same as Trial Mix 2, while W/C is varied
+      by ±10% of the pre-selected value to establish the compressive strength vs. W/C curve.
+    - Proportions Finalization: Proportions are finalized from Trials 2 to 4 to satisfy
+      both strength and durability requirements, followed by field trials.
+    - Clause 5.8.1 Reporting: Mandatory documentation items.
+    """
+    w1 = result.water_kg
+    c1 = result.cement_kg
+    scm1 = result.scm_kg
+    wc1 = result.w_c_ratio
+    fa1 = result.fine_aggregate_kg
+    ca1 = result.coarse_aggregate_kg
+    adm1 = result.admixture_kg or 0.0
+    air_pct = result.air_volume_percent
+
+    if inp is not None:
+        sg_c = inp.cement.specific_gravity
+        sg_scm = inp.scms[0].specific_gravity if inp.scms else 3.15
+        sg_fa = inp.fine_aggregate.specific_gravity
+        sg_ca = inp.coarse_aggregate.specific_gravity
+        sg_adm = inp.admixture.specific_gravity if inp.admixture else 1.15
+        dosage_pct = inp.admixture.dosage_percent if inp.admixture else 0.0
+        scm_pct = inp.total_scm_replacement_percent
+        nmsa = inp.nmsa
+        grading_zone = inp.fine_aggregate.grading_zone or "II"
+        ca_frac_base = get_ca_volume_fraction(nmsa, grading_zone)
+    else:
+        sg_c = 3.15
+        sg_scm = 2.20 if scm1 > 0 else 3.15
+        sg_fa = 2.65
+        sg_ca = 2.65
+        sg_adm = 1.15
+        cm_total = c1 + scm1
+        scm_pct = (scm1 / cm_total * 100.0) if cm_total > 0 else 0.0
+        dosage_pct = (adm1 / cm_total * 100.0) if (adm1 > 0 and cm_total > 0) else 0.0
+        vol_ca = ca1 / (sg_ca * 1000.0)
+        vol_fa = fa1 / (sg_fa * 1000.0)
+        ca_frac_base = vol_ca / (vol_ca + vol_fa) if (vol_ca + vol_fa) > 0 else 0.62
+
+    # Trial 1: Calculated design
+    t1 = {
+        "trial_number": 1,
+        "name": "Trial Mix No. 1 (Calculated Design Proportions)",
+        "w_c_ratio": round(wc1, 2),
+        "water_kg": round(w1, 1),
+        "cement_kg": round(c1, 1),
+        "scm_kg": round(scm1, 1),
+        "fine_agg_kg": round(fa1, 1),
+        "coarse_agg_kg": round(ca1, 1),
+        "admixture_kg": round(adm1, 2) if adm1 > 0 else 0.0,
+        "purpose": "Initial laboratory trial. Measure workability (slump/flow), inspect for freedom from segregation/bleeding and finishing properties.",
+        "action": "If slump matches target and mix is cohesive, proceed. If workability differs, adjust water/admixture for Trial 2.",
+    }
+
+    # Trial 2: Workability adjusted baseline
+    t2 = {
+        "trial_number": 2,
+        "name": "Trial Mix No. 2 (Workability-Adjusted Baseline)",
+        "w_c_ratio": round(wc1, 2),
+        "water_kg": round(w1, 1),
+        "cement_kg": round(c1, 1),
+        "scm_kg": round(scm1, 1),
+        "fine_agg_kg": round(fa1, 1),
+        "coarse_agg_kg": round(ca1, 1),
+        "admixture_kg": round(adm1, 2) if adm1 > 0 else 0.0,
+        "purpose": "Adjust water and/or admixture dosage if Trial 1 workability differed, while holding free W/C constant at target.",
+        "action": "Establish confirmed baseline water content for Trials 3 and 4.",
+    }
+
+    # Trial 3: W/C -10%
+    wc3 = round(wc1 * 0.90, 2)
+    cm3 = w1 / wc3
+    if scm_pct >= 20.0:
+        cm3 *= 1.10
+    scm3 = cm3 * (scm_pct / 100.0)
+    c3 = cm3 - scm3
+    adm3 = cm3 * (dosage_pct / 100.0) if dosage_pct > 0 else 0.0
+
+    vol_c3 = c3 / (sg_c * 1000.0)
+    vol_scm3 = scm3 / (sg_scm * 1000.0) if scm3 > 0 else 0.0
+    vol_w3 = w1 / 1000.0
+    vol_air3 = air_pct / 100.0
+    vol_adm3 = (adm3 / (sg_adm * 1000.0)) if adm3 > 0 else 0.0
+    vol_agg3 = max(0.0, 1.0 - (vol_c3 + vol_scm3 + vol_w3 + vol_air3 + vol_adm3))
+
+    ca_frac3 = adjust_ca_volume_for_wcr(ca_frac_base, wc3)
+    vol_ca3 = vol_agg3 * ca_frac3
+    vol_fa3 = vol_agg3 - vol_ca3
+    ca3 = vol_ca3 * sg_ca * 1000.0
+    fa3 = vol_fa3 * sg_fa * 1000.0
+
+    t3 = {
+        "trial_number": 3,
+        "name": f"Trial Mix No. 3 (W/C -10%: {wc3:.2f})",
+        "w_c_ratio": wc3,
+        "water_kg": round(w1, 1),
+        "cement_kg": round(c3, 1),
+        "scm_kg": round(scm3, 1),
+        "fine_agg_kg": round(fa3, 1),
+        "coarse_agg_kg": round(ca3, 1),
+        "admixture_kg": round(adm3, 2) if adm3 > 0 else 0.0,
+        "purpose": "Lower W/C ratio by ~10% (same water content as Trial 2, increased cementitious content) to establish higher strength curve point.",
+        "action": "Cast test cubes (7 & 28 days) and measure workability.",
+    }
+
+    # Trial 4: W/C +10%
+    wc4 = round(wc1 * 1.10, 2)
+    cm4 = w1 / wc4
+    if scm_pct >= 20.0:
+        cm4 *= 1.10
+    scm4 = cm4 * (scm_pct / 100.0)
+    c4 = cm4 - scm4
+    adm4 = cm4 * (dosage_pct / 100.0) if dosage_pct > 0 else 0.0
+
+    vol_c4 = c4 / (sg_c * 1000.0)
+    vol_scm4 = scm4 / (sg_scm * 1000.0) if scm4 > 0 else 0.0
+    vol_w4 = w1 / 1000.0
+    vol_air4 = air_pct / 100.0
+    vol_adm4 = (adm4 / (sg_adm * 1000.0)) if adm4 > 0 else 0.0
+    vol_agg4 = max(0.0, 1.0 - (vol_c4 + vol_scm4 + vol_w4 + vol_air4 + vol_adm4))
+
+    ca_frac4 = adjust_ca_volume_for_wcr(ca_frac_base, wc4)
+    vol_ca4 = vol_agg4 * ca_frac4
+    vol_fa4 = vol_agg4 - vol_ca4
+    ca4 = vol_ca4 * sg_ca * 1000.0
+    fa4 = vol_fa4 * sg_fa * 1000.0
+
+    t4 = {
+        "trial_number": 4,
+        "name": f"Trial Mix No. 4 (W/C +10%: {wc4:.2f})",
+        "w_c_ratio": wc4,
+        "water_kg": round(w1, 1),
+        "cement_kg": round(c4, 1),
+        "scm_kg": round(scm4, 1),
+        "fine_agg_kg": round(fa4, 1),
+        "coarse_agg_kg": round(ca4, 1),
+        "admixture_kg": round(adm4, 2) if adm4 > 0 else 0.0,
+        "purpose": "Higher W/C ratio by ~10% (same water content as Trial 2, decreased cementitious content) to establish lower strength curve point.",
+        "action": "Cast test cubes (7 & 28 days) and measure workability. Verify cement meets IS 456 minimum durability limit.",
+    }
+
+    return {
+        "standard": "IS 10262:2019",
+        "clause": "Clause 5.8 (Trial Mixes) & Clause 5.8.1 (Reporting)",
+        "summary": (
+            "IS 10262:2019 Clause 5.8 requires that calculated mix proportions be checked and validated "
+            "by a sequence of 4 trial batches in the laboratory to develop the compressive strength vs. "
+            "water-cement ratio curve before final production."
+        ),
+        "trials": [t1, t2, t3, t4],
+        "reporting_checklist": [
+            ("a", "Period of testing (starting and ending date)"),
+            ("b", "Details of work / type of structure"),
+            ("c", "All mix design input data as per Clause 4.1 & IS 456 deviations"),
+            ("d", "Relevant test data of different materials (aggregates, cement, water, admixtures)"),
+            ("e", "Details of materials (brand of cement, mfg date/week, % pozzolana/slag, aggregate sources)"),
+            ("f", "Details of the 4 trial batches conducted (workability, bleeding, cube compressive strengths)"),
+            ("g", "Recommended final mix proportions and field trial validation records"),
+        ],
+    }
+

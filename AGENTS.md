@@ -33,6 +33,7 @@ The following documents have been extracted from authoritative concrete design s
 | Water-cement ratio calculations | Both ACI 211.1-22 (§5, §9), IS 10262:2019 (Table 8, Fig. 1) and BRE 331:1997 (Figure 4, §9.3) |
 | Target strength calculations | IS 10262:2019 (Clause 7.1, Table 1, Table 2) and BRE 331:1997 (§5.1, Figure 3) |
 | Aggregate volume/proportions | Both ACI 211.1-22 (§5.3, Tables 5.3.3–5.3.6), IS 10262:2019 (Table 10, Table 13) and BRE 331:1997 (Figure 6) |
+| Coarse aggregate PSD / grading bands | ASTM C33/C33M Table 2, supported project mappings: 10 mm → Size 8, 20 mm → Size 67, 40 mm → Size 467; ACI 211.1-22 (§4.3.1, §A.4.2) |
 | Water content selection | Both ACI 211.1-22 (Tables 5.3.3), IS 10262:2019 (Table 7, Table 12) and BRE 331:1997 (Table 3, Table 9) |
 | Admixture/sp superplasticizer logic | IS 10262:2019 (Annex G), ACI 211.1-22 (§6.3) |
 | Paste volume calculations | ACI 211.1-22 (§9.5, Example 4) |
@@ -50,6 +51,17 @@ The following documents have been extracted from authoritative concrete design s
 - Ensure all displayed values follow the correct unit systems (ACI uses lb/ft³ and lb/yd³; IS uses kg/m³).
 - Verify that rounding conventions match the standards (e.g., IS 10262 rounds to nearest whole kg for cement).
 - Confirm any labels, tooltips, or help text accurately reflect the referenced standard.
+
+### PSD Tab — Standard-Specific Aggregate Rules
+
+- The PSD tab must provide an explicit standard selector. Never combine one standard's sieve series with another standard's percentage-passing limits.
+- **IS 383:2016:** use the Table 7 coarse sieve designations 80, 63, 40, 20, 16, 12.5, 10, 4.75, and 2.36 mm. Provide the Table 7 single-sized references (63, 40, 20, 16, 12.5, and 10 mm) and graded references (40, 20, 16, and 12.5 mm) with their exact stated limits.
+- **ASTM C33/C33M:** the coarse input table must include every Table 2 laboratory-sieve column: 100, 90, 75, 63, 50, 37.5, 25.0, 19.0, 12.5, 9.5, 4.75, 2.36, 1.18 mm, and 300 µm.
+- The project supports exactly three ASTM coarse reference bands: **10 mm**, **20 mm**, and **40 mm**. Do not add other ASTM size-number bands.
+- Map the ASTM project references as follows: 10 mm → Size 8, 20 mm → Size 67, and 40 mm → Size 467.
+- Fine aggregate must also follow the selected code: IS 383 grading Zones I–IV use a 10 mm top sieve; ASTM C33/C33M Table 1 uses a 9.5 mm top sieve and its own percentage-passing envelope.
+- Use the exact minimum and maximum percentage-passing limits from the selected standard. A dash, ellipsis, or blank cell means no grading requirement: keep the sieve available for PSD input, but do not invent a 0% or 100% limit and do not use it for conformance checking.
+- A visually smoothed standard band may be drawn between specified control points, but the curve must pass through every stated limit and must not overshoot, cross its opposite boundary, or imply requirements beyond the first and last specified sieves.
 
 ### When Adding New Features
 

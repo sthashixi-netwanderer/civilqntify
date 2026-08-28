@@ -25,22 +25,74 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 # ---------------------------------------------------------------------------
-# Standard sieve sets (mm), coarsest → finest.
+# Standard-specific sieve sets (mm), coarsest → finest.
 # ---------------------------------------------------------------------------
-# Fine aggregate (IS 383 / ASTM C33): the ACI 211.1-22 §4.3.5 halving series
-# from 10 mm down to 0.150 mm.
-FINE_SIEVES: list[float] = [10.0, 4.75, 2.36, 1.18, 0.600, 0.300, 0.150]
+# IS 383 fine aggregate grading zones use the 10 mm top sieve.
+IS_FINE_SIEVES: list[float] = [
+    10.0, 4.75, 2.36, 1.18, 0.600, 0.300, 0.150
+]
 
-# Coarse aggregate (IS 383 Table 7 / ASTM C33): from 75 mm down to 2.36 mm.
-COARSE_SIEVES: list[float] = [75.0, 37.5, 19.0, 12.5, 9.5, 4.75, 2.36]
+# ASTM C33/C33M Table 1 uses the 9.5 mm (3/8 in.) top sieve.
+ASTM_FINE_SIEVES: list[float] = [
+    9.5, 4.75, 2.36, 1.18, 0.600, 0.300, 0.150
+]
 
+# Every IS sieve designation shown in IS 383:2016 Table 7.
+IS_COARSE_SIEVES: list[float] = [
+    80.0, 63.0, 40.0, 20.0, 16.0, 12.5, 10.0, 4.75, 2.36
+]
+
+# Every SI laboratory-sieve column in ASTM C33/C33M Table 2. Unspecified
+# cells remain available for laboratory input but are omitted from the
+# corresponding grading-band mapping and conformance checks.
+ASTM_COARSE_SIEVES: list[float] = [
+    100.0,
+    90.0,
+    75.0,
+    63.0,
+    50.0,
+    37.5,
+    25.0,
+    19.0,
+    12.5,
+    9.5,
+    4.75,
+    2.36,
+    1.18,
+    0.300,
+]
+
+STANDARD_SIEVES_BY_CODE: dict[str, dict[str, list[float]]] = {
+    "is383": {
+        "fine": IS_FINE_SIEVES,
+        "coarse": IS_COARSE_SIEVES,
+    },
+    "astm_c33": {
+        "fine": ASTM_FINE_SIEVES,
+        "coarse": ASTM_COARSE_SIEVES,
+    },
+}
+
+# Backward-compatible aliases for existing engine callers. The UI uses
+# STANDARD_SIEVES_BY_CODE so it never combines one standard's sieve set with
+# the other standard's grading limits.
+FINE_SIEVES = IS_FINE_SIEVES
+COARSE_SIEVES = ASTM_COARSE_SIEVES
 STANDARD_SIEVES: dict[str, list[float]] = {
     "fine": FINE_SIEVES,
     "coarse": COARSE_SIEVES,
 }
 
-# Sieves used for the ACI 211.1-22 §4.3.5 fineness modulus sum.
-_FM_SIEVES: set[float] = {0.150, 0.300, 0.600, 1.18, 2.36, 4.75}
+# Sieves used for the ACI 211.1-22 §4.3.5 fineness modulus sum. The sum of
+# cumulative percentages retained on these six sieves divided by 100 yields
+# the FM (ASTM C136 procedure). Public so the PSD display and the psd-link
+# bridge cannot drift away from the computation.
+FM_SIEVES: frozenset[float] = frozenset(
+    {0.150, 0.300, 0.600, 1.18, 2.36, 4.75}
+)
+
+# Backward-compatible private alias used within this module.
+_FM_SIEVES: set[float] = set(FM_SIEVES)
 
 
 @dataclass
@@ -71,6 +123,17 @@ class PSDResult:
     def all_conform(self) -> bool:
         """True if every checked sieve is inside its band limit."""
         return bool(self.conforms) and all(self.conforms)
+
+    @property
+    def pct_passing_600um(self) -> float | None:
+        """Percentage passing the 600 µm (0.600 mm) sieve for BRE 331 (DOE)."""
+        for s, p in zip(self.sieve_sizes, self.percent_passing):
+            if abs(s - 0.600) < 1e-4:
+                return round(p, 1)
+        # Only interpolate for fine-aggregate stacks (top sieve <= 10 mm spanning 0.600 mm)
+        if self.sieve_sizes and max(self.sieve_sizes) <= 10.0 and min(self.sieve_sizes) <= 0.600 <= max(self.sieve_sizes):
+            return _interpolate_percent_passing(self.sieve_sizes, self.percent_passing, 0.600)
+        return None
 
 
 def compute_psd(
@@ -254,3 +317,42 @@ def _interpolate_size(
             return math.exp(log_s0 + frac * (log_s1 - log_s0))
 
     return None
+
+
+def _interpolate_percent_passing(
+    sieve_sizes: list[float],
+    percent_passing: list[float],
+    target_size_mm: float,
+) -> float | None:
+    """Log-linear interpolate the % passing at a given sieve size (mm)."""
+    if not sieve_sizes or target_size_mm <= 0:
+        return None
+
+    import math
+
+    # Direct match check (within tolerance)
+    for s, p in zip(sieve_sizes, percent_passing):
+        if abs(s - target_size_mm) < 1e-4:
+            return round(p, 1)
+
+    pts = sorted(zip(sieve_sizes, percent_passing))
+    sizes = [s for s, _ in pts if s > 0]
+    passes = [p for s, p in pts if s > 0]
+
+    if not sizes or target_size_mm < sizes[0] or target_size_mm > sizes[-1]:
+        return None
+
+    for i in range(1, len(sizes)):
+        s0, p0 = sizes[i - 1], passes[i - 1]
+        s1, p1 = sizes[i], passes[i]
+        if s0 == s1:
+            continue
+        if s0 <= target_size_mm <= s1:
+            log_s0 = math.log(s0)
+            log_s1 = math.log(s1)
+            frac = (math.log(target_size_mm) - log_s0) / (log_s1 - log_s0)
+            interpolated = p0 + frac * (p1 - p0)
+            return round(interpolated, 1)
+
+    return None
+

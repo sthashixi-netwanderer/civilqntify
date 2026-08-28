@@ -77,9 +77,9 @@ class MainWindow(QMainWindow):
         self.tabs.setDocumentMode(True)
         layout.addWidget(self.tabs)
 
-        # Concrete mix design tab
+        # Mix design tab
         self.concrete_tab = ConcreteMixTab()
-        self.tabs.addTab(self.concrete_tab, "Concrete Mix Design")
+        self.tabs.addTab(self.concrete_tab, "Mix Design")
 
         # Material quantification tab
         self.quant_tab = MaterialQuantifyTab()

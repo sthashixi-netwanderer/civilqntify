@@ -153,6 +153,30 @@ def generate_report(
         lines.append(f"  Embodied CO₂:             {result.carbon_kg_co2_per_m3:.1f} kg CO₂/m³")
         lines.append("")
 
+    # IS 10262:2019 Clause 5.8 Trial Mixes Protocol
+    if "IS" in result.code_used or "10262" in result.code_used:
+        from concrete_mix.codes.is10262 import calculate_is10262_trial_mixes
+
+        protocol = calculate_is10262_trial_mixes(result, inp)
+        lines.append("MANDATORY TRIAL MIXES PROTOCOL (IS 10262:2019 Clause 5.8)")
+        lines.append("-" * 70)
+        lines.append("  Per Clause 5.8, calculated mix proportions must be checked by 4 trial batches:")
+        for t in protocol["trials"]:
+            lines.append(f"  • {t['name']}")
+            lines.append(
+                f"    W/C: {t['w_c_ratio']:.2f} | Water: {t['water_kg']:.1f} kg | "
+                f"Cement: {t['cement_kg']:.1f} kg | SCM: {t['scm_kg']:.1f} kg | "
+                f"FA: {t['fine_agg_kg']:.1f} kg | CA: {t['coarse_agg_kg']:.1f} kg"
+            )
+            if t["admixture_kg"] > 0:
+                lines.append(f"    Admixture: {t['admixture_kg']:.2f} kg")
+            lines.append(f"    Action: {t['action']}")
+        lines.append("")
+        lines.append("  Clause 5.8.1 Reporting Requirements Checklist:")
+        for code_letter, req in protocol["reporting_checklist"]:
+            lines.append(f"    [{code_letter}] {req}")
+        lines.append("")
+
     # Warnings
     if result.warnings:
         lines.append("WARNINGS & NOTES")
