@@ -196,7 +196,13 @@ STANDARD_DEVIATION: dict[str, float] = {
 }
 
 # Grading zone boundaries (IS 383 — sieve analysis percentages passing)
-# Used to determine grading zone from sieve analysis
+# Used to determine grading zone from sieve analysis.
+#
+# IS 383:2016 Table 9 (Clause 6.3), transcribed verbatim from
+# docs/IS-383-2016-Coarse-and-Fine-Aggregate-for-Concrete.md. Note 1 of
+# Table 9 raises the 150-µm upper limit to 20 % for crushed stone sands —
+# applied by the classifier in concrete_mix.engine.grading, not here, so
+# this table always holds the as-published limits.
 GRADING_ZONE_LIMITS: dict[str, dict[float, tuple[float, float]]] = {
     # sieve_size_mm: (lower%, upper%) for each zone
     "I": {
@@ -211,29 +217,29 @@ GRADING_ZONE_LIMITS: dict[str, dict[float, tuple[float, float]]] = {
     "II": {
         10.0: (100, 100),
         4.75: (90, 100),
-        2.36: (40, 100),
-        1.18: (0, 50),  # adjusted from standard for practical range
-        0.600: (10, 30),
-        0.300: (5, 20),
+        2.36: (75, 100),
+        1.18: (55, 90),
+        0.600: (35, 59),
+        0.300: (8, 30),
         0.150: (0, 10),
     },
     "III": {
         10.0: (100, 100),
         4.75: (90, 100),
-        2.36: (0, 85),
-        1.18: (0, 50),
-        0.600: (5, 20),
-        0.300: (0, 15),
+        2.36: (85, 100),
+        1.18: (75, 100),
+        0.600: (60, 79),
+        0.300: (12, 40),
         0.150: (0, 10),
     },
     "IV": {
         10.0: (100, 100),
         4.75: (95, 100),
-        2.36: (0, 75),
-        1.18: (0, 40),
-        0.600: (0, 15),
-        0.300: (0, 10),
-        0.150: (0, 5),
+        2.36: (95, 100),
+        1.18: (90, 100),
+        0.600: (80, 100),
+        0.300: (15, 50),
+        0.150: (0, 15),
     },
 }
 

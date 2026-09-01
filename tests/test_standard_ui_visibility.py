@@ -175,3 +175,59 @@ def test_aci211_ui_visibility(tab):
     assert tab.exposure_combo.isHidden() is True
     assert tab._lbl_max_wc.isHidden() is True
     assert tab.max_wc_label.isHidden() is True
+
+
+def test_input_sidebars_fit_their_360px_pane_floor(qapp):
+    """No input sidebar may demand more width than the splitter's 360 px
+    floor. Widgets whose minimum-size hints exceed it (non-wrapping
+    checkbox labels, widest-item combo hints, long group-box titles)
+    force the input column wider than the pane, so fields get clipped or
+    pushed behind the pane edge when the sidebar is narrowed."""
+    from PyQt6.QtWidgets import QScrollArea, QTabWidget
+
+    from app.widgets.psd_widget import ParticleSizeDistributionTab
+
+    def assert_fits(container, label):
+        for sa in container.findChildren(QScrollArea):
+            inner = sa.widget()
+            if inner is None:
+                continue
+            width = inner.minimumSizeHint().width()
+            assert width <= 360, (
+                f"{label}: input content needs {width} px, "
+                "more than the 360 px sidebar floor"
+            )
+
+    # PSD tab in its worst case: ASTM C33 with both quality pages built.
+    psd = ParticleSizeDistributionTab()
+    psd.standard_combo.setCurrentIndex(psd.standard_combo.findData("astm_c33"))
+    assert_fits(psd, "PSD tab (ASTM C33)")
+
+    # Concrete Mix and Material Quantify: every page of the left input
+    # tab widget (identified by its 360 px floor).
+    from app.widgets.concrete_tab import ConcreteMixTab
+    from app.widgets.material_quantify_tab import MaterialQuantifyTab
+
+    for parent_cls in (ConcreteMixTab, MaterialQuantifyTab):
+        parent = parent_cls()
+        for tabs in parent.findChildren(QTabWidget):
+            if tabs.minimumWidth() != 360:
+                continue
+            for i in range(tabs.count()):
+                assert_fits(
+                    tabs.widget(i), f"{parent_cls.__name__}/{tabs.tabText(i)}"
+                )
+
+    # Cost Estimation: the input scroll (identified by its 360 px floor).
+    from app.widgets.cost_estimation_tab import CostEstimationTab
+
+    cost = CostEstimationTab()
+    for sa in cost.findChildren(QScrollArea):
+        if sa.minimumWidth() == 360:
+            inner = sa.widget()
+            assert inner is not None
+            width = inner.minimumSizeHint().width()
+            assert width <= 360, (
+                f"CostEstimation input needs {width} px, "
+                "more than the 360 px sidebar floor"
+            )

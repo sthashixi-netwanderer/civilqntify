@@ -23,7 +23,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from concrete_mix.engine.grading import determine_grading_zone
+from concrete_mix.engine.grading import classify_is383_zone
 from concrete_mix.engine.psd import (
     FM_SIEVES,
     IS_FINE_SIEVES,
@@ -41,14 +41,24 @@ _ZONE_SIEVES_REQUIRED: set[float] = set(IS_FINE_SIEVES)
 _P600_MM: float = 0.600
 
 
+def _fmt_sieve(s: float) -> str:
+    """Sieve size for UI-facing warnings — sub-millimetre sieves as µm.
+
+    Matches the display convention of the PSD tab (600 µm, 150 µm) so
+    warnings never mix a decimal-mm spelling of the same sieve.
+    """
+    return f"{s:g} mm" if s >= 1.0 else f"{s * 1000:g} µm"
+
+
 @dataclass(frozen=True)
 class PSDLinkage:
     """PSD-derived parameters that feed each standard's mix-design engine.
 
     Attributes:
         fineness_modulus: FM of this analysis (ACI 211.1-22 uses it with
-            NMSA via Table 5.3.6). ``None`` when the 0.150–4.75 mm series is
-            absent.
+            NMSA via Table 5.3.6). ``None`` when the 0.150–4.75 mm series
+            is absent or when the analysis' standard carries no FM
+            requirement (IS 383:2016, ASTM C33 coarse aggregate).
         grading_zone: IS 383:2016 Table 9 zone determined by sieve analysis —
             "I"–"IV" or ``None`` when the full zone sieve set is missing.
             Consumed by IS 10262:2019 Table 5 (CA volume fraction).
@@ -63,6 +73,14 @@ class PSDLinkage:
     grading_zone: str | None
     pct_passing_600um: float | None
     warnings: tuple[str, ...] = ()
+    # IS 383:2016 Clause 6.3 outcome for the classified zone: the zone is
+    # assigned from the 600 µm sieve; the other sieves may deviate within
+    # the 6.3 tolerance (≤ 5 % single, ≤ 10 % cumulative).
+    zone_conforms: bool = True
+    zone_deviations: tuple[str, ...] = ()
+    # Table 9 Note 1: the 150 µm upper limit was taken as 20 % because the
+    # analysis is a crushed stone sand.
+    zone_crushed_sand_relief: bool = False
 
     @property
     def aci211_ready(self) -> bool:
@@ -99,26 +117,52 @@ def derive_mix_design_params(result: PSDResult) -> PSDLinkage:
 
     # ---- Grading zone (IS 383 Table 9 → IS 10262:2019 Table 5) ------------
     zone: str | None = None
+    zone_conforms = True
+    zone_deviations: tuple[str, ...] = ()
+    zone_relief = False
     if _ZONE_SIEVES_REQUIRED <= sizes:
         passing = dict(zip(result.sieve_sizes, result.percent_passing))
-        zone = determine_grading_zone(passing)
+        classification = classify_is383_zone(passing)
+        zone = classification.zone
+        if zone is not None:
+            zone_conforms = classification.conforms
+            zone_deviations = classification.deviations
+            zone_relief = classification.crushed_sand_relief_used
+            if classification.violations:
+                warnings.append(
+                    "Grading falls outside Zone " + zone + " beyond the "
+                    "Clause 6.3 tolerance: "
+                    + "; ".join(classification.violations)
+                    + " (IS 383:2016 Table 9)."
+                )
     else:
         missing = sorted(_ZONE_SIEVES_REQUIRED - sizes)
         warnings.append(
             "IS 10262:2019 Table 5 needs the fine-aggregate grading zone "
             "(IS 383 Table 9); add sieves "
-            f"{', '.join(f'{s:g} mm' for s in missing)} to determine it."
+            f"{', '.join(_fmt_sieve(s) for s in missing)} to determine it."
         )
 
     # ---- Fineness modulus availability (ACI 211.1-22 §4.3.5) --------------
     if fm is None:
         missing_fm = sorted(_FM_SIEVES_REQUIRED - sizes)
-        warnings.append(
-            "Fineness modulus could not be computed — ACI 211.1-22 uses it "
-            "with NMSA in Table 5.3.6. Add sieves "
-            f"{', '.join(f'{s:g} mm' for s in missing_fm)} "
-            "(ACI 211.1-22 §4.3.5, ASTM C136)."
-        )
+        if missing_fm:
+            warnings.append(
+                "Fineness modulus could not be computed — ACI 211.1-22 uses it "
+                "with NMSA in Table 5.3.6. Add sieves "
+                f"{', '.join(_fmt_sieve(s) for s in missing_fm)} "
+                "(ACI 211.1-22 §4.3.5, ASTM C136)."
+            )
+        else:
+            # The FM sieve series is present; the FM was simply not
+            # calculated because the analysis' own standard (IS 383:2016,
+            # or ASTM C33 coarse aggregate) carries no FM requirement.
+            warnings.append(
+                "Fineness modulus was not calculated for this analysis — "
+                "IS 383:2016 and ASTM C33 coarse aggregate have no FM "
+                "requirement. Enter it manually if designing to "
+                "ACI 211.1-22 (Table 5.3.6)."
+            )
 
     # ---- DOE / BRE 331 percentage passing 600 µm ---------------------------
     p600 = result.pct_passing_600um
@@ -133,5 +177,8 @@ def derive_mix_design_params(result: PSDResult) -> PSDLinkage:
         grading_zone=zone,
         pct_passing_600um=p600,
         warnings=tuple(warnings),
+        zone_conforms=zone_conforms,
+        zone_deviations=zone_deviations,
+        zone_crushed_sand_relief=zone_relief,
     )
 

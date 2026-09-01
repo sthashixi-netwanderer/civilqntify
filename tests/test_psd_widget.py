@@ -257,6 +257,35 @@ def test_coarse_plot_uses_a_smooth_shaded_astm_section(qt):
     assert "ASTM C33/C33M Table 2" in ax.get_title()
 
 
+def test_user_gradation_curve_is_smoothed_through_measured_points(qt):
+    """The user's gradation must render as one smooth curve, not polyline
+    segments: densely sampled between sieves, passing exactly through every
+    measured %passing, within 0–100 % and never extended past the measured
+    sieve range."""
+    from app.widgets.psd_widget import ParticleSizeDistributionTab
+
+    tab = ParticleSizeDistributionTab()
+    _fill_and_plot(tab, [0, 25, 100, 150, 120, 75, 25], pan=5)
+
+    ax = tab._fig.axes[0]
+    gradation = next(
+        line for line in ax.lines if line.get_label() == "Your gradation"
+    )
+    x, y = (list(v) for v in gradation.get_data())
+
+    result = tab._last_result
+    # Densely sampled between sieves, not one vertex per sieve
+    assert len(x) > 2 * len(result.sieve_sizes)
+    # Not extended past the measured sieve range
+    assert min(x) == pytest.approx(min(result.sieve_sizes))
+    assert max(x) == pytest.approx(max(result.sieve_sizes))
+    assert all(0.0 <= value <= 100.0 for value in y)
+    # Curve passes exactly through every measured point
+    for size, passing in zip(result.sieve_sizes, result.percent_passing):
+        index = x.index(size)
+        assert y[index] == pytest.approx(passing)
+
+
 def test_characteristic_d_diameters_plotted_on_graph(qt):
     """D10, D30, and D60 characteristic sizes must be plotted on the graph with
     reference lines to both axes and annotated with proper decimal precision."""
@@ -271,6 +300,9 @@ def test_characteristic_d_diameters_plotted_on_graph(qt):
     assert "D_{10}" in texts or "D₁₀" in texts
     assert "D_{30}" in texts or "D₃₀" in texts
     assert "D_{60}" in texts or "D₆₀" in texts
+    # Sub-millimetre characteristic sizes are shown with the µ symbol
+    # (D10 ≈ 360 µm, D30 ≈ 830 µm for this sample); D60 ≈ 1.7 mm stays mm.
+    assert "µm" in texts
     assert "mm" in texts
 
     # Verify line count on axes includes the D-lines (horizontal and vertical reference lines)
@@ -279,18 +311,90 @@ def test_characteristic_d_diameters_plotted_on_graph(qt):
     assert len(ax.lines) >= 7
 
 
-def test_use_in_mix_design_emits_standard_specific_payload(qt):
+def test_size_formatting_uses_micro_symbol_for_sub_mm():
+    """UI convention: sub-millimetre sizes display with the µ symbol
+    (600 µm, 150 µm), never a decimal-mm or bare-m spelling."""
+    from app.widgets.psd_widget import _fmt_d_size, _fmt_size
+
+    assert _fmt_size(10.0) == "10 mm"
+    assert _fmt_size(4.75) == "4.75 mm"
+    assert _fmt_size(0.600) == "600 µm"
+    assert _fmt_size(0.150) == "150 µm"
+
+    assert _fmt_d_size(37.5) == "37.5 mm"
+    assert _fmt_d_size(4.75) == "4.75 mm"
+    assert _fmt_d_size(1.18) == "1.18 mm"
+    assert _fmt_d_size(0.83) == "830 µm"
+    assert _fmt_d_size(0.1534) == "153 µm"
+
+
+def test_uppercase_preserving_si_units():
+    """The label-casing helper keeps SI micro symbols lowercase while
+    uppercasing the rest (Qt's text-transform would render µ as "M")."""
+    from app.styles import uppercase_preserving_si_units
+
+    assert uppercase_preserving_si_units(
+        "Material finer than 75-µm (No. 200) sieve"
+    ) == "MATERIAL FINER THAN 75-µm (NO. 200) SIEVE"
+    assert uppercase_preserving_si_units("FA Passing 600 µm (%)") == (
+        "FA PASSING 600 µm (%)"
+    )
+    assert uppercase_preserving_si_units("Standard") == "STANDARD"
+
+
+def test_uppercase_labels_keep_micro_symbol(qt):
+    """Qt's text-transform maps µ to capital Greek Mu, so the quality
+    labels used to render "75-µm" as "75-MM". Labels are cased in Python
+    now — the micro symbol must survive on the built widgets."""
+    from PyQt6.QtWidgets import QLabel
+
+    from app.widgets.psd_widget import ParticleSizeDistributionTab
+
+    tab = ParticleSizeDistributionTab()
+    texts = [lbl.text() for lbl in tab.findChildren(QLabel)]
+    assert any("75-µm" in t for t in texts)
+    assert not any("75-MM" in t or "\u039c" in t for t in texts)
+
+
+def test_mix_design_label_keeps_micro_symbol(qt, monkeypatch):
+    """The Mix Design tab's "FA Passing 600 µm (%)" label must keep its
+    micro symbol under the uppercase label style."""
+    import app.widgets.concrete_tab as ct
+
+    monkeypatch.setattr(ct.QMessageBox, "information", _NoDialog.information)
+    monkeypatch.setattr(ct.QMessageBox, "warning", _NoDialog.warning)
+
+    from PyQt6.QtWidgets import QLabel
+
+    from app.widgets.concrete_tab import ConcreteMixTab
+
+    tab = ConcreteMixTab()
+    texts = [lbl.text() for lbl in tab.findChildren(QLabel)]
+    assert any("600 µm" in t for t in texts)
+    assert not any("\u039c" in t for t in texts)
+
+
+def test_use_in_mix_design_emits_standard_specific_payload(qt, monkeypatch):
     """"Use in Mix Design" must hand the mix-design form exactly the
     sieve-analysis-derived parameters each standard consumes:
     ACI FM (§4.3.5), IS 383 zone → Table 5, DOE %p600 (§1.2.5)."""
     from app.widgets.psd_widget import ParticleSizeDistributionTab
 
+    # ASTM C33 runs its compliance gate on compute; stub the modal dialog.
+    monkeypatch.setattr(
+        "app.widgets.psd_widget.ParticleSizeDistributionTab"
+        "._show_astm_compliance_dialog",
+        lambda self, checks: None,
+    )
+
     tab = ParticleSizeDistributionTab()
     payloads: list[dict] = []
     tab._result_panel.apply_to_mix_design.connect(payloads.append)
 
-    # Out-of-band fine sample (36% > 30% passing at 600 µm):
-    # cum retained % = 0,1,10,52,64,78,99 → FM = 3.04, p600 = 36.0 %
+    # IS 383 fine sample (36% > 30% passing at 600 µm):
+    # cum retained % = 0,1,10,52,64,78,99 → p600 = 36.0 %.
+    # IS 383:2016 sets no fineness-modulus requirement, so none is
+    # calculated for the handoff either.
     _fill_and_plot(tab, [0, 5, 45, 210, 60, 70, 105], pan=5)
     assert tab._result_panel._btn_apply.isEnabled()
 
@@ -301,15 +405,82 @@ def test_use_in_mix_design_emits_standard_specific_payload(qt):
     assert p["aggregate_kind"] == "fine"
     assert p["band_standard"] == "is383"
     assert p["nominal_size_mm"] is None
-    assert p["fineness_modulus"] == pytest.approx(3.04)
+    assert p["fineness_modulus"] is None  # IS 383: no FM requirement
     assert p["pct_passing_600um"] == pytest.approx(36.0)
     assert p["grading_zone"] in ("I", "II", "III", "IV")
     # This sample violates the Zone II band on two sieves.
     assert p["all_conform"] is False
+    assert any("not calculated" in w for w in p["warnings"])
+
+    # ASTM C33 fine aggregate is the one analysis with an FM requirement
+    # (Clause 6.2: 2.3–3.1). The same masses on the ASTM Table 1 series
+    # keep cum retained % = 0,1,10,52,64,78,99 → FM = 3.04.
+    tab.standard_combo.setCurrentIndex(
+        tab.standard_combo.findData("astm_c33")
+    )
+    _fill_and_plot(tab, [0, 5, 45, 210, 60, 70, 105], pan=5)
+    tab._result_panel._btn_apply.click()
+
+    assert len(payloads) == 2
+    p2 = payloads[1]
+    assert p2["aggregate_kind"] == "fine"
+    assert p2["band_standard"] == "astm_c33"
+    assert p2["fineness_modulus"] == pytest.approx(3.04)
 
     # Clearing the panel must disarm the handoff button.
     tab._result_panel.clear()
     assert not tab._result_panel._btn_apply.isEnabled()
+
+
+def test_fineness_modulus_calculated_only_where_required(qt, monkeypatch):
+    """The FM is calculated only where a standard consumes it: ASTM C33
+    fine aggregate (Clause 6.2 FM 2.3–3.1). IS 383:2016 grades fine
+    aggregate by zone (Table 9) and ASTM C33 coarse aggregate carries no
+    FM requirement — for those selections nothing is calculated, shown or
+    exported."""
+    from app.widgets.psd_widget import ParticleSizeDistributionTab
+
+    monkeypatch.setattr(
+        "app.widgets.psd_widget.ParticleSizeDistributionTab"
+        "._show_astm_compliance_dialog",
+        lambda self, checks: None,
+    )
+
+    def fill_midpoint_mass(pan=0.0):
+        """Put all mass on one middle sieve so any sieve stack computes."""
+        sieves = tab._current_sieves()
+        masses = [0.0] * len(sieves)
+        masses[len(sieves) // 2] = 250.0
+        _fill_and_plot(tab, masses, pan=pan)
+
+    tab = ParticleSizeDistributionTab()
+
+    # IS 383 fine (default) — zone grading, no FM.
+    _fill_and_plot(tab, [0, 5, 45, 210, 60, 70, 105], pan=5)
+    assert tab._last_result.fineness_modulus is None
+    assert tab._result_panel._fm_group.isHidden()
+
+    # IS 383 coarse — still no FM requirement.
+    tab.agg_combo.setCurrentIndex(tab.agg_combo.findData("coarse"))
+    fill_midpoint_mass()
+    assert tab._last_result.fineness_modulus is None
+    assert tab._result_panel._fm_group.isHidden()
+
+    # ASTM C33 coarse (Table 2) — no FM requirement either.
+    tab.standard_combo.setCurrentIndex(
+        tab.standard_combo.findData("astm_c33")
+    )
+    assert tab.agg_combo.currentData() == "coarse"
+    fill_midpoint_mass()
+    assert tab._last_result.fineness_modulus is None
+    assert tab._result_panel._fm_group.isHidden()
+
+    # ASTM C33 fine — Clause 6.2 restricts the FM, so it is calculated
+    # and its derivation working is shown.
+    tab.agg_combo.setCurrentIndex(tab.agg_combo.findData("fine"))
+    _fill_and_plot(tab, [0, 5, 45, 210, 60, 70, 105], pan=5)
+    assert tab._last_result.fineness_modulus == pytest.approx(3.04)
+    assert not tab._result_panel._fm_group.isHidden()
 
 
 class _NoDialog:
@@ -426,3 +597,62 @@ def test_psd_zone_lock_uses_active_source_and_survives_mode_switch(
     assert tab.grading_combo.currentIndex() == g_before
     assert tab.ca_fraction_combo.currentIndex() == c_before
 
+
+
+def test_reactivity_group_stays_compact_when_page_is_stretched(qt):
+    """QStackedWidget sizes both ASTM quality pages to the taller (coarse)
+    page. The fine page's surplus height must fall to a trailing stretch —
+    not inflate the near-empty reactive-materials group into a giant box
+    around a single dropdown."""
+    from PyQt6.QtWidgets import QGroupBox
+
+    from app.widgets.psd_widget import ParticleSizeDistributionTab
+
+    tab = ParticleSizeDistributionTab()
+    tab.resize(390, 1200)
+    tab.show()
+    qt.processEvents()
+    tab.standard_combo.setCurrentIndex(tab.standard_combo.findData("astm_c33"))
+    qt.processEvents()
+
+    def enclosing_group(w):
+        p = w.parentWidget()
+        while p is not None and not isinstance(p, QGroupBox):
+            p = p.parentWidget()
+        return p
+
+    combo = tab.fine_reactivity_combo
+    group = enclosing_group(combo)
+    assert group is not None
+    # Natural height = title + one combo row + group margins (measured
+    # 79 px offscreen); the pre-fix inflated group was several hundred.
+    assert group.height() <= combo.height() + 80
+
+
+def test_astm_c33_fields_have_info_buttons(qt):
+    """Every ASTM C33 quality field explains itself with an 'i' button
+    (like the Mix Design tab), and the texts are grounded in the cited
+    clauses of ASTM C 33 – 99."""
+    from app.widgets.info_button import InfoButton
+    from app.widgets.psd_widget import ParticleSizeDistributionTab
+
+    tab = ParticleSizeDistributionTab()
+    tab.standard_combo.setCurrentIndex(tab.standard_combo.findData("astm_c33"))
+
+    buttons = tab._quality_group.findChildren(InfoButton)
+    texts = [b._info_text for b in buttons]
+    # Fine + coarse pages plus the section header all carry one per field.
+    assert len(buttons) >= 25
+
+    joined = "\n".join(texts)
+    for clause in ("6.2", "6.4", "7.1", "7.2", "7.3", "8.1", "11.1",
+                   "11.2", "Footnote A", "Footnote B", "Footnote C"):
+        assert clause in joined, f"no info text cites {clause}"
+    # Every button has a real explanation, not just a title.
+    assert all(len(t) > 80 for t in texts)
+
+    # Spot-check plain-language content read from the standard.
+    assert any("0.20" in t and "6.4" in t for t in texts)      # FM variation
+    assert any("95 %" in t and "7.2.3" in t for t in texts)    # C 87 escape
+    assert any("1120 kg/m³" in t for t in texts)               # slag unit weight
+    assert any("2.40" in t for t in texts)                     # light chert

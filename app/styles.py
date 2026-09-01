@@ -10,6 +10,17 @@ import pathlib
 import sys
 
 
+def uppercase_preserving_si_units(text: str) -> str:
+    """Uppercase label text while keeping SI unit symbols lowercase.
+
+    Both Qt's ``text-transform: uppercase`` and ``str.upper()`` map the
+    micro sign µ to capital Greek Mu, which renders like "M" — "75-µm"
+    would read as "75-MM". SI unit symbols are lowercase by convention
+    (µm, kg), so the micro unit is restored after uppercasing.
+    """
+    return text.upper().replace("\u039cM", "µm")
+
+
 def _resource_base() -> pathlib.Path:
     """Return the directory that contains ``app/resources``.
 

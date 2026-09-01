@@ -142,6 +142,36 @@ class TestPartialStacks:
         ]
         assert len(aci_warning) == 1
 
+    def test_fm_not_calculated_warns_without_blaming_sieves(self):
+        # All six FM sieves are present, but the analysis' own standard
+        # (IS 383:2016, or ASTM C33 coarse aggregate) carries no FM
+        # requirement, so the FM was not calculated. The warning must say
+        # exactly that instead of asking for sieves the analysis already
+        # includes.
+        masses = [0.0, 25.0, 90.0, 100.0, 110.0, 100.0, 55.0]
+        result = compute_psd(
+            masses, FINE_SIEVES, pan_mass=20.0,
+            compute_fineness_modulus=False,
+        )
+        linkage = derive_mix_design_params(result)
+
+        assert linkage.fineness_modulus is None
+        assert not linkage.aci211_ready
+        fm_warnings = [w for w in linkage.warnings if "Fineness modulus" in w]
+        assert len(fm_warnings) == 1
+        assert "not calculated" in fm_warnings[0]
+        assert "Add sieves" not in fm_warnings[0]
+
+    def test_warning_sieves_spell_sub_mm_with_micro_symbol(self):
+        # UI-facing warnings name sub-millimetre sieves with the µ symbol
+        # (600 µm), matching the PSD tab's sieve-size display.
+        from concrete_mix.engine.psd_link import _fmt_sieve
+
+        assert _fmt_sieve(0.600) == "600 µm"
+        assert _fmt_sieve(0.150) == "150 µm"
+        assert _fmt_sieve(4.75) == "4.75 mm"
+        assert _fmt_sieve(10.0) == "10 mm"
+
     def test_zero_mass_result_keeps_finite_modulus_none(self):
         result = compute_psd([0.0] * len(FINE_SIEVES), FINE_SIEVES)
         linkage = derive_mix_design_params(result)

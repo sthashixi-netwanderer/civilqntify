@@ -149,6 +149,23 @@ class TestComputePSD:
         #   sum = 317 → FM = 3.17
         assert result.fineness_modulus == pytest.approx(3.17, abs=0.01)
 
+    def test_fineness_modulus_not_computed_when_not_required(self, fine_sample):
+        # IS 383:2016 grades by zone and ASTM C33 coarse aggregate has no
+        # FM clause; those callers opt out and get fineness_modulus=None
+        # even though the full 0.150–4.75 mm FM series is present.
+        masses, pan, _ = fine_sample
+        result = compute_psd(
+            masses, FINE_SIEVES, pan_mass=pan,
+            compute_fineness_modulus=False,
+        )
+        assert result.fineness_modulus is None
+        # The distribution itself is unaffected by the opt-out.
+        reference = compute_psd(masses, FINE_SIEVES, pan_mass=pan)
+        assert result.percent_passing == reference.percent_passing
+        assert result.cumulative_percent_retained == (
+            reference.cumulative_percent_retained
+        )
+
     def test_d_values_present(self, fine_sample):
         _, _, result = fine_sample
         # With a well-graded sample, D10/D30/D60 should all be found

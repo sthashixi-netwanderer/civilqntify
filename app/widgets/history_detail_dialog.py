@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QDialog,
     QFrame,
@@ -30,11 +30,15 @@ _TAB_LABELS = {
     "mix_design": "Concrete Mix Design",
     "quantification": "Material Quantification",
     "cost_estimation": "Cost Estimation",
+    "psd": "PSD Analysis (Sieve Analysis)",
 }
 
 
 class HistoryDetailDialog(QDialog):
     """Modal dialog showing full details of a history record."""
+
+    # Emitted with the record id when the user clicks "Load into Tab".
+    load_requested = pyqtSignal(int)
 
     def __init__(self, record: dict, parent=None) -> None:
         super().__init__(parent)
@@ -147,6 +151,16 @@ class HistoryDetailDialog(QDialog):
                 ("total_project_cost", "Total Project Cost"),
                 ("cost_per_bag", "Cost per Bag"),
             ]
+        elif tt == "psd":
+            display_fields = [
+                ("total_mass", "Total Mass (g)"),
+                ("fineness_modulus", "Fineness Modulus"),
+                ("d10", "D10 (mm)"),
+                ("d30", "D30 (mm)"),
+                ("d60", "D60 (mm)"),
+                ("uniformity_coefficient", "Uniformity Coefficient Cu"),
+                ("coefficient_of_curvature", "Coefficient of Curvature Cc"),
+            ]
         else:
             display_fields = list(result_data.items())
 
@@ -166,8 +180,16 @@ class HistoryDetailDialog(QDialog):
 
         # Also show any extra keys not in display_fields
         shown_keys = {k for k, _ in display_fields}
+        skip_keys = ("steps", "warnings", "transfer_data")
+        if tt == "psd":
+            # Per-sieve lists are noise in this summary; the gradation is
+            # reproduced on the PSD tab when the record is loaded.
+            skip_keys += (
+                "sieve_sizes", "mass_retained", "percent_retained",
+                "cumulative_percent_retained", "percent_passing", "conforms",
+            )
         for key, value in sorted(result_data.items()):
-            if key in shown_keys or key in ("steps", "warnings", "transfer_data"):
+            if key in shown_keys or key in skip_keys:
                 continue
             if value is None or value == "":
                 continue
@@ -223,6 +245,15 @@ class HistoryDetailDialog(QDialog):
 
         # -- Close button --
         btn_row = QHBoxLayout()
+        self._load_btn = QPushButton("Load into Tab")
+        self._load_btn.setToolTip(
+            "Fill the tab this record came from with its saved entries "
+            "and open that tab."
+        )
+        self._load_btn.clicked.connect(
+            lambda: self.load_requested.emit(int(self._rec["id"]))
+        )
+        btn_row.addWidget(self._load_btn)
         btn_row.addStretch()
         close_btn = QPushButton("Close")
         close_btn.clicked.connect(self.accept)

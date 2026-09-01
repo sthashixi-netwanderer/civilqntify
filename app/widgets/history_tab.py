@@ -8,6 +8,8 @@ appropriate tab for editing.
 
 from __future__ import annotations
 
+import json
+
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QCheckBox,
@@ -36,12 +38,14 @@ _TAB_TYPE_LABELS = {
     "mix_design": "Mix Design",
     "quantification": "Quantification",
     "cost_estimation": "Cost Estimation",
+    "psd": "PSD Analysis",
 }
 
 _TAB_TYPE_ICONS = {
     "mix_design": "\U0001f3d7",
     "quantification": "\U0001f4cf",
     "cost_estimation": "\U0001f4b0",
+    "psd": "\U0001f52c",
 }
 
 
@@ -51,6 +55,7 @@ class HistoryTab(QWidget):
     load_mix_design = pyqtSignal(int)       # calc_id
     load_quantification = pyqtSignal(int)   # calc_id
     load_cost_estimation = pyqtSignal(int)  # calc_id
+    load_psd = pyqtSignal(int)              # calc_id
 
     def __init__(self, db=None, parent=None) -> None:
         super().__init__(parent)
@@ -83,6 +88,7 @@ class HistoryTab(QWidget):
         self._type_combo.addItem("\U0001f3d7 Mix Design", "mix_design")
         self._type_combo.addItem("\U0001f4cf Quantification", "quantification")
         self._type_combo.addItem("\U0001f4b0 Cost Estimation", "cost_estimation")
+        self._type_combo.addItem("\U0001f52c PSD Analysis", "psd")
         self._type_combo.currentIndexChanged.connect(self._on_filter_changed)
         filter_row.addWidget(self._type_combo)
 
@@ -128,16 +134,32 @@ class HistoryTab(QWidget):
         self._table.customContextMenuRequested.connect(self._on_context_menu)
         self._table.doubleClicked.connect(self._on_double_click)
 
-        # Header select-all checkbox
-        self._select_all_cb = QCheckBox()
-        self._select_all_cb.stateChanged.connect(self._on_select_all_changed)
-        self._table.setCellWidget(0, 0, self._select_all_cb)
-
         root.addWidget(self._table, 1)
+
+        # -- Pagination --
+        page_row = QHBoxLayout()
+        page_row.setSpacing(8)
+        self._btn_prev = QPushButton("\u2190 Prev")
+        self._btn_prev.clicked.connect(self._on_prev_page)
+        page_row.addWidget(self._btn_prev)
+        self._page_label = QLabel("")
+        self._page_label.setObjectName("result-unit")
+        page_row.addWidget(self._page_label)
+        page_row.addStretch()
+        self._btn_next = QPushButton("Next \u2192")
+        self._btn_next.clicked.connect(self._on_next_page)
+        page_row.addWidget(self._btn_next)
+        root.addLayout(page_row)
 
         # -- Bottom action bar --
         action_row = QHBoxLayout()
         action_row.setSpacing(8)
+
+        # Select-all lives outside the table: a cell-widget checkbox would
+        # be overwritten by the first data row on every refresh.
+        self._select_all_cb = QCheckBox("Select All")
+        self._select_all_cb.stateChanged.connect(self._on_select_all_changed)
+        action_row.addWidget(self._select_all_cb)
 
         btn_load = QPushButton("Load Selected")
         btn_load.clicked.connect(self._on_load)
@@ -182,17 +204,25 @@ class HistoryTab(QWidget):
         search = self._search_input.text().strip() or None
 
         if search:
-            records = self._db.search_calculations(search, tab_type)
+            found = self._db.search_calculations(search, tab_type)
+            total = len(found)
+            records = found[self._offset : self._offset + self._page_size]
         else:
             records = self._db.list_calculations(
                 tab_type=tab_type,
                 limit=self._page_size,
                 offset=self._offset,
             )
+            total = self._db.count_calculations(tab_type)
+
+        # A filter change may leave the offset past the last page.
+        if self._offset > 0 and self._offset >= total:
+            self._offset = max(0, ((total - 1) // self._page_size) * self._page_size)
+            return self.refresh()
 
         self._populate_table(records)
-        total = self._db.count_calculations(tab_type)
         self._stats_label.setText(f"{total} records")
+        self._update_nav(total)
 
     def _populate_table(self, records: list[dict]) -> None:
         self._table.setRowCount(len(records))
@@ -222,7 +252,6 @@ class HistoryTab(QWidget):
 
     def _extract_key_result(self, rec: dict) -> str:
         """Extract a human-readable key result from the record."""
-        import json
         try:
             result = json.loads(rec.get("result_json", "{}"))
         except (json.JSONDecodeError, TypeError):
@@ -241,6 +270,12 @@ class HistoryTab(QWidget):
         elif tt == "cost_estimation":
             total = result.get("total_project_cost", "")
             return f"Total: {total}"
+        elif tt == "psd":
+            key = f"Total={result.get('total_mass', '')} g"
+            fm = result.get("fineness_modulus")
+            if fm is not None:
+                key += f", FM={fm}"
+            return key
         return ""
 
     # ------------------------------------------------------------------
@@ -261,13 +296,24 @@ class HistoryTab(QWidget):
     def _on_load(self) -> None:
         ids = self._selected_ids()
         if not ids:
+            QMessageBox.information(
+                self,
+                "No Selection",
+                "No records selected. Check the boxes next to the records "
+                "to load them.",
+            )
             return
-        self._load_record(ids[0])
+        # Load every checked record into its tab. Emission runs in reverse
+        # so the topmost (newest) checked record is loaded last — the main
+        # window navigates to that record's tab.
+        for calc_id in reversed(ids):
+            self._load_record(calc_id)
 
     def _on_double_click(self, index) -> None:
-        item = self._table.item(index.row(), 0)
-        if item:
-            self._load_record(item.data(Qt.ItemDataRole.UserRole))
+        cb = self._table.cellWidget(index.row(), 0)
+        calc_id = cb.property("calc_id") if cb else None
+        if calc_id is not None:
+            self._load_record(calc_id)
 
     def _load_record(self, calc_id: int) -> None:
         rec = self._db.get_calculation(calc_id)
@@ -280,13 +326,15 @@ class HistoryTab(QWidget):
             self.load_quantification.emit(calc_id)
         elif tt == "cost_estimation":
             self.load_cost_estimation.emit(calc_id)
+        elif tt == "psd":
+            self.load_psd.emit(calc_id)
         else:
             QMessageBox.information(
                 self, "Info", f"Cannot load record of type '{tt}'"
             )
 
-    def _on_delete(self) -> None:
-        ids = self._selected_ids()
+    def _delete_records(self, ids: list[int]) -> None:
+        """Delete the given records after confirmation, then refresh."""
         if not ids:
             return
         reply = QMessageBox.question(
@@ -298,6 +346,9 @@ class HistoryTab(QWidget):
             self._db.delete_calculations(ids)
             self.refresh()
 
+    def _on_delete(self) -> None:
+        self._delete_records(self._selected_ids())
+
     def _on_import(self) -> None:
         path, _ = QFileDialog.getOpenFileName(
             self, "Import History", "", "JSON Files (*.json)"
@@ -306,7 +357,13 @@ class HistoryTab(QWidget):
             return
         with open(path, "r") as f:
             data = f.read()
-        count = self._db.import_records(data)
+        try:
+            count = self._db.import_records(data)
+        except (json.JSONDecodeError, OSError, ValueError) as e:
+            QMessageBox.critical(
+                self, "Import Failed", f"Could not import '{path}': {e}"
+            )
+            return
         QMessageBox.information(
             self, "Import Complete", f"Imported {count} record(s)."
         )
@@ -339,14 +396,15 @@ class HistoryTab(QWidget):
         )
         if not path:
             return
-        import json as _json
+        # Export the raw records (input_json/result_json as stored) so the
+        # file imports back through Import JSON without losing data.
         records = []
         for cid in ids:
-            rec = self._db.get_calculation_parsed(cid)
+            rec = self._db.get_calculation(cid)
             if rec:
                 records.append(rec)
         with open(path, "w") as f:
-            _json.dump(records, f, indent=2)
+            json.dump(records, f, indent=2, default=str)
         QMessageBox.information(
             self, "Export Complete",
             f"Exported {len(records)} record(s) to {path}"
@@ -391,6 +449,26 @@ class HistoryTab(QWidget):
         self.refresh()
 
     # ------------------------------------------------------------------
+    # Pagination
+    # ------------------------------------------------------------------
+
+    def _update_nav(self, total: int) -> None:
+        """Enable/disable page buttons and show the page position."""
+        pages = max(1, (total + self._page_size - 1) // self._page_size)
+        page = self._offset // self._page_size + 1
+        self._page_label.setText(f"Page {page} / {pages}")
+        self._btn_prev.setEnabled(self._offset > 0)
+        self._btn_next.setEnabled(self._offset + self._page_size < total)
+
+    def _on_prev_page(self) -> None:
+        self._offset = max(0, self._offset - self._page_size)
+        self.refresh()
+
+    def _on_next_page(self) -> None:
+        self._offset += self._page_size
+        self.refresh()
+
+    # ------------------------------------------------------------------
     # Context menu
     # ------------------------------------------------------------------
 
@@ -410,7 +488,7 @@ class HistoryTab(QWidget):
         menu.addAction("Load into Tab", lambda: self._load_record(calc_id))
         menu.addSeparator()
         menu.addAction("Rename", lambda: self._rename(calc_id))
-        menu.addAction("Delete", lambda: self._on_delete())
+        menu.addAction("Delete", lambda: self._delete_records([calc_id]))
         menu.exec(self._table.viewport().mapToGlobal(pos))
 
     def _view_details(self, calc_id: int) -> None:
@@ -418,6 +496,7 @@ class HistoryTab(QWidget):
         if rec is None:
             return
         dlg = HistoryDetailDialog(rec, self)
+        dlg.load_requested.connect(self._load_record)
         dlg.exec()
 
     def _rename(self, calc_id: int) -> None:

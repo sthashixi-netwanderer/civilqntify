@@ -106,11 +106,13 @@ class MainWindow(QMainWindow):
         self.history_tab.load_mix_design.connect(self._on_history_load_mix)
         self.history_tab.load_quantification.connect(self._on_history_load_quant)
         self.history_tab.load_cost_estimation.connect(self._on_history_load_cost)
+        self.history_tab.load_psd.connect(self._on_history_load_psd)
 
         # Pass history_db to tabs
         self.concrete_tab._history_db = self.history_db
         self.quant_tab._history_db = self.history_db
         self.cost_tab._history_db = self.history_db
+        self.concrete_tab._psd_tab._history_db = self.history_db
 
         # Pass unit_prefs to tabs
         self.concrete_tab.unit_prefs = self.unit_prefs
@@ -308,6 +310,16 @@ class MainWindow(QMainWindow):
             self.cost_tab.load_from_history(calc_id)
             self.tabs.setCurrentWidget(self.cost_tab)
             self.status_bar.showMessage(f"Loaded cost estimation #{calc_id} from history", 5000)
+        except Exception as e:
+            from PyQt6.QtWidgets import QMessageBox
+            QMessageBox.critical(self, "Load Error", str(e))
+
+    def _on_history_load_psd(self, calc_id: int) -> None:
+        """Load a PSD record from history into the PSD subtab."""
+        try:
+            self.concrete_tab.load_psd_from_history(calc_id)
+            self.tabs.setCurrentWidget(self.concrete_tab)
+            self.status_bar.showMessage(f"Loaded PSD analysis #{calc_id} from history", 5000)
         except Exception as e:
             from PyQt6.QtWidgets import QMessageBox
             QMessageBox.critical(self, "Load Error", str(e))
