@@ -24,6 +24,8 @@ from history.serializers import (
     serialize_cost_data,
     serialize_mix_input,
     serialize_mix_result,
+    serialize_psd_input,
+    serialize_psd_result,
     serialize_transfer_data,
 )
 
@@ -108,15 +110,26 @@ class HistoryDB:
         *,
         name: str = "",
         parent_id: int | None = None,
+        extra_input: dict | None = None,
     ) -> int:
-        """Save a material quantification record. Returns the new record ID."""
+        """Save a material quantification record. Returns the new record ID.
+
+        *extra_input* is merged into the stored input JSON so the tab can
+        record UI state the transfer data does not carry (mix-ratio parts,
+        element rows, subtab and mode selection).
+        """
         now = now_iso()
+        input_json = serialize_transfer_data(inp)
+        if extra_input:
+            merged = json.loads(input_json)
+            merged.update(extra_input)
+            input_json = json.dumps(merged, default=str)
         cur = self._conn.execute(
             """INSERT INTO calculations
                (tab_type, created_at, updated_at, name, input_json, result_json, parent_id)
                VALUES (?, ?, ?, ?, ?, ?, ?)""",
             ("quantification", now, now, name,
-             serialize_transfer_data(inp), serialize_bill(bill), parent_id),
+             input_json, serialize_bill(bill), parent_id),
         )
         self._conn.commit()
         return cur.lastrowid  # type: ignore[return-value]
@@ -127,15 +140,41 @@ class HistoryDB:
         *,
         name: str = "",
         parent_id: int | None = None,
+        input: dict | None = None,
     ) -> int:
-        """Save a cost estimation record. Returns the new record ID."""
+        """Save a cost estimation record. Returns the new record ID.
+
+        *input* stores the form entries the result was computed from
+        (additional-cost options, project info) so the tab can be refilled.
+        """
         now = now_iso()
         cur = self._conn.execute(
             """INSERT INTO calculations
                (tab_type, created_at, updated_at, name, input_json, result_json, parent_id)
                VALUES (?, ?, ?, ?, ?, ?, ?)""",
             ("cost_estimation", now, now, name,
-             "{}", serialize_cost_data(cost_data), parent_id),
+             serialize_cost_data(input or {}), serialize_cost_data(cost_data),
+             parent_id),
+        )
+        self._conn.commit()
+        return cur.lastrowid  # type: ignore[return-value]
+
+    def save_psd(
+        self,
+        inp: dict,
+        result: Any,
+        *,
+        name: str = "",
+        parent_id: int | None = None,
+    ) -> int:
+        """Save a sieve-analysis (PSD) record. Returns the new record ID."""
+        now = now_iso()
+        cur = self._conn.execute(
+            """INSERT INTO calculations
+               (tab_type, created_at, updated_at, name, input_json, result_json, parent_id)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            ("psd", now, now, name,
+             serialize_psd_input(inp), serialize_psd_result(result), parent_id),
         )
         self._conn.commit()
         return cur.lastrowid  # type: ignore[return-value]
@@ -355,7 +394,7 @@ class HistoryDB:
         """Get summary statistics."""
         total = self.count_calculations()
         by_type = {}
-        for tt in ("mix_design", "quantification", "cost_estimation"):
+        for tt in ("mix_design", "quantification", "cost_estimation", "psd"):
             by_type[tt] = self.count_calculations(tt)
 
         row = self._conn.execute(

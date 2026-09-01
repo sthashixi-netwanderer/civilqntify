@@ -770,7 +770,26 @@ class CostEstimationTab(QWidget):
                 name = "Cost Estimate"
             else:
                 name = f"Cost Estimate - {name}"
-            self._history_db.save_cost_estimation(cost_data, name=name)
+            # Form entries the result was computed from, so the tab can be
+            # fully refilled when the record is loaded back.
+            input_state = {
+                "options": {
+                    "labour_count": self._addl_spins["labour_count"].value(),
+                    "labour_cost_per_unit": self._addl_spins[
+                        "labour_cost_per_unit"
+                    ].value(),
+                    "transport_per_m3": self._addl_spins["transport_per_m3"].value(),
+                    "plant_overhead_pct": self._addl_spins[
+                        "plant_overhead_pct"
+                    ].value(),
+                    "profit_pct": self._addl_spins["profit_pct"].value(),
+                    "contingency_pct": self._addl_spins["contingency_pct"].value(),
+                },
+                "project_info": dict(proj_info),
+            }
+            self._history_db.save_cost_estimation(
+                cost_data, name=name, input=input_state
+            )
         except Exception:
             pass  # Don't break the UI for history failures
 
@@ -830,6 +849,24 @@ class CostEstimationTab(QWidget):
         total_material = data.get("total_material_cost", 0.0)
         if mat_cost_m3 > 0.0:
             self._volume_spin.setValue(total_material / mat_cost_m3)
+
+        # Restore additional-cost options (labour, transport, overheads)
+        try:
+            input_state = json.loads(rec.get("input_json", "{}"))
+        except (json.JSONDecodeError, TypeError):
+            input_state = {}
+        options = input_state.get("options") or {}
+        key_map = {
+            "labour_count": "labour_count",
+            "labour_cost_per_unit": "labour_cost_per_unit",
+            "transport_per_m3": "transport_per_m3",
+            "plant_overhead_pct": "plant_overhead_pct",
+            "profit_pct": "profit_pct",
+            "contingency_pct": "contingency_pct",
+        }
+        for spin_key, opt_key in key_map.items():
+            if opt_key in options:
+                self._addl_spins[spin_key].setValue(float(options[opt_key]))
 
     # ── Export ────────────────────────────────────────────────────────
 

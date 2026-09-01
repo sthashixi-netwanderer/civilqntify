@@ -276,6 +276,36 @@ def serialize_transfer_data(td: Any) -> str:
     return json.dumps(_transfer_data_dict(td), default=str)
 
 
+def serialize_psd_input(inp: dict) -> str:
+    """Serialize a PSD tab input dict to a JSON string.
+
+    The dict is assembled by the PSD widget and carries the standard,
+    aggregate type, reference band, per-sieve masses and (for ASTM C33)
+    the quality-requirement inputs.
+    """
+    return json.dumps(inp, default=str)
+
+
+def serialize_psd_result(result: Any) -> str:
+    """Serialize a PSDResult to a JSON string."""
+    from dataclasses import asdict
+
+    return json.dumps(asdict(result), default=str)
+
+
+def deserialize_psd_result(data: dict) -> Any:
+    """Deserialize a dict back to PSDResult."""
+    from concrete_mix.engine.psd import PSDResult
+
+    fields = {f: data.get(f) for f in (
+        "sieve_sizes", "mass_retained", "pan_mass", "total_mass",
+        "percent_retained", "cumulative_percent_retained", "percent_passing",
+        "fineness_modulus", "d10", "d30", "d60",
+        "uniformity_coefficient", "coefficient_of_curvature", "conforms",
+    )}
+    return PSDResult(**fields)
+
+
 def now_iso() -> str:
     """Return current UTC time as ISO 8601 string."""
     return datetime.now(timezone.utc).isoformat()

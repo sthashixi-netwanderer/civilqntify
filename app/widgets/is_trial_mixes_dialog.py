@@ -100,11 +100,13 @@ class ISTrialMixesDialog(QDialog):
         tbl_layout.setSpacing(8)
 
         self._table = QTableWidget()
-        self._table.setColumnCount(8)
+        self._table.setColumnCount(10)
         self._table.setHorizontalHeaderLabels([
             "Trial Batch",
             "W/C",
+            "Ratio (C:FA:CA)",
             "Water (kg)",
+            "Water Vol (L)",
             "Cement (kg)",
             "SCM (kg)",
             "Fine Agg (kg)",
@@ -121,29 +123,51 @@ class ISTrialMixesDialog(QDialog):
             item_name = QTableWidgetItem(f"Trial {t['trial_number']}: {t['name'].split('(')[0].strip()}")
             item_name.setToolTip(f"{t['name']}\n{t['purpose']}\nAction: {t['action']}")
             item_wc = QTableWidgetItem(f"{t['w_c_ratio']:.2f}")
+
+            # Calculate ratio: Cement : Fine Agg : Coarse Agg (normalized to cement = 1)
+            cement = t["cement_kg"]
+            fa = t["fine_agg_kg"]
+            ca = t["coarse_agg_kg"]
+            if cement > 0:
+                ratio_fa = fa / cement
+                ratio_ca = ca / cement
+                ratio_str = f"1 : {ratio_fa:.1f} : {ratio_ca:.1f}"
+            else:
+                ratio_str = "N/A"
+            item_ratio = QTableWidgetItem(ratio_str)
+            item_ratio.setToolTip(f"Cement : Fine Agg : Coarse Agg\n1 : {fa/cement:.1f} : {ca/cement:.1f}" if cement > 0 else "")
+
+            # Water volume from W/C ratio: water = cement × W/C
+            wc = t["w_c_ratio"]
+            water_vol = round(cement * wc, 1)
             item_w = QTableWidgetItem(f"{t['water_kg']:.1f}")
+            item_w_vol = QTableWidgetItem(f"{water_vol:.1f}")
+            item_w_vol.setToolTip(f"Calculated: {cement:.1f} kg × {wc:.2f} = {water_vol:.1f} L")
+
             item_c = QTableWidgetItem(f"{t['cement_kg']:.1f}")
             item_scm = QTableWidgetItem(f"{t['scm_kg']:.1f}")
             item_fa = QTableWidgetItem(f"{t['fine_agg_kg']:.1f}")
             item_ca = QTableWidgetItem(f"{t['coarse_agg_kg']:.1f}")
             item_adm = QTableWidgetItem(f"{t['admixture_kg']:.2f}")
 
-            for it in (item_wc, item_w, item_c, item_scm, item_fa, item_ca, item_adm):
+            for it in (item_wc, item_ratio, item_w, item_w_vol, item_c, item_scm, item_fa, item_ca, item_adm):
                 it.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
 
             self._table.setItem(row, 0, item_name)
             self._table.setItem(row, 1, item_wc)
-            self._table.setItem(row, 2, item_w)
-            self._table.setItem(row, 3, item_c)
-            self._table.setItem(row, 4, item_scm)
-            self._table.setItem(row, 5, item_fa)
-            self._table.setItem(row, 6, item_ca)
-            self._table.setItem(row, 7, item_adm)
+            self._table.setItem(row, 2, item_ratio)
+            self._table.setItem(row, 3, item_w)
+            self._table.setItem(row, 4, item_w_vol)
+            self._table.setItem(row, 5, item_c)
+            self._table.setItem(row, 6, item_scm)
+            self._table.setItem(row, 7, item_fa)
+            self._table.setItem(row, 8, item_ca)
+            self._table.setItem(row, 9, item_adm)
 
         self._table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        for c in range(1, 8):
+        for c in range(1, 10):
             self._table.horizontalHeader().setSectionResizeMode(c, QHeaderView.ResizeMode.ResizeToContents)
-        self._table.setFixedHeight(150)
+        self._table.setFixedHeight(160)
         tbl_layout.addWidget(self._table)
         layout.addWidget(tbl_group)
 
@@ -227,7 +251,16 @@ class ISTrialMixesDialog(QDialog):
         for t in trials:
             buf.write(f"\n[{t['name']}]\n")
             buf.write(f"  W/C Ratio: {t['w_c_ratio']:.2f}\n")
+            # Calculate ratio
+            cement = t["cement_kg"]
+            if cement > 0:
+                ratio_fa = t["fine_agg_kg"] / cement
+                ratio_ca = t["coarse_agg_kg"] / cement
+                buf.write(f"  Ratio:     1 : {ratio_fa:.1f} : {ratio_ca:.1f} (Cement : Fine Agg : Coarse Agg)\n")
+            # Water volume from W/C ratio
+            water_vol = round(cement * t["w_c_ratio"], 1)
             buf.write(f"  Water:     {t['water_kg']:.1f} kg/m³\n")
+            buf.write(f"  Water Vol: {water_vol:.1f} L (from W/C)\n")
             buf.write(f"  Cement:    {t['cement_kg']:.1f} kg/m³\n")
             buf.write(f"  SCM:       {t['scm_kg']:.1f} kg/m³\n")
             buf.write(f"  Fine Agg:  {t['fine_agg_kg']:.1f} kg/m³\n")
@@ -268,7 +301,9 @@ class ISTrialMixesDialog(QDialog):
                     "Trial Number",
                     "Description",
                     "W/C Ratio",
+                    "Ratio (C:FA:CA)",
                     "Water (kg/m3)",
+                    "Water Vol (L)",
                     "Cement (kg/m3)",
                     "SCM (kg/m3)",
                     "Fine Aggregate (kg/m3)",
@@ -278,11 +313,21 @@ class ISTrialMixesDialog(QDialog):
                     "Action",
                 ])
                 for t in trials:
+                    # Calculate ratio
+                    cement = t["cement_kg"]
+                    if cement > 0:
+                        ratio_str = f"1:{t['fine_agg_kg']/cement:.1f}:{t['coarse_agg_kg']/cement:.1f}"
+                    else:
+                        ratio_str = "N/A"
+                    # Water volume from W/C ratio
+                    water_vol = round(cement * t["w_c_ratio"], 1)
                     writer.writerow([
                         t["trial_number"],
                         t["name"],
                         t["w_c_ratio"],
+                        ratio_str,
                         t["water_kg"],
+                        water_vol,
                         t["cement_kg"],
                         t["scm_kg"],
                         t["fine_agg_kg"],

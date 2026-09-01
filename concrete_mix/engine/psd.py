@@ -140,6 +140,7 @@ def compute_psd(
     mass_retained: list[float],
     sieve_sizes: list[float],
     pan_mass: float = 0.0,
+    compute_fineness_modulus: bool = True,
 ) -> PSDResult:
     """Compute the full particle-size distribution from raw sieve masses.
 
@@ -150,6 +151,12 @@ def compute_psd(
         sieve_sizes: Sieve opening sizes in mm (coarsest → finest), e.g.
             ``FINE_SIEVES`` or ``COARSE_SIEVES``.
         pan_mass: Mass (g) passing the finest sieve (the pan catch).
+        compute_fineness_modulus: Whether the fineness modulus belongs to
+            the result. The FM is a fine-aggregate quantity consumed by
+            ACI 211.1-22 §4.3.5 and restricted by ASTM C33/C33M Clauses
+            6.2/6.4; it is not a requirement of IS 383:2016 (grading
+            zones) or of any coarse-aggregate analysis, so callers on
+            those standards pass ``False`` and get ``fineness_modulus=None``.
 
     Returns:
         A :class:`PSDResult`. If the total mass is zero, all derived
@@ -200,15 +207,19 @@ def compute_psd(
     # Fineness modulus (ACI 211.1-22 §4.3.5):
     #   FM = Σ cumulative % retained on {0.150, 0.30, 0.60, 1.18, 2.36, 4.75}
     #         / 100
-    # Only meaningful for fine aggregate; computed if those sieves are present.
+    # Only meaningful for fine aggregate; computed if those sieves are
+    # present AND the caller's standard uses an FM (ASTM C33/C33M
+    # Clauses 6.2/6.4 — IS 383:2016 grades by zone instead, and coarse
+    # aggregates carry no FM requirement).
     fm: float | None = None
-    fm_sieves_present = [s for s in sieve_sizes if s in _FM_SIEVES]
-    if len(fm_sieves_present) == len(_FM_SIEVES):
-        fm_sum = 0.0
-        for s, cum in zip(sieve_sizes, cum_retained):
-            if s in _FM_SIEVES:
-                fm_sum += cum
-        fm = round(fm_sum / 100.0, 2)
+    if compute_fineness_modulus:
+        fm_sieves_present = [s for s in sieve_sizes if s in _FM_SIEVES]
+        if len(fm_sieves_present) == len(_FM_SIEVES):
+            fm_sum = 0.0
+            for s, cum in zip(sieve_sizes, cum_retained):
+                if s in _FM_SIEVES:
+                    fm_sum += cum
+            fm = round(fm_sum / 100.0, 2)
 
     # Characteristic sizes D10, D30, D60 by log-linear interpolation of the
     # passing curve (sieve size vs % passing). The curve is monotonic

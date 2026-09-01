@@ -329,10 +329,20 @@ class IS10262MixDesign(MixDesignCode):
             )
 
         # Step 5: Aggregate proportions (IS 10262:2019 Clause 5.5)
-        # Get base CA fraction from Table 5, then adjust for W/C ratio
-        ca_fraction_base = self.get_coarse_aggregate_volume(
-            nmsa, grading_zone=grading_zone
-        )
+        # Base CA fraction from Table 5 keyed by the fine-aggregate grading
+        # zone (classified per IS 383 Table 9). An explicit
+        # ca_volume_fraction_override (the form's Table 5 row selection,
+        # also used when a PSD analysis locks the zone) replaces the zone
+        # lookup; the Clause 5.5.1 w/c adjustment applies either way.
+        ca_fraction_override = getattr(inp, "ca_volume_fraction_override", None)
+        if ca_fraction_override is not None:
+            ca_fraction_base = float(ca_fraction_override)
+            base_desc = f"Table 5 fraction (override): {ca_fraction_base:.2f}"
+        else:
+            ca_fraction_base = self.get_coarse_aggregate_volume(
+                nmsa, grading_zone=grading_zone
+            )
+            base_desc = f"Table 5 fraction: {ca_fraction_base}"
         ca_fraction = adjust_ca_volume_for_wcr(ca_fraction_base, wc)
         wcr_adj_desc = ""
         if abs(ca_fraction - ca_fraction_base) > 0.001:
@@ -371,7 +381,7 @@ class IS10262MixDesign(MixDesignCode):
             self._make_step(
                 5,
                 "Coarse aggregate proportion",
-                f"Table 5 fraction: {ca_fraction_base}{wcr_adj_desc}",
+                f"{base_desc}{wcr_adj_desc}",
                 {
                     "nmsa": nmsa,
                     "grading_zone": grading_zone,

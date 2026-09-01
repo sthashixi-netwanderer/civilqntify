@@ -31,14 +31,20 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from app.styles import uppercase_preserving_si_units
 from app.unit_preferences import get_unit_prefs
 from app.widgets.info_button import InfoButton
-from app.widgets.psd_widget import ParticleSizeDistributionTab, PSDResultPanel
+from app.widgets.psd_widget import (
+    ParticleSizeDistributionTab,
+    PSDResultPanel,
+    _shrinkable_combo,
+)
 from app.widgets.report_preview_dialog import ReportPreviewDialog
 from app.widgets.result_panel import ResultPanel, TargetStrengthResultPanel
 from app.widgets.unit_spin import UnitSpinBox
 from app.workers.mix_design_worker import MixDesignWorker
 from concrete_mix import (
+    GHANA_CEMENT_MAP,
     MixDesignResult,
     calculate_target_strength,
     export_to_csv,
@@ -52,6 +58,16 @@ from concrete_mix.codes.tables.is_tables import (
     get_exposure_limits,
 )
 from concrete_mix.models.materials import AggregateShape
+
+# Standard cement codes (e.g. "OPC_43"/"TYPE_I") back to the Ghana-grade
+# combo entries — history records store the engine-side code. The first
+# grade listed in GHANA_CEMENT_MAP wins for each code (canonical mapping).
+_REVERSE_CEMENT_MAP: dict[str, dict[str, str]] = {}
+for _std in ("is10262", "aci211"):
+    _rev: dict[str, str] = {}
+    for _grade, _mapping in GHANA_CEMENT_MAP.items():
+        _rev.setdefault(_mapping[_std], _grade)
+    _REVERSE_CEMENT_MAP[_std] = _rev
 
 
 class ConcreteMixTab(QWidget):
@@ -87,9 +103,9 @@ class ConcreteMixTab(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(splitter)
 
-        # Left: tabbed input panel — responsive: min 360, no max, stretchable via splitter
+        # Left: tabbed input panel — responsive: min 280 (narrow-window friendly), no max, stretchable via splitter
         self._left_tabs = QTabWidget()
-        self._left_tabs.setMinimumWidth(360)
+        self._left_tabs.setMinimumWidth(280)
         self._left_tabs.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
 
         # Tab 1: Particle Size Distribution (sieve analysis runs FIRST —
@@ -133,10 +149,12 @@ class ConcreteMixTab(QWidget):
         splitter.addWidget(self._left_tabs)
 
         # Right: dynamic results stack — shows the result type matching the
-        # active form mode or PSD subtab.
+        # active form mode or PSD subtab. Lowered min width (280) so material
+        # cards can reflow to 2 cols and stay fully visible on narrow windows;
+        # inner scroll + responsive grid handles the rest.
         self._result_stack = QStackedWidget()
         self._result_stack.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        self._result_stack.setMinimumWidth(380)
+        self._result_stack.setMinimumWidth(280)
 
         # Page 0: full mix-design results (quantities, ratio, steps, exports)
         self._result_panel = ResultPanel()
@@ -1179,7 +1197,7 @@ class ConcreteMixTab(QWidget):
             "Affects CA volume fraction from IS 10262 Table 5.",
             key="fa_zone",
         )
-        self.ca_fraction_combo = QComboBox()
+        self.ca_fraction_combo = _shrinkable_combo(QComboBox())
         self._lbl_ca_frac = self._label_with_info(
             "CA Volume Fraction (Table 5)",
             "Volume of coarse aggregate per unit volume of total aggregate\n"
@@ -1526,6 +1544,12 @@ class ConcreteMixTab(QWidget):
         self.slump_spin.valueChanged.connect(self._update_water_display)
         self.grading_combo.currentIndexChanged.connect(self._update_water_display)
 
+        # IS mode: the visible Table 5 row ("Zone X — fraction") drives the
+        # grading zone the engine consumes — keep the two combos in step.
+        self.ca_fraction_combo.currentIndexChanged.connect(
+            self._on_ca_fraction_changed
+        )
+
         self._form.addStretch()
 
         # Initial visibility
@@ -1545,10 +1569,14 @@ class ConcreteMixTab(QWidget):
         sidebar is narrowed; without it the label's minimum size hint equals
         the full text width, which forces the whole form wider than the
         sidebar's 360px floor and clips the input fields.
+
+        Casing is applied in Python (not by Qt's text-transform, which maps
+        µ to a capital Mu that reads as "M") so unit-bearing labels like
+        "FA Passing 600 µm (%)" keep their micro symbol.
         """
-        lbl = QLabel(text)
+        lbl = QLabel(uppercase_preserving_si_units(text))
         lbl.setStyleSheet(
-            "font-size: 11px; font-weight: 600; text-transform: uppercase; "
+            "font-size: 11px; font-weight: 600; "
             "letter-spacing: 0.03em; color: #444653;"
         )
         lbl.setWordWrap(True)
@@ -1619,7 +1647,9 @@ class ConcreteMixTab(QWidget):
     def _combo(
         self, items: list[tuple[str, object]], default: object = None
     ) -> QComboBox:
-        cb = QComboBox()
+        # Shrinkable: a combo's minimum hint is otherwise its widest item,
+        # which forces form rows beyond the sidebar's 360 px floor.
+        cb = _shrinkable_combo(QComboBox())
         cb.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         for label, data in items:
             cb.addItem(label, data)
@@ -1820,14 +1850,21 @@ class ConcreteMixTab(QWidget):
         # Update water content display
         self._update_water_display()
 
-        # Update CA fraction combo — show zone label alongside fraction
-
-        # Update CA fraction combo — show zone label alongside fraction
+        # Update CA fraction combo — show zone label alongside fraction.
+        # The zone itself is the state (grading_combo); the Table 5 row is
+        # its display for IS, so the rebuild re-selects the current zone's
+        # row instead of resetting to the first entry.
+        self.ca_fraction_combo.blockSignals(True)
         self.ca_fraction_combo.clear()
         if is_is and nmsa in CA_VOLUME_FRACTION:
             options = CA_VOLUME_FRACTION[nmsa]
-            for zone, frac in options.items():
+            zone_now = self.grading_combo.currentData() or "II"
+            select = 0
+            for i, (zone, frac) in enumerate(options.items()):
                 self.ca_fraction_combo.addItem(f"Zone {zone} — {frac:.2f}", frac)
+                if zone == zone_now:
+                    select = i
+            self.ca_fraction_combo.setCurrentIndex(select)
             self._lbl_ca_frac.setVisible(True)
             self.ca_fraction_combo.setVisible(True)
             self._lbl_zone.setVisible(False)
@@ -1837,10 +1874,35 @@ class ConcreteMixTab(QWidget):
             self.ca_fraction_combo.setVisible(False)
             self._lbl_zone.setVisible(is_is)
             self.grading_combo.setVisible(is_is)
+        self.ca_fraction_combo.blockSignals(False)
 
         # NMSA change is exactly when the IS zone source swaps; keep a locked
         # zone re-targeted (and disabled) on whichever combo is now visible.
         self._enforce_psd_locks()
+
+    def _on_ca_fraction_changed(self) -> None:
+        """Keep the fine-aggregate grading zone in step with the IS form's
+        Table 5 row selection.
+
+        IS 10262:2019 Table 5 keys the coarse-aggregate volume fraction by
+        the fine-aggregate grading zone (classified per IS 383 Table 9).
+        The visible "Zone X — fraction" row must therefore drive the zone
+        the engine consumes (``grading_combo`` → ``_build_kwargs``), not
+        just the cosmetic fraction shown beside it.
+        """
+        if self.code_combo.currentData() != "is10262":
+            return
+        nmsa = self.nmsa_combo.currentData()
+        options = CA_VOLUME_FRACTION.get(nmsa)
+        if not options:
+            return
+        frac = self.ca_fraction_combo.currentData()
+        for zone, value in options.items():
+            if abs(value - float(frac)) < 1e-9:
+                idx = self.grading_combo.findData(zone)
+                if idx >= 0:
+                    self.grading_combo.setCurrentIndex(idx)
+                break
 
     def _update_info_texts(self) -> None:
         """Update all info button texts based on the currently selected standard."""
@@ -2460,6 +2522,39 @@ class ConcreteMixTab(QWidget):
                     f"Grading Zone {zone} (IS 383 Table 9; keys IS 10262:"
                     "2019 Table 5 CA volume fraction)"
                 )
+                # IS 383 Clause 6.3 outcome for the transferred zone.
+                if payload.get("zone_crushed_sand_relief"):
+                    applied.append(
+                        "150 µm grading limit taken as 20 % — crushed stone "
+                        "sand (IS 383 Table 9 Note 1)"
+                    )
+                deviations = payload.get("zone_deviations") or []
+                if deviations:
+                    applied.append(
+                        "Zone " + zone + " accepted through the Clause 6.3 "
+                        "tolerance (≤ 5 % per sieve, ≤ 10 % cumulative): "
+                        + "; ".join(deviations)
+                    )
+                elif payload.get("zone_conforms", True):
+                    applied.append(
+                        "Grading conforms fully to Zone " + zone + " limits"
+                    )
+                # IS 383 Table 9 Note 4 — Zone IV caution; strongest wording
+                # when the form targets reinforced concrete.
+                if zone == "IV":
+                    is_rc = self.concrete_type_combo.currentData() != "plain"
+                    applied.append(
+                        ("⚠ " if is_rc else "")
+                        + "Zone IV sand "
+                        + (
+                            "should not be used in reinforced concrete "
+                            "unless tests confirm the mix proportions "
+                            "(IS 383 Table 9 Note 4)"
+                            if is_rc
+                            else "is very fine — verify mix suitability "
+                            "(IS 383 Table 9 Note 4)"
+                        )
+                    )
             p600 = payload.get("pct_passing_600um")
             if p600 is not None:
                 self._set_field("p600", self.pct_passing_600um_spin,
@@ -2527,14 +2622,14 @@ class ConcreteMixTab(QWidget):
                 break
 
     def _lock_zone(self, zone: str) -> None:
-        """Lock the grading-zone source active for the current standard.
+        """Lock the grading zone into every form source the engine reads.
 
-        IS mode expresses the zone through the CA-fraction combo (Table 5
-        'Zone X — frac'), from which ``_build_kwargs`` reverse-derives the
-        zone. Non-IS modes use the plain Grading Zone combo. Snapshot both
-        so Clear can restore either. The source is detected by code and
-        combo content, not ``isVisible()`` (which is False for widgets in a
-        stack whose page is not the active one).
+        The zone is the state the IS 10262 engine consumes through
+        ``_build_kwargs`` (``grading_combo``) and, for IS mode, its visible
+        Table 5 display is the CA-fraction combo — both are set so the
+        transferred zone and the fraction row shown can never disagree.
+        Non-IS modes use the plain Grading Zone combo alone. Snapshots are
+        taken once so Clear can restore either.
         """
         self._psd_zone_value = zone
         if "zone" not in self._psd_snapshot:
@@ -2543,6 +2638,11 @@ class ConcreteMixTab(QWidget):
                 self.ca_fraction_combo.currentIndex(),
             )
         self._psd_locked.add("zone")
+
+        # grading_combo carries the zone the engine's kwargs read.
+        idx = self.grading_combo.findData(zone)
+        if idx >= 0:
+            self.grading_combo.setCurrentIndex(idx)
 
         use_ca = (
             self.code_combo.currentData() == "is10262"
@@ -2559,9 +2659,6 @@ class ConcreteMixTab(QWidget):
                     break
             self.ca_fraction_combo.setEnabled(False)
         else:
-            idx = self.grading_combo.findData(zone)
-            if idx >= 0:
-                self.grading_combo.setCurrentIndex(idx)
             self.grading_combo.setEnabled(False)
 
     def _unlock_field(self, key: str) -> None:
@@ -2593,7 +2690,8 @@ class ConcreteMixTab(QWidget):
 
         ``_apply_mode_state`` and ``_on_nmsa_changed`` re-enable form rows;
         this re-disables every currently locked PSD-fed field and, for the
-        zone, re-targets whichever combo is the active zone source.
+        zone, re-targets both zone sources (grading combo and, in IS mode,
+        its Table 5 row) via :meth:`_lock_zone`.
         """
         if not hasattr(self, "fm_spin"):
             return
@@ -2603,14 +2701,8 @@ class ConcreteMixTab(QWidget):
             self.pct_passing_600um_spin.setEnabled(False)
         if "nmsa" in self._psd_locked:
             self.nmsa_combo.setEnabled(False)
-        if "zone" in self._psd_locked:
-            if (
-                self.code_combo.currentData() == "is10262"
-                and self.ca_fraction_combo.count() > 0
-            ):
-                self.ca_fraction_combo.setEnabled(False)
-            else:
-                self.grading_combo.setEnabled(False)
+        if "zone" in self._psd_locked and self._psd_zone_value is not None:
+            self._lock_zone(self._psd_zone_value)
 
     def _on_result(self, result: MixDesignResult) -> None:
         self._last_result = result
@@ -2661,18 +2753,156 @@ class ConcreteMixTab(QWidget):
             pass  # Don't break the UI for history failures
 
     def load_from_history(self, calc_id: int) -> None:
-        """Load a mix design record from history into this tab."""
+        """Load a mix design record from history into this tab.
+
+        Restores every form entry from the saved input so the user can
+        re-run or adjust the calculation, then shows the saved result.
+        """
         if self._history_db is None:
             return
-        from history.serializers import deserialize_mix_result
+        from history.serializers import deserialize_mix_input, deserialize_mix_result
         import json
 
         rec = self._history_db.get_calculation(calc_id)
         if rec is None:
             return
+        try:
+            inp = deserialize_mix_input(json.loads(rec["input_json"]))
+        except (json.JSONDecodeError, TypeError, KeyError):
+            inp = None
         result = deserialize_mix_result(json.loads(rec["result_json"]))
+
+        # Show the mix-design form and its result panel.
+        self._left_tabs.setCurrentIndex(self._mixdesign_idx)
+        self.mode_combo.setCurrentIndex(self.mode_combo.findData("mix_design"))
+        if inp is not None:
+            self.apply_mix_input(inp)
         self._last_result = result
         self._result_panel.display_result(result)
+        self._update_result_view()
+
+    def apply_mix_input(self, inp) -> None:
+        """Fill every form field from a MixDesignInput (history restore)."""
+        def set_combo(combo: QComboBox, data, fallback: int = 0) -> None:
+            idx = combo.findData(data) if data is not None else -1
+            combo.setCurrentIndex(idx if idx >= 0 else fallback)
+
+        # Standard first — its change handler re-applies per-code
+        # visibility and rebuilds the IS CA-fraction combo defaults.
+        set_combo(self.code_combo, inp.code, fallback=1)
+        self.strength_spin.setValue(
+            inp.characteristic_strength_mpa or inp.target_strength_mpa
+        )
+        self.slump_spin.setValue(inp.slump_mm)
+        set_combo(self.concrete_type_combo, inp.concrete_type)
+        set_combo(self.exposure_combo, inp.exposure_class)
+        set_combo(self.sulfate_combo, inp.sulfate_exposure_class or "S0")
+        self.air_check.setChecked(bool(inp.air_entrained))
+        self.prod_data_check.setChecked(bool(inp.has_production_data))
+
+        # DOE fields
+        self.defective_pct_spin.setValue(inp.defective_percent)
+        if getattr(inp, "num_test_cubes", None):
+            self.n_cubes_spin.setValue(int(inp.num_test_cubes))
+        set_combo(self.age_combo, int(inp.age_days))
+        self.min_cement_spin.setValue(inp.min_cement_kg or 0.0)
+        self.max_cement_spin.setValue(inp.max_cement_kg or 0.0)
+        self.max_wc_override_spin.setValue(inp.w_c_ratio or 0.0)
+
+        # NMSA after the code so the CA-fraction combo is rebuilt for it
+        ca_nmsa = int(inp.coarse_aggregate.nominal_max_size_mm)
+        set_combo(self.nmsa_combo, ca_nmsa, fallback=1)
+
+        # Cement — the engine stores the standard's cement code
+        # (e.g. "OPC_43"/"TYPE_I"); map it back to the Ghana-grade combo.
+        ct = inp.cement.type
+        grade = getattr(ct, "name", None)
+        if grade is None or self.cement_type_combo.findData(grade) < 0:
+            grade = _REVERSE_CEMENT_MAP.get(inp.code, {}).get(
+                getattr(ct, "value", str(ct)), "GRADE_42_5R"
+            )
+        set_combo(self.cement_type_combo, grade, fallback=1)
+        self.cement_sg_spin.setValue(inp.cement.specific_gravity)
+
+        # Fine aggregate
+        fa = inp.fine_aggregate
+        self.fa_sg_spin.setValue(fa.specific_gravity)
+        self.fm_spin.setValue(fa.fineness_modulus)
+        set_combo(self.grading_combo, fa.grading_zone or "II", fallback=1)
+        if fa.pct_passing_600um is not None:
+            self.pct_passing_600um_spin.setValue(fa.pct_passing_600um)
+        self.fa_abs_spin.setValue(fa.absorption_percent)
+        self.fa_moist_spin.setValue(fa.moisture_content_percent)
+        fa_shape = getattr(fa.shape, "value", str(fa.shape))
+        set_combo(
+            self.fa_type_combo,
+            "crushed" if fa_shape in ("angular", "crushed_fragments")
+            else "uncrushed",
+        )
+
+        # Coarse aggregate
+        ca = inp.coarse_aggregate
+        self.ca_sg_spin.setValue(ca.specific_gravity)
+        self.ca_abs_spin.setValue(ca.absorption_percent)
+        self.ca_moist_spin.setValue(ca.moisture_content_percent)
+        self.ca_bulk_spin.setValue(ca.bulk_density_kg_m3)
+        ca_shape = getattr(ca.shape, "value", str(ca.shape))
+        set_combo(self.agg_shape_combo, ca_shape, fallback=3)
+        set_combo(
+            self.ca_type_combo,
+            "crushed" if ca_shape in ("angular", "crushed_fragments")
+            else "uncrushed",
+        )
+
+        # IS CA volume fraction (Table 5) — the combo was rebuilt for the
+        # restored NMSA; pick the row matching the saved zone, then value.
+        if inp.code == "is10262" and getattr(inp, "ca_volume_fraction_override", None):
+            zone = fa.grading_zone or "II"
+            for i in range(self.ca_fraction_combo.count()):
+                if self.ca_fraction_combo.itemText(i).startswith(f"Zone {zone} "):
+                    self.ca_fraction_combo.setCurrentIndex(i)
+                    break
+            else:
+                set_combo(
+                    self.ca_fraction_combo,
+                    float(inp.ca_volume_fraction_override),
+                )
+
+        # SCM — set type first: its change handler resets % and SG defaults,
+        # so the saved values are applied afterwards.
+        if inp.scms:
+            scm = inp.scms[0]
+            scm_type = getattr(scm.type, "value", str(scm.type))
+            set_combo(self.scm_type_combo, scm_type, fallback=0)
+            self.scm_pct_spin.setValue(scm.replacement_percent)
+            self.scm_sg_spin.setValue(scm.specific_gravity)
+        else:
+            self.scm_type_combo.setCurrentIndex(0)
+            self.scm_pct_spin.setValue(0.0)
+
+        # Admixture — same ordering rule: type/dosage handlers auto-fill
+        # the water reduction, so the saved reduction goes last.
+        adm = inp.admixture
+        if adm:
+            adm_type = getattr(adm.type, "value", None) or str(adm.type)
+            set_combo(self.admix_type_combo, adm_type, fallback=0)
+            self.admix_dosage_spin.setValue(adm.dosage_percent)
+            self.admix_spin.setValue(adm.water_reduction_percent)
+            self.admix_sg_spin.setValue(adm.specific_gravity)
+        else:
+            self.admix_type_combo.setCurrentIndex(0)
+            self.admix_spin.setValue(0.0)
+
+        self.volume_spin.setValue(inp.volume_m3)
+
+        # Reports read the input params of the displayed result.
+        self._last_input_params = self._build_kwargs()
+
+    def load_psd_from_history(self, calc_id: int) -> None:
+        """Load a PSD record from history and show the PSD subtab."""
+        self._psd_tab.load_from_history(calc_id)
+        self._left_tabs.setCurrentIndex(self._psd_idx)
+        self._result_stack.setCurrentWidget(self._psd_result_panel)
 
     # ── Export ────────────────────────────────────────────────────────
 

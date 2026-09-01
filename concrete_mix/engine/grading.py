@@ -62,6 +62,15 @@ def determine_grading_zone(
     Returns:
         Grading zone string: "I", "II", "III", or "IV"
     """
+    # IS 383:2016 Clause 6.3 / Table 9: the 600 µm sieve discriminates the
+    # zone; classify_is383_zone keys on it (with the 6.3 tolerance on the
+    # other sieves).
+    classification = classify_is383_zone(passing_percent)
+    if classification.zone is not None:
+        return classification.zone
+
+    # Fallback for partial stacks without the 600 µm sieve: best-score
+    # match against the Table 9 limits.
     zone_scores = {"I": 0, "II": 0, "III": 0, "IV": 0}
     total_checks = 0
 
@@ -87,6 +96,135 @@ def determine_grading_zone(
         return "II"
 
     return best_zone
+
+
+# ── IS 383:2016 Clause 6.3 — tolerance-aware zone classification ─────────
+
+
+@dataclass(frozen=True)
+class ZoneClassification:
+    """Outcome of classifying a fine-aggregate grading per IS 383:2016
+    Clause 6.3 / Table 9.
+
+    The zone is keyed by the 600 µm sieve (the discriminating sieve of
+    Table 9). Deviations on other sieves are tolerated per Clause 6.3
+    (not more than 5 % on a single sieve, subject to a cumulative 10 %)
+    but never at the 600 µm sieve, on the coarse limit of Grading Zone I
+    (its lower bounds) or on the finer limit of Grading Zone IV (its
+    upper bounds).
+    """
+
+    zone: str | None                 # "I"–"IV", from the 600 µm sieve
+    conforms: bool                    # every sieve in limits or in tolerance
+    deviations: tuple[str, ...] = ()  # tolerated out-of-limit sieves (6.3)
+    violations: tuple[str, ...] = ()  # out-of-limit sieves beyond tolerance
+    tolerance_used: bool = False      # any deviation absorbed by 6.3
+    crushed_sand_relief_used: bool = False  # Table 9 Note 1 at 150 µm
+
+
+def classify_is383_zone(
+    passing_percent: dict[float, float],
+    crushed_sand: bool = False,
+) -> ZoneClassification:
+    """Classify a fine-aggregate grading per IS 383:2016 Clause 6.3.
+
+    Args:
+        passing_percent: ``{sieve_mm: percent_passing}`` — the IS 383 fine
+            stack (10 mm … 150 µm); missing sieves are simply skipped.
+        crushed_sand: the sample is a crushed stone sand, for which the
+            permissible limit on the 150 µm sieve is increased to 20 %
+            (Table 9 Note 1).
+
+    Returns:
+        A :class:`ZoneClassification`. ``zone`` is ``None`` when the 600 µm
+        sieve result is absent (the zone cannot be determined without it).
+    """
+    from concrete_mix.codes.tables.is383_quality import (
+        ZONE_150UM_CRUSHED_STONE_SAND_MAX,
+        ZONE_TOLERANCE_CUMULATIVE_PCT,
+        ZONE_TOLERANCE_EXEMPT_SIEVE_MM,
+        ZONE_TOLERANCE_SINGLE_SIEVE_PCT,
+    )
+
+    p600 = passing_percent.get(ZONE_TOLERANCE_EXEMPT_SIEVE_MM)
+    if p600 is None:
+        return ZoneClassification(zone=None, conforms=False, violations=(
+            "600 µm sieve result not available — the grading zone cannot "
+            "be determined (IS 383:2016 Table 9)",
+        ))
+
+    zone = None
+    for candidate, limits in GRADING_ZONE_LIMITS.items():
+        lo, hi = limits[ZONE_TOLERANCE_EXEMPT_SIEVE_MM]
+        if lo <= p600 <= hi:
+            zone = candidate
+            break
+    if zone is None:
+        # Non-integer 600 µm results can land in the 34–35 / 59–60 / 79–80
+        # gaps between the published integer ranges; assign the nearest
+        # range (sieve percentages are reported to whole percent per
+        # IS 2 : 1960 rounding).
+        def _dist(limits):
+            lo, hi = limits[ZONE_TOLERANCE_EXEMPT_SIEVE_MM]
+            return 0 if lo <= p600 <= hi else min(abs(p600 - lo), abs(p600 - hi))
+        zone = min(GRADING_ZONE_LIMITS, key=lambda z: _dist(GRADING_ZONE_LIMITS[z]))
+
+    deviations: list[str] = []
+    violations: list[str] = []
+    relief_used = False
+    cumulative = 0.0
+
+    for sieve_mm, (lo, hi) in GRADING_ZONE_LIMITS[zone].items():
+        p = passing_percent.get(sieve_mm)
+        if p is None:
+            continue
+
+        hi_eff = hi
+        if (
+            crushed_sand
+            and abs(sieve_mm - 0.150) < 1e-6
+            and hi < ZONE_150UM_CRUSHED_STONE_SAND_MAX
+        ):
+            hi_eff = ZONE_150UM_CRUSHED_STONE_SAND_MAX
+            relief_used = True
+
+        if lo - 1e-9 <= p <= hi_eff + 1e-9:
+            continue
+
+        label = f"{sieve_mm:g} mm" if sieve_mm >= 1.0 else f"{sieve_mm * 1000:g} µm"
+        too_fine = p > hi_eff
+        amount = (p - hi_eff) if too_fine else (lo - p)
+
+        # Clause 6.3: the tolerance applies to sieves other than 600 µm,
+        # and never on the coarse limit of Zone I or the finer limit of
+        # Zone IV — i.e. only on the "inner" side of each extreme zone.
+        tolerable_side = not (
+            (zone == "I" and not too_fine) or (zone == "IV" and too_fine)
+        )
+        if tolerable_side and amount <= ZONE_TOLERANCE_SINGLE_SIEVE_PCT + 1e-9:
+            cumulative += amount
+            if cumulative <= ZONE_TOLERANCE_CUMULATIVE_PCT + 1e-9:
+                deviations.append(
+                    f"{label} {p:.1f} % passing vs {lo:g}–{hi:g} % "
+                    f"({amount:.1f} % out, within the Clause 6.3 tolerance)"
+                )
+                continue
+
+        bound = f"{hi:g}" if too_fine else f"{lo:g}"
+        which = "above" if too_fine else "below"
+        violations.append(
+            f"{label} {p:.1f} % passing is {which} the Zone {zone} limit "
+            f"of {bound} %"
+        )
+
+    return ZoneClassification(
+        zone=zone,
+        conforms=not violations,
+        deviations=tuple(deviations),
+        violations=tuple(violations),
+        tolerance_used=bool(deviations),
+        crushed_sand_relief_used=relief_used,
+    )
 
 
 def validate_grading(

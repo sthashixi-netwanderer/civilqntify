@@ -1448,9 +1448,38 @@ class MaterialQuantifyTab(QWidget):
         if self._history_db is None:
             return
         try:
-            inp = self._build_transfer_data_from_inputs()
+            from dataclasses import asdict
+
+            # UI state the transfer data alone cannot carry back into the
+            # form: subtab, mode, element rows and mix-ratio parts.
+            extra: dict = {}
+            if self._left_tabs.currentIndex() == 1:
+                inp = bill.transfer_data
+                extra["ratio_ui"] = {
+                    "cement_ratio": self.ratio_cement_spin.value(),
+                    "sand_ratio": self.ratio_sand_spin.value(),
+                    "gravel_ratio": self.ratio_gravel_spin.value(),
+                    "w_c_ratio": self.ratio_wc_spin.value(),
+                    "dry_volume_factor": self.ratio_dry_factor_spin.value(),
+                    "cement_bag_volume_m3": self.ratio_bag_vol_spin.value(),
+                    "cement_bag_weight_kg": self.ratio_bag_weight_spin.value(),
+                    "fine_agg_bulk_density": self.ratio_sand_density_spin.value(),
+                    "coarse_agg_bulk_density": self.ratio_gravel_density_spin.value(),
+                    "mode": self.ratio_mode_combo.currentData() or "volume",
+                    "elements": [
+                        asdict(e) for e in self._get_ratio_elements()
+                    ],
+                }
+            else:
+                inp = self._build_transfer_data_from_inputs()
+                extra["design_ui"] = {
+                    "mode": self.mode_combo.currentData() or "volume",
+                    "elements": [asdict(e) for e in self._get_elements()],
+                }
             name = f"Quantification - {bill.net_concrete_volume_m3:.2f} m\u00b3"
-            self._history_db.save_quantification(inp, bill, name=name)
+            self._history_db.save_quantification(
+                inp, bill, name=name, extra_input=extra
+            )
         except Exception:
             pass
 
@@ -1468,29 +1497,105 @@ class MaterialQuantifyTab(QWidget):
         self._last_bill = bill
         self._result_panel.display_bill(bill)
 
+        try:
+            inp_data = json.loads(rec["input_json"])
+        except (json.JSONDecodeError, TypeError):
+            inp_data = {}
+
         # Restore inputs to UI if transfer_data is available
         if bill.transfer_data:
             td = bill.transfer_data
             self._transfer_data = td
 
-            if "Mix Ratio" in td.code_used or "Mortar" in td.code_used:
+            ratio_ui = inp_data.get("ratio_ui")
+            design_ui = inp_data.get("design_ui")
+            is_ratio = design_ui is None and (
+                ratio_ui is not None
+                or "Mix Ratio" in td.code_used
+                or "Mortar" in td.code_used
+            )
+            if is_ratio:
                 # Switch to Mix Ratio subtab
                 self._left_tabs.setCurrentIndex(1)
-                idx = self.ratio_mode_combo.findData("volume")
-                if idx >= 0:
-                    self.ratio_mode_combo.setCurrentIndex(idx)
-                self.ratio_volume_spin.setValue(bill.net_concrete_volume_m3)
+                if ratio_ui:
+                    self.ratio_cement_spin.setValue(
+                        ratio_ui.get("cement_ratio", self.ratio_cement_spin.value())
+                    )
+                    self.ratio_sand_spin.setValue(
+                        ratio_ui.get("sand_ratio", self.ratio_sand_spin.value())
+                    )
+                    self.ratio_gravel_spin.setValue(
+                        ratio_ui.get("gravel_ratio", self.ratio_gravel_spin.value())
+                    )
+                    self.ratio_wc_spin.setValue(
+                        ratio_ui.get("w_c_ratio", self.ratio_wc_spin.value())
+                    )
+                    self.ratio_dry_factor_spin.setValue(
+                        ratio_ui.get(
+                            "dry_volume_factor", self.ratio_dry_factor_spin.value()
+                        )
+                    )
+                    self.ratio_bag_vol_spin.setValue(
+                        ratio_ui.get(
+                            "cement_bag_volume_m3", self.ratio_bag_vol_spin.value()
+                        )
+                    )
+                    self.ratio_bag_weight_spin.setValue(
+                        ratio_ui.get(
+                            "cement_bag_weight_kg", self.ratio_bag_weight_spin.value()
+                        )
+                    )
+                    self.ratio_sand_density_spin.setValue(
+                        ratio_ui.get(
+                            "fine_agg_bulk_density",
+                            self.ratio_sand_density_spin.value(),
+                        )
+                    )
+                    self.ratio_gravel_density_spin.setValue(
+                        ratio_ui.get(
+                            "coarse_agg_bulk_density",
+                            self.ratio_gravel_density_spin.value(),
+                        )
+                    )
+                    mode = ratio_ui.get("mode", "volume")
+                    idx = self.ratio_mode_combo.findData(mode)
+                    if idx >= 0:
+                        self.ratio_mode_combo.setCurrentIndex(idx)
+                    if mode == "elements":
+                        self._restore_element_rows(
+                            self._ratio_elem_table,
+                            self._add_ratio_element,
+                            ratio_ui.get("elements") or [],
+                        )
+                    else:
+                        self.ratio_volume_spin.setValue(bill.net_concrete_volume_m3)
+                else:
+                    idx = self.ratio_mode_combo.findData("volume")
+                    if idx >= 0:
+                        self.ratio_mode_combo.setCurrentIndex(idx)
+                    self.ratio_volume_spin.setValue(bill.net_concrete_volume_m3)
                 self.ratio_wastage_spin.setValue(bill.wastage_percent)
             else:
                 # Switch to Design Mix subtab
                 self._left_tabs.setCurrentIndex(0)
                 self._populate_data_from_transfer(td)
 
-                # Select "volume" mode and populate inputs
-                idx = self.mode_combo.findData("volume")
+                # Select the mode the record was made with and restore
+                # its inputs (element rows when not volume mode).
+                mode = (design_ui or {}).get("mode", "volume")
+                idx = self.mode_combo.findData(mode)
+                if idx < 0:
+                    idx = self.mode_combo.findData("volume")
                 if idx >= 0:
                     self.mode_combo.setCurrentIndex(idx)
-                self.volume_spin.setValue(bill.net_concrete_volume_m3)
+                if mode == "elements":
+                    self._restore_element_rows(
+                        self._elem_table,
+                        self._add_element,
+                        (design_ui or {}).get("elements") or [],
+                    )
+                else:
+                    self.volume_spin.setValue(bill.net_concrete_volume_m3)
                 self.wastage_spin.setValue(bill.wastage_percent)
 
                 # Show group override and populate override values
@@ -1515,6 +1620,29 @@ class MaterialQuantifyTab(QWidget):
                     "border: 1px solid #10b981; border-radius: 4px; "
                     "padding: 10px 14px; font-weight: 600;"
                 )
+
+    @staticmethod
+    def _restore_element_rows(table, add_row_fn, elements: list[dict]) -> None:
+        """Rebuild an element table from saved StructuralElement dicts."""
+        table.setRowCount(0)
+        for e in elements:
+            add_row_fn()
+            row = table.rowCount() - 1
+            combo = table.cellWidget(row, 0)
+            if combo is not None:
+                for i in range(combo.count()):
+                    if combo.itemText(i).lower() == str(
+                        e.get("element_type", "")
+                    ).lower():
+                        combo.setCurrentIndex(i)
+                        break
+            for col, key in ((1, "length_m"), (2, "width_m"), (3, "depth_m")):
+                spin = table.cellWidget(row, col)
+                if spin is not None and e.get(key) is not None:
+                    spin.setValue(float(e[key]))
+            q_spin = table.cellWidget(row, 4)
+            if q_spin is not None and e.get("quantity") is not None:
+                q_spin.setValue(int(e["quantity"]))
 
     # ── Export ────────────────────────────────────────────────────────
 
