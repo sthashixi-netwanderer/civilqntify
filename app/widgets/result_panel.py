@@ -295,9 +295,9 @@ class ResultPanel(QWidget):
         self.unit_prefs.changed.connect(self.on_unit_changed)
 
     def _build_ui(self) -> None:
-        # Outer wrapper is a scroll area so all content remains visible
-        # when the window is narrowed or shortened. Inner container holds
-        # the original vertical stack.
+        # Outer wrapper: scroll area for content + fixed action bar at bottom.
+        # The action bar (export buttons) is placed OUTSIDE the scroll area
+        # so it stays pinned at the bottom, matching the input panel pattern.
         main = QVBoxLayout(self)
         main.setContentsMargins(0, 0, 0, 0)
         main.setSpacing(0)
@@ -477,12 +477,18 @@ class ResultPanel(QWidget):
         self._steps_tree.setWordWrap(True)
         outer.addWidget(self._steps_tree, stretch=1)
 
-        # Export buttons — responsive: single row when spacious, two rows when narrow
+        outer.addStretch(1)
+
+        self._scroll.setWidget(container)
+        main.addWidget(self._scroll, 1)
+
+        # ── Fixed action bar at bottom (outside scroll area) ──
+        # Export buttons stay pinned at the bottom, matching the input panel pattern.
         self._btn_container = QWidget()
         self._btn_container.setMinimumWidth(0)
         self._btn_container.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self._btn_grid = QGridLayout(self._btn_container)
-        self._btn_grid.setContentsMargins(0, 0, 0, 0)
+        self._btn_grid.setContentsMargins(12, 8, 12, 8)
         self._btn_grid.setSpacing(8)
         self._btn_grid.setSizeConstraint(self._btn_grid.SizeConstraint.SetNoConstraint)
         self._btn_csv = QPushButton("Export CSV")
@@ -507,12 +513,7 @@ class ResultPanel(QWidget):
         for c in range(3):
             self._btn_grid.setColumnStretch(c, 1)
         self._btn_current_mode = "single"
-        outer.addWidget(self._btn_container)
-
-        outer.addStretch(1)
-
-        self._scroll.setWidget(container)
-        main.addWidget(self._scroll)
+        main.addWidget(self._btn_container)
 
         # Export signal connections will be wired by the parent tab
         self.btn_csv = self._btn_csv
@@ -584,12 +585,10 @@ class ResultPanel(QWidget):
 
     def _reflow_buttons(self, force: bool = False) -> None:
         """Responsive export bar: 1 row when spacious, 2 rows when narrow."""
-        try:
-            avail = self._scroll.viewport().width()
-        except Exception:
-            avail = self.width()
+        # Buttons are now outside the scroll area, use widget width directly
+        avail = self.width()
         if avail < 50:
-            avail = self.width() or self._btn_container.width() or 400
+            avail = self._btn_container.width() or 400
         avail -= 24  # outer margins
         # 380 is enough for 86+86+148+16 spacing ≈336 + margins; use 360 as threshold
         mode = "single" if avail >= 360 else "wrapped"

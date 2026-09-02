@@ -307,6 +307,7 @@ class PSDResultPanel(QWidget):
     # ── UI Construction ──────────────────────────────────────────────
 
     def _build_ui(self) -> None:
+        # Scroll area for content + fixed action bar at bottom
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
@@ -398,9 +399,14 @@ class PSDResultPanel(QWidget):
         fm_v.addWidget(self._fm_note)
         outer.addWidget(self._fm_group)
 
-        # ── Export buttons ──
+        outer.addStretch(1)
+
+        scroll.setWidget(container)
+
+        # ── Fixed action bar at bottom (outside scroll area) ──
         btn_row = QHBoxLayout()
         btn_row.setSpacing(8)
+        btn_row.setContentsMargins(12, 8, 12, 8)
         # Handoff button — pushes the sieve-analysis-derived parameters that
         # each standard's mix-design engine consumes (ACI FM → Table 5.3.6;
         # IS zone → Table 5; DOE %p600 → Figure 6).
@@ -427,13 +433,12 @@ class PSDResultPanel(QWidget):
         btn_row.addWidget(self._btn_csv)
         btn_row.addWidget(self._btn_img)
         btn_row.addStretch()
-        outer.addLayout(btn_row)
-
-        scroll.setWidget(container)
 
         root_layout = QVBoxLayout(self)
         root_layout.setContentsMargins(0, 0, 0, 0)
-        root_layout.addWidget(scroll)
+        root_layout.setSpacing(0)
+        root_layout.addWidget(scroll, 1)
+        root_layout.addLayout(btn_row)
 
         self._draw_placeholder()
 
