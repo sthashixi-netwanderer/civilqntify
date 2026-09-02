@@ -69,16 +69,14 @@ class QuantResultPanel(QWidget):
         self.unit_prefs.changed.connect(self.on_unit_changed)
 
     def _build_ui(self) -> None:
+        # Scroll area for content + fixed action bar at bottom
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
         scroll.setWidget(QWidget())
         outer = QVBoxLayout(scroll.widget())
         outer.setContentsMargins(12, 12, 12, 12)
         outer.setSpacing(10)
-
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.addWidget(scroll)
 
         # ── Warnings ──
         self._warning_banner = QLabel()
@@ -142,9 +140,14 @@ class QuantResultPanel(QWidget):
         outer.addWidget(self._table)
         self._table_header_units()
 
-        # ── Export Buttons ──
+        outer.addStretch()
+
+        scroll.setWidget(scroll.widget())
+
+        # ── Fixed action bar at bottom (outside scroll area) ──
         btn_row = QHBoxLayout()
         btn_row.setSpacing(8)
+        btn_row.setContentsMargins(12, 8, 12, 8)
         self.btn_csv = QPushButton("Export CSV")
         self.btn_csv.setObjectName("secondary")
         self.btn_csv.setEnabled(False)
@@ -162,9 +165,12 @@ class QuantResultPanel(QWidget):
         btn_row.addWidget(self._btn_cost)
 
         btn_row.addStretch()
-        outer.addLayout(btn_row)
 
-        outer.addStretch()
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        layout.addWidget(scroll, 1)
+        layout.addLayout(btn_row)
 
     def display_bill(self, bill: MaterialBill) -> None:
         """Update the panel with a material bill result."""
