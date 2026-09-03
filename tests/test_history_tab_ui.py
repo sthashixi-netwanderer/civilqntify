@@ -64,11 +64,14 @@ def _mix_result(**overrides):
 # ---------------------------------------------------------------------------
 
 
-def test_psd_history_round_trip_restores_entries(qt, db):
+def test_psd_history_round_trip_restores_entries(qt, db, monkeypatch):
     from app.widgets.psd_widget import ParticleSizeDistributionTab
 
     tab = ParticleSizeDistributionTab()
     tab._history_db = db
+    # The compliance dialog is modal; loading must recompute checks
+    # without opening it.
+    monkeypatch.setattr(tab, "_show_astm_compliance_dialog", lambda checks: None)
 
     masses = [0, 5, 45, 210, 60, 70, 105]  # IS 383 fine stack, 7 sieves
     for i, m in enumerate(masses):
@@ -411,7 +414,7 @@ def test_history_tab_load_selected_and_double_click(qt, db):
 def test_history_tab_export_selected_imports_back(qt, db, tmp_path, monkeypatch):
     from app.widgets import history_tab as ht
     from app.widgets.history_tab import HistoryTab
-    from PyQt6.QtWidgets import QFileDialog
+    from PyQt6.QtWidgets import QFileDialog, QMessageBox
 
     psd_id = _make_psd_record(db, "exp")
     rec = db.get_calculation(psd_id)
@@ -423,6 +426,10 @@ def test_history_tab_export_selected_imports_back(qt, db, tmp_path, monkeypatch)
     path = str(tmp_path / "selected.json")
     monkeypatch.setattr(
         QFileDialog, "getSaveFileName", staticmethod(lambda *a, **k: (path, ""))
+    )
+    monkeypatch.setattr(
+        QMessageBox, "information",
+        staticmethod(lambda *a, **k: None),
     )
     tab._on_export_selected()
 
@@ -500,6 +507,7 @@ def test_history_tab_filter_and_search(qt, db):
     assert tab._table.rowCount() == 1
     assert tab._table.item(0, 3).text() == "PSD Analysis"
 
+    tab._type_combo.setCurrentIndex(0)  # reset to "All Types"
     tab._search_input.setText("Site Beam")
     tab._on_search()
     assert tab._table.rowCount() == 1

@@ -65,7 +65,7 @@ def test_aci_result_panel_hides_is_trial_mix_prompt(qt):
 
 
 def test_is_trial_mixes_dialog_initialization(qt):
-    """ISTrialMixesDialog populates 4-trial table and checklist items."""
+    """ISTrialMixesDialog populates the 4-trial table and checklist items."""
     is_res = design_mix_simple(
         code="is10262",
         target_strength_mpa=30.0,
@@ -75,20 +75,22 @@ def test_is_trial_mixes_dialog_initialization(qt):
     dlg = ISTrialMixesDialog(is_res)
 
     assert dlg._table.rowCount() == 4
-    assert dlg._table.columnCount() == 8
+    # Columns: Trial Batch, W/C, Ratio (C:FA:CA), Water, Water Vol,
+    # Cement, SCM, Fine Agg, Coarse Agg, Admixture.
+    assert dlg._table.columnCount() == 10
 
-    # Row 0: Trial 1
-    assert "Trial 1" in dlg._table.item(0, 0).text()
-    assert float(dlg._table.item(0, 1).text()) == is_res.w_c_ratio
-    assert float(dlg._table.item(0, 2).text()) == is_res.water_kg
-    assert float(dlg._table.item(0, 3).text()) == is_res.cement_kg
+    # Row 0: Trial 1 (calculated design proportions)
+    assert dlg._table.item(0, 0).text().startswith("Trial 1")
+    assert float(dlg._table.item(0, 1).text()) == pytest.approx(is_res.w_c_ratio)
+    assert float(dlg._table.item(0, 3).text()) == pytest.approx(is_res.water_kg, abs=0.1)
+    assert float(dlg._table.item(0, 5).text()) == pytest.approx(is_res.cement_kg, abs=0.1)
 
-    # Row 2: Trial 3 (-10% W/C)
-    assert "Trial 3" in dlg._table.item(2, 0).text()
+    # Row 2: Trial 3 (-10% W/C, same water → more cement)
+    assert dlg._table.item(2, 0).text().startswith("Trial 3")
     assert float(dlg._table.item(2, 1).text()) == pytest.approx(round(is_res.w_c_ratio * 0.90, 2))
-    assert float(dlg._table.item(2, 3).text()) > is_res.cement_kg
+    assert float(dlg._table.item(2, 5).text()) > is_res.cement_kg
 
-    # Row 3: Trial 4 (+10% W/C)
-    assert "Trial 4" in dlg._table.item(3, 0).text()
+    # Row 3: Trial 4 (+10% W/C, same water → less cement)
+    assert dlg._table.item(3, 0).text().startswith("Trial 4")
     assert float(dlg._table.item(3, 1).text()) == pytest.approx(round(is_res.w_c_ratio * 1.10, 2))
-    assert float(dlg._table.item(3, 3).text()) < is_res.cement_kg
+    assert float(dlg._table.item(3, 5).text()) < is_res.cement_kg

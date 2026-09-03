@@ -28,6 +28,16 @@ def qt():
     yield _qapp
 
 
+@pytest.fixture(autouse=True)
+def _stub_compliance_dialog(monkeypatch):
+    """Stub the modal compliance dialog so headless tests never block."""
+    monkeypatch.setattr(
+        "app.widgets.psd_widget.ParticleSizeDistributionTab"
+        "._show_astm_compliance_dialog",
+        lambda self, checks: None,
+    )
+
+
 # Zone II fine grading: 100 / 98 / 90 / 70 / 45 / 20 / 5 % passing.
 _ZONE_II_MASSES = [0, 20, 80, 200, 250, 250, 150]  # + 50 g pan = 1000 g
 

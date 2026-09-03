@@ -179,18 +179,36 @@ class TestClause63Tolerance:
         assert c.tolerance_used
 
     def test_crushed_stone_sand_150um_relief(self):
-        # Zone II 150 µm limit is 10 %; 14 % fails for natural sand …
+        # Zone II 150 µm limit is 10 %.
+        # Natural sand at 14 %: 4 points out — the Clause 6.3 tolerance
+        # applies at 150 µm for natural sand (only 600 µm and the two
+        # extreme-zone edges are exempt), so this still conforms, with a
+        # recorded deviation.
         c = classify_is383_zone(_passing("II", **{"0.150": 14.0}))
-        assert not c.conforms
-        # … but conforms for crushed stone sand (Table 9 Note 1: 20 %).
+        assert c.conforms
+        assert c.tolerance_used
+        assert not c.crushed_sand_relief_used
+
+        # Natural sand beyond the allowance (6 points) fails.
+        c_fail = classify_is383_zone(_passing("II", **{"0.150": 16.0}))
+        assert not c_fail.conforms
+
+        # Crushed stone sand at 14 % conforms through the raised 20 %
+        # limit itself (Table 9 Note 1) — no deviation recorded.
         c2 = classify_is383_zone(_passing("II", **{"0.150": 14.0}), crushed_sand=True)
         assert c2.conforms
         assert c2.crushed_sand_relief_used
-        assert not c2.tolerance_used  # relief, not the 6.3 tolerance
+        assert not c2.tolerance_used
 
     def test_crushed_stone_sand_relief_caps_at_20(self):
+        # Table 9 Note 1: the increase "does not affect the 5 percent
+        # allowance permitted in 6.3 applying to other sieve sizes" — at
+        # 150 µm the raised 20 % limit is a hard limit for crushed stone
+        # sand; 24 % is not tolerable.
         c = classify_is383_zone(_passing("II", **{"0.150": 24.0}), crushed_sand=True)
         assert not c.conforms
+        assert c.crushed_sand_relief_used
+        assert any("150" in v for v in c.violations)
 
     def test_tolerance_not_applied_at_600um(self):
         # The zone itself comes from the 600 µm sieve — a value inside a

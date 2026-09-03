@@ -180,6 +180,7 @@ def classify_is383_zone(
             continue
 
         hi_eff = hi
+        relief_here = False
         if (
             crushed_sand
             and abs(sieve_mm - 0.150) < 1e-6
@@ -187,6 +188,7 @@ def classify_is383_zone(
         ):
             hi_eff = ZONE_150UM_CRUSHED_STONE_SAND_MAX
             relief_used = True
+            relief_here = True
 
         if lo - 1e-9 <= p <= hi_eff + 1e-9:
             continue
@@ -198,10 +200,17 @@ def classify_is383_zone(
         # Clause 6.3: the tolerance applies to sieves other than 600 µm,
         # and never on the coarse limit of Zone I or the finer limit of
         # Zone IV — i.e. only on the "inner" side of each extreme zone.
+        # Table 9 Note 1: the crushed-stone-sand 20 % limit at 150 µm
+        # replaces the tolerance at that sieve ("… does not affect the
+        # 5 percent allowance … applying to other sieve sizes").
         tolerable_side = not (
             (zone == "I" and not too_fine) or (zone == "IV" and too_fine)
         )
-        if tolerable_side and amount <= ZONE_TOLERANCE_SINGLE_SIEVE_PCT + 1e-9:
+        if (
+            not relief_here
+            and tolerable_side
+            and amount <= ZONE_TOLERANCE_SINGLE_SIEVE_PCT + 1e-9
+        ):
             cumulative += amount
             if cumulative <= ZONE_TOLERANCE_CUMULATIVE_PCT + 1e-9:
                 deviations.append(

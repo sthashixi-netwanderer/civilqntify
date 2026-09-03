@@ -220,8 +220,11 @@ ZONE_TOLERANCE_CUMULATIVE_PCT: float = 10.0
 ZONE_TOLERANCE_EXEMPT_SIEVE_MM: float = 0.600
 
 # Table 9 Note 1 — for crushed stone sands the permissible limit on the
-# 150 µm sieve is increased to 20 % (does not affect the Clause 6.3
-# tolerance on other sieves).
+# 150 µm sieve is increased to 20 percent. The note adds that this "does
+# not affect the 5 percent allowance permitted in 6.3 applying to other
+# sieve sizes", so the raised limit is a hard limit at 150 µm for crushed
+# stone sand (no Clause 6.3 tolerance stacked on it), while natural sand
+# keeps the plain 10 % limit with the Clause 6.3 tolerance available.
 ZONE_150UM_CRUSHED_STONE_SAND_MAX: float = 20.0
 
 # Table 9 Note 4 — Zone IV fine aggregate should not be used in reinforced

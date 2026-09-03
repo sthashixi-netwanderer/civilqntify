@@ -2530,20 +2530,22 @@ class ParticleSizeDistributionTab(QWidget):
         f.setSpacing(8)
         row = 0
 
-        wearing = QCheckBox(
-            "Wearing surfaces (roads, pavements, spillways…)"
-        )
+        # Label kept short so the checkbox's no-wrap hint stays inside the
+        # sidebar's 360 px floor; the limits live in the tooltip.
+        wearing = QCheckBox("Wearing surfaces")
         self.is_coarse_wearing_check = wearing
         f.addWidget(self._field_with_info(wearing,
-            "Clause 5.4: stricter limits apply to wearing surfaces — "
-            "crushing value and impact value ≤ 30 %, abrasion ≤ 30 %. "
-            "For other concrete the limits are: impact ≤ 45 %, abrasion "
-            "≤ 50 %, and a crushing value above 30 % calls for the ten "
-            "percent fines test (minimum load 50 kN).",
+            "Clause 5.4: concrete for wearing surfaces — runways, roads, "
+            "pavements, tunnel linings carrying water, spillways, stilling "
+            "basins. Stricter limits apply: crushing value and impact value "
+            "≤ 30 %, abrasion ≤ 30 %. For other concrete the limits are: "
+            "impact ≤ 45 %, abrasion ≤ 50 %, and a crushing value above "
+            "30 % calls for the ten percent fines test (minimum load "
+            "50 kN).",
         ), row, 0, 1, 2)
         row += 1
 
-        high_grade = QCheckBox("Concrete of grade M65 or above")
+        high_grade = QCheckBox("Grade M65 or above")
         self.is_coarse_high_grade_check = high_grade
         f.addWidget(self._field_with_info(high_grade,
             "Clause 5.4 Note: for grades M65 and above stronger "

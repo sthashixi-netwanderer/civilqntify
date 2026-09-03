@@ -16,7 +16,7 @@ import subprocess
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-DEFAULT_VERSION = "1.0.6"
+DEFAULT_VERSION = "1.0.8"
 
 
 def main() -> int:

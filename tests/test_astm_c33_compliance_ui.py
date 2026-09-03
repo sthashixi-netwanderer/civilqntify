@@ -58,18 +58,22 @@ def test_quality_group_visibility_follows_standard_and_type(qt):
     from app.widgets.psd_widget import ParticleSizeDistributionTab
 
     tab = ParticleSizeDistributionTab()
-    # IS 383 default — quality group hidden.
-    assert tab._quality_group.isHidden()
+    # IS 383 default — quality group visible on the IS fine page.
+    assert not tab._quality_group.isHidden()
+    assert tab._quality_stack.currentIndex() == 2
+    assert "IS 383" in tab._quality_group.title()
 
     _make_astm_tab(tab, "fine")
     assert not tab._quality_group.isHidden()
     assert tab._quality_stack.currentIndex() == 0
+    assert "ASTM C33" in tab._quality_group.title()
 
     tab.agg_combo.setCurrentIndex(tab.agg_combo.findData("coarse"))
     assert tab._quality_stack.currentIndex() == 1
 
     tab.standard_combo.setCurrentIndex(tab.standard_combo.findData("is383"))
-    assert tab._quality_group.isHidden()
+    assert not tab._quality_group.isHidden()
+    assert tab._quality_stack.currentIndex() == 3  # IS 383 coarse page
 
 
 def test_astm_fine_nonconformance_opens_dialog_with_clause(qt, dialog_calls):
@@ -157,15 +161,28 @@ def test_astm_coarse_table_3_failure_reported_via_dialog(qt, dialog_calls):
     assert "8.0" in total[0].measured
 
 
-def test_is383_analysis_never_triggers_compliance_dialog(qt, dialog_calls):
+def test_is383_analysis_runs_compliance_checks(qt, dialog_calls):
+    """IS 383 now has its own evaluator: a conforming analysis stays
+    silent (status-bar summary), a grading failure beyond the Clause 6.3
+    tolerance opens the clause-cited dialog."""
     from app.widgets.psd_widget import ParticleSizeDistributionTab
 
     tab = ParticleSizeDistributionTab()
-    # Zone II out-of-band sample (as in test_psd_widget) — no ASTM checks.
-    _fill_and_plot(tab, [0, 5, 45, 210, 60, 70, 105], pan=5)
 
+    # Fully in-zone Zone II sand (100/98/90/70/45/20/5 % passing):
+    # no failure → no dialog, checks recorded with no FAIL status.
+    _fill_and_plot(tab, [0, 20, 80, 200, 250, 250, 150], pan=50)
     assert dialog_calls == []
-    assert tab._astm_checks == []
+    assert tab._astm_checks
+    assert not [c for c in tab._astm_checks if c.failed]
+
+    # Out-of-band sample (1.18 mm 7.5 points below the Zone II limit —
+    # beyond the Clause 6.3 tolerance) → dialog with the cited clause.
+    _fill_and_plot(tab, [0, 5, 45, 210, 60, 70, 105], pan=5)
+    assert len(dialog_calls) == 1
+    grading = [c for c in dialog_calls[0] if c.clause.startswith("6.3")]
+    assert grading and grading[0].failed
+    assert tab._astm_checks == dialog_calls[0]
 
 
 def test_coarse_sum_label_updates_live(qt):

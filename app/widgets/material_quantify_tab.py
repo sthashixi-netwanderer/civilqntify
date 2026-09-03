@@ -220,6 +220,81 @@ class MaterialQuantifyTab(QWidget):
         grp_mode.setLayout(mode_form)
         self._form.addWidget(grp_mode)
 
+        # ── Total Volume ── (moved to top so user sees the calculation volume immediately)
+        self._grp_volume = self._group("Total Volume")
+        vol_form = QFormLayout()
+        vol_form.setSpacing(8)
+        vol_form.setContentsMargins(12, 16, 12, 12)
+        self.volume_spin = UnitSpinBox("volume", 10.0, 0.01, 100000.0, 1.0, 3)
+        self.volume_spin.valueChanged.connect(self._on_input_changed)
+        self._volume_label = self._label_with_info(
+            "Concrete Volume (m\u00b3)",
+            "Total net volume of concrete required for the project in cubic metres. "
+            "Wastage will be added on top of this.",
+        )
+        vol_form.addRow(
+            self._volume_label,
+            self.volume_spin,
+        )
+        self._grp_volume.setLayout(vol_form)
+        self._form.addWidget(self._grp_volume)
+
+        # ── Element Mode ──
+        self._grp_elements = self._group("Structural Elements")
+        elem_layout = QVBoxLayout()
+        elem_layout.setSpacing(8)
+        elem_layout.setContentsMargins(12, 16, 12, 12)
+
+        self._elem_table = QTableWidget(0, len(_ELEM_HEADERS))
+        self._elem_table.setHorizontalHeaderLabels(self._element_headers())
+        self._elem_table.horizontalHeader().setSectionResizeMode(
+            QHeaderView.ResizeMode.Stretch
+        )
+        self._elem_table.setMinimumHeight(160)
+        self._elem_table.setMaximumHeight(260)
+        self._elem_table.itemChanged.connect(self._on_element_changed)
+        elem_layout.addWidget(self._elem_table)
+
+        elem_btn_row = QHBoxLayout()
+        elem_btn_row.setSpacing(8)
+        self._btn_add_elem = QPushButton("Add Element")
+        self._btn_add_elem.setObjectName("secondary")
+        self._btn_add_elem.clicked.connect(self._add_element)
+        self._btn_del_elem = QPushButton("Remove Selected")
+        self._btn_del_elem.setObjectName("secondary")
+        self._btn_del_elem.clicked.connect(self._remove_element)
+        self._elem_total_label = QLabel("Total: 0.000 m\u00b3")
+        self._elem_total_label.setStyleSheet(
+            "font-weight: 700; font-family: 'JetBrains Mono', monospace;"
+        )
+        elem_btn_row.addWidget(self._btn_add_elem)
+        elem_btn_row.addWidget(self._btn_del_elem)
+        elem_btn_row.addStretch()
+        elem_btn_row.addWidget(self._elem_total_label)
+        elem_layout.addLayout(elem_btn_row)
+
+        self._grp_elements.setLayout(elem_layout)
+        self._grp_elements.setVisible(False)
+        self._form.addWidget(self._grp_elements)
+
+        # ── Wastage ──
+        grp_wastage = self._group("Wastage")
+        wastage_form = QFormLayout()
+        wastage_form.setSpacing(8)
+        wastage_form.setContentsMargins(12, 16, 12, 12)
+        self.wastage_spin = self._spin(5.0, 0.0, 30.0, 0.5, 1)
+        self.wastage_spin.valueChanged.connect(self._on_input_changed)
+        wastage_form.addRow(
+            self._label_with_info(
+                "Wastage Factor (%)",
+                "Percentage of material added to cover wastage during transport, placing, and compaction. "
+                "Typical: 3–5% for ready-mix, 5–10% for site-mixed concrete.",
+            ),
+            self.wastage_spin,
+        )
+        grp_wastage.setLayout(wastage_form)
+        self._form.addWidget(grp_wastage)
+
         # ── Mix Design Parameters (editable) ──
         grp_data = self._group("Mix Design Parameters (per m\u00b3)")
         self._data_form = QFormLayout()
@@ -466,81 +541,6 @@ class MaterialQuantifyTab(QWidget):
         self._grp_over.setVisible(False)  # Hidden in standalone mode
         self._form.addWidget(grp_over)
 
-        # ── Volume Mode ──
-        self._grp_volume = self._group("Total Volume")
-        vol_form = QFormLayout()
-        vol_form.setSpacing(8)
-        vol_form.setContentsMargins(12, 16, 12, 12)
-        self.volume_spin = UnitSpinBox("volume", 10.0, 0.01, 100000.0, 1.0, 3)
-        self.volume_spin.valueChanged.connect(self._on_input_changed)
-        self._volume_label = self._label_with_info(
-            "Concrete Volume (m\u00b3)",
-            "Total net volume of concrete required for the project in cubic metres. "
-            "Wastage will be added on top of this.",
-        )
-        vol_form.addRow(
-            self._volume_label,
-            self.volume_spin,
-        )
-        self._grp_volume.setLayout(vol_form)
-        self._form.addWidget(self._grp_volume)
-
-        # ── Element Mode ──
-        self._grp_elements = self._group("Structural Elements")
-        elem_layout = QVBoxLayout()
-        elem_layout.setSpacing(8)
-        elem_layout.setContentsMargins(12, 16, 12, 12)
-
-        self._elem_table = QTableWidget(0, len(_ELEM_HEADERS))
-        self._elem_table.setHorizontalHeaderLabels(self._element_headers())
-        self._elem_table.horizontalHeader().setSectionResizeMode(
-            QHeaderView.ResizeMode.Stretch
-        )
-        self._elem_table.setMinimumHeight(160)
-        self._elem_table.setMaximumHeight(260)
-        self._elem_table.itemChanged.connect(self._on_element_changed)
-        elem_layout.addWidget(self._elem_table)
-
-        elem_btn_row = QHBoxLayout()
-        elem_btn_row.setSpacing(8)
-        self._btn_add_elem = QPushButton("Add Element")
-        self._btn_add_elem.setObjectName("secondary")
-        self._btn_add_elem.clicked.connect(self._add_element)
-        self._btn_del_elem = QPushButton("Remove Selected")
-        self._btn_del_elem.setObjectName("secondary")
-        self._btn_del_elem.clicked.connect(self._remove_element)
-        self._elem_total_label = QLabel("Total: 0.000 m\u00b3")
-        self._elem_total_label.setStyleSheet(
-            "font-weight: 700; font-family: 'JetBrains Mono', monospace;"
-        )
-        elem_btn_row.addWidget(self._btn_add_elem)
-        elem_btn_row.addWidget(self._btn_del_elem)
-        elem_btn_row.addStretch()
-        elem_btn_row.addWidget(self._elem_total_label)
-        elem_layout.addLayout(elem_btn_row)
-
-        self._grp_elements.setLayout(elem_layout)
-        self._grp_elements.setVisible(False)
-        self._form.addWidget(self._grp_elements)
-
-        # ── Wastage ──
-        grp_wastage = self._group("Wastage")
-        wastage_form = QFormLayout()
-        wastage_form.setSpacing(8)
-        wastage_form.setContentsMargins(12, 16, 12, 12)
-        self.wastage_spin = self._spin(5.0, 0.0, 30.0, 0.5, 1)
-        self.wastage_spin.valueChanged.connect(self._on_input_changed)
-        wastage_form.addRow(
-            self._label_with_info(
-                "Wastage Factor (%)",
-                "Percentage of material added to cover wastage during transport, placing, and compaction. "
-                "Typical: 3–5% for ready-mix, 5–10% for site-mixed concrete.",
-            ),
-            self.wastage_spin,
-        )
-        grp_wastage.setLayout(wastage_form)
-        self._form.addWidget(grp_wastage)
-
         # ── Calculate Button ──
         action_bar = QHBoxLayout()
         action_bar.setContentsMargins(16, 6, 12, 14)
@@ -569,6 +569,84 @@ class MaterialQuantifyTab(QWidget):
             "padding: 10px 14px; font-weight: 600;"
         )
         self._ratio_form.addWidget(self._ratio_status_banner)
+
+        # ── Volume Scope — moved to top so user sees the calculation volume immediately ──
+        grp_ratio_mode = self._group("Volume of Work Basis")
+        ratio_mode_form = QFormLayout()
+        ratio_mode_form.setSpacing(8)
+        ratio_mode_form.setContentsMargins(12, 16, 12, 12)
+        self.ratio_mode_combo = self._combo(
+            [
+                ("Total Work Volume", "volume"),
+                ("Structural Element Dimensions", "elements"),
+            ],
+            default="volume",
+        )
+        self.ratio_mode_combo.currentIndexChanged.connect(self._on_ratio_mode_changed)
+        ratio_mode_form.addRow(
+            self._label_with_info(
+                "Mode",
+                "Volume mode: enter total volume of concrete/mortar directly.\n"
+                "Element mode: define structural elements (slabs, beams, columns, etc.) and auto-calculate volume.",
+            ),
+            self.ratio_mode_combo,
+        )
+        grp_ratio_mode.setLayout(ratio_mode_form)
+        self._ratio_form.addWidget(grp_ratio_mode)
+
+        # ── Volume Mode Group ──
+        self._grp_ratio_volume = self._group("Total Volume of Work")
+        vol_form = QFormLayout()
+        vol_form.setSpacing(8)
+        vol_form.setContentsMargins(12, 16, 12, 12)
+        self.ratio_volume_spin = UnitSpinBox("volume", 10.0, 0.01, 100000.0, 1.0, 3)
+        self.ratio_volume_spin.valueChanged.connect(self._on_input_changed)
+        self._ratio_volume_label = self._label_with_info(
+            "Work Volume (m\u00b3)",
+            "Total net volume of concrete or mortar work in cubic metres.\n"
+            "Wastage and dry-volume void factors will be applied during estimation.",
+        )
+        vol_form.addRow(self._ratio_volume_label, self.ratio_volume_spin)
+        self._grp_ratio_volume.setLayout(vol_form)
+        self._ratio_form.addWidget(self._grp_ratio_volume)
+
+        # ── Element Mode Group ──
+        self._grp_ratio_elements = self._group("Structural Elements")
+        elem_layout = QVBoxLayout()
+        elem_layout.setSpacing(8)
+        elem_layout.setContentsMargins(12, 16, 12, 12)
+
+        self._ratio_elem_table = QTableWidget(0, len(_ELEM_HEADERS))
+        self._ratio_elem_table.setHorizontalHeaderLabels(self._element_headers())
+        self._ratio_elem_table.horizontalHeader().setSectionResizeMode(
+            QHeaderView.ResizeMode.Stretch
+        )
+        self._ratio_elem_table.setMinimumHeight(160)
+        self._ratio_elem_table.setMaximumHeight(260)
+        self._ratio_elem_table.itemChanged.connect(self._on_ratio_element_changed)
+        elem_layout.addWidget(self._ratio_elem_table)
+
+        elem_btn_row = QHBoxLayout()
+        elem_btn_row.setSpacing(8)
+        self._btn_add_ratio_elem = QPushButton("Add Element")
+        self._btn_add_ratio_elem.setObjectName("secondary")
+        self._btn_add_ratio_elem.clicked.connect(self._add_ratio_element)
+        self._btn_del_ratio_elem = QPushButton("Remove Selected")
+        self._btn_del_ratio_elem.setObjectName("secondary")
+        self._btn_del_ratio_elem.clicked.connect(self._remove_ratio_element)
+        self._ratio_elem_total_label = QLabel("Total: 0.000 m\u00b3")
+        self._ratio_elem_total_label.setStyleSheet(
+            "font-weight: 700; font-family: 'JetBrains Mono', monospace;"
+        )
+        elem_btn_row.addWidget(self._btn_add_ratio_elem)
+        elem_btn_row.addWidget(self._btn_del_ratio_elem)
+        elem_btn_row.addStretch()
+        elem_btn_row.addWidget(self._ratio_elem_total_label)
+        elem_layout.addLayout(elem_btn_row)
+
+        self._grp_ratio_elements.setLayout(elem_layout)
+        self._grp_ratio_elements.setVisible(False)
+        self._ratio_form.addWidget(self._grp_ratio_elements)
 
         # ── Mix Preset & Proportions ──
         grp_ratio = self._group("Mix Proportions (Cement : Sand : Coarse Agg)")
@@ -663,84 +741,6 @@ class MaterialQuantifyTab(QWidget):
 
         grp_ratio.setLayout(ratio_form)
         self._ratio_form.addWidget(grp_ratio)
-
-        # ── Quantification Mode ──
-        grp_ratio_mode = self._group("Volume of Work Basis")
-        ratio_mode_form = QFormLayout()
-        ratio_mode_form.setSpacing(8)
-        ratio_mode_form.setContentsMargins(12, 16, 12, 12)
-        self.ratio_mode_combo = self._combo(
-            [
-                ("Total Work Volume", "volume"),
-                ("Structural Element Dimensions", "elements"),
-            ],
-            default="volume",
-        )
-        self.ratio_mode_combo.currentIndexChanged.connect(self._on_ratio_mode_changed)
-        ratio_mode_form.addRow(
-            self._label_with_info(
-                "Mode",
-                "Volume mode: enter total volume of concrete/mortar directly.\n"
-                "Element mode: define structural elements (slabs, beams, columns, etc.) and auto-calculate volume.",
-            ),
-            self.ratio_mode_combo,
-        )
-        grp_ratio_mode.setLayout(ratio_mode_form)
-        self._ratio_form.addWidget(grp_ratio_mode)
-
-        # ── Volume Mode Group ──
-        self._grp_ratio_volume = self._group("Total Volume of Work")
-        vol_form = QFormLayout()
-        vol_form.setSpacing(8)
-        vol_form.setContentsMargins(12, 16, 12, 12)
-        self.ratio_volume_spin = UnitSpinBox("volume", 10.0, 0.01, 100000.0, 1.0, 3)
-        self.ratio_volume_spin.valueChanged.connect(self._on_input_changed)
-        self._ratio_volume_label = self._label_with_info(
-            "Work Volume (m\u00b3)",
-            "Total net volume of concrete or mortar work in cubic metres.\n"
-            "Wastage and dry-volume void factors will be applied during estimation.",
-        )
-        vol_form.addRow(self._ratio_volume_label, self.ratio_volume_spin)
-        self._grp_ratio_volume.setLayout(vol_form)
-        self._ratio_form.addWidget(self._grp_ratio_volume)
-
-        # ── Element Mode Group ──
-        self._grp_ratio_elements = self._group("Structural Elements")
-        elem_layout = QVBoxLayout()
-        elem_layout.setSpacing(8)
-        elem_layout.setContentsMargins(12, 16, 12, 12)
-
-        self._ratio_elem_table = QTableWidget(0, len(_ELEM_HEADERS))
-        self._ratio_elem_table.setHorizontalHeaderLabels(self._element_headers())
-        self._ratio_elem_table.horizontalHeader().setSectionResizeMode(
-            QHeaderView.ResizeMode.Stretch
-        )
-        self._ratio_elem_table.setMinimumHeight(160)
-        self._ratio_elem_table.setMaximumHeight(260)
-        self._ratio_elem_table.itemChanged.connect(self._on_ratio_element_changed)
-        elem_layout.addWidget(self._ratio_elem_table)
-
-        elem_btn_row = QHBoxLayout()
-        elem_btn_row.setSpacing(8)
-        self._btn_add_ratio_elem = QPushButton("Add Element")
-        self._btn_add_ratio_elem.setObjectName("secondary")
-        self._btn_add_ratio_elem.clicked.connect(self._add_ratio_element)
-        self._btn_del_ratio_elem = QPushButton("Remove Selected")
-        self._btn_del_ratio_elem.setObjectName("secondary")
-        self._btn_del_ratio_elem.clicked.connect(self._remove_ratio_element)
-        self._ratio_elem_total_label = QLabel("Total: 0.000 m\u00b3")
-        self._ratio_elem_total_label.setStyleSheet(
-            "font-weight: 700; font-family: 'JetBrains Mono', monospace;"
-        )
-        elem_btn_row.addWidget(self._btn_add_ratio_elem)
-        elem_btn_row.addWidget(self._btn_del_ratio_elem)
-        elem_btn_row.addStretch()
-        elem_btn_row.addWidget(self._ratio_elem_total_label)
-        elem_layout.addLayout(elem_btn_row)
-
-        self._grp_ratio_elements.setLayout(elem_layout)
-        self._grp_ratio_elements.setVisible(False)
-        self._ratio_form.addWidget(self._grp_ratio_elements)
 
         # ── Estimation Factors & Material Densities ──
         grp_factors = self._group("Factors & Material Constants")

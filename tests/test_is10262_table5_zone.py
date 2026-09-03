@@ -87,7 +87,7 @@ class TestEngineTable5:
         result = _design(ca_volume_fraction_override=0.66)
         step = _step(result, 5)
         assert step.inputs["ca_fraction_base"] == pytest.approx(0.66)
-        assert "override" in step.description
+        assert "override" in step.formula
 
     def test_wcr_adjustment_applies_to_override(self):
         from concrete_mix.codes.tables.is_tables import adjust_ca_volume_for_wcr
@@ -103,7 +103,7 @@ class TestEngineTable5:
         result = _design(fine_agg_grading_zone="III")
         step = _step(result, 5)
         assert step.inputs["ca_fraction_base"] == pytest.approx(0.64)
-        assert "override" not in step.description
+        assert "override" not in step.formula
 
 
 # ---------------------------------------------------------------------------

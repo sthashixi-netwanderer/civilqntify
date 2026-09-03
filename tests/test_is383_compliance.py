@@ -80,20 +80,26 @@ class TestFineGrading:
         assert "tolerance" in grading.detail
 
     def test_crushed_stone_sand_150um_relief(self):
-        # 150 µm at 14 % (0.300 kept at 20 %): fails for natural sand,
-        # passes for crushed stone sand (Table 9 Note 1: limit 20 %).
-        masses = [0, 20, 80, 200, 250, 250, 60]  # pan 140 → total 1000 g
-        result = compute_psd(masses, IS_FINE_SIEVES, pan_mass=140.0)
+        # 150 µm at 16 % — 6 points over the 10 % limit, beyond the
+        # Clause 6.3 allowance → fails for natural sand. At 14 % crushed
+        # stone sand passes through the raised 20 % limit (Table 9 Note 1);
+        # (natural sand at 14 % would still pass via the 6.3 allowance —
+        # covered in the zone-tolerance tests).
+        masses16 = [0, 20, 80, 200, 250, 250, 40]  # pan 160 → total 1000 g
+        result16 = compute_psd(masses16, IS_FINE_SIEVES, pan_mass=160.0)
         natural = evaluate_is383_fine(
-            result, get_fine_band("II"),
+            result16, get_fine_band("II"),
             IS383FineQualityInputs(source_type="uncrushed"), zone="II",
         )
+        assert _by_title(natural, "grading").status == FAIL
+
+        masses14 = [0, 20, 80, 200, 250, 250, 60]  # pan 140 → total 1000 g
+        result14 = compute_psd(masses14, IS_FINE_SIEVES, pan_mass=140.0)
         crushed = evaluate_is383_fine(
-            result, get_fine_band("II"),
+            result14, get_fine_band("II"),
             IS383FineQualityInputs(source_type="crushed_stone_sand"),
             zone="II",
         )
-        assert _by_title(natural, "grading").status == FAIL
         crushed_grading = _by_title(crushed, "grading")
         assert crushed_grading.status == PASS
         assert "20 %" in crushed_grading.detail
@@ -117,18 +123,29 @@ class TestFineTable2:
         assert _by_title(checks, "Coal and lignite").status == FAIL
 
     def test_75um_limit_follows_source_column(self):
+        # 11 % finer than 75 µm: within the mixed-sand limit (12 %) but
+        # far over the uncrushed limit (3 %).
         checks_mixed = evaluate_is383_fine(
             _fine_result(), get_fine_band("II"),
-            IS383FineQualityInputs(source_type="mixed_sand", finer_75um_pct=13.0),
+            IS383FineQualityInputs(source_type="mixed_sand", finer_75um_pct=11.0),
             zone="II",
         )
         assert _by_title(checks_mixed, "finer than 75").status == PASS
         checks_uncrushed = evaluate_is383_fine(
             _fine_result(), get_fine_band("II"),
-            IS383FineQualityInputs(source_type="uncrushed", finer_75um_pct=13.0),
+            IS383FineQualityInputs(source_type="uncrushed", finer_75um_pct=11.0),
             zone="II",
         )
         assert _by_title(checks_uncrushed, "finer than 75").status == FAIL
+        # Crushed stone sand carries the highest column limit (15 %).
+        checks_crushed = evaluate_is383_fine(
+            _fine_result(), get_fine_band("II"),
+            IS383FineQualityInputs(
+                source_type="crushed_stone_sand", finer_75um_pct=14.0
+            ),
+            zone="II",
+        )
+        assert _by_title(checks_crushed, "finer than 75").status == PASS
 
     def test_shale_dash_for_crushed_sand(self):
         # Crushed / mixed sand: shale has no requirement (Table 2 dash).
@@ -172,7 +189,7 @@ class TestFineTable2:
         no_tests = evaluate_is383_fine(
             _fine_result(), get_fine_band("II"), base, zone="II"
         )
-        assert _by_title(no_tests, "Mica").status == FAIL  # 2.0 > 1.0
+        assert _by_title(no_tests, "Mica content").status == FAIL  # 2.0 > 1.0
 
         with_tests = evaluate_is383_fine(
             _fine_result(), get_fine_band("II"),
@@ -182,7 +199,7 @@ class TestFineTable2:
             ),
             zone="II",
         )
-        assert _by_title(with_tests, "Mica").status == PASS  # ≤ 3.0
+        assert _by_title(with_tests, "Mica content").status == PASS  # ≤ 3.0
 
         biotite = evaluate_is383_fine(
             _fine_result(), get_fine_band("II"),
@@ -192,7 +209,7 @@ class TestFineTable2:
             ),
             zone="II",
         )
-        assert _by_title(biotite, "Mica").status == PASS  # ≤ 5.0
+        assert _by_title(biotite, "Mica content").status == PASS  # ≤ 5.0
 
     def test_mica_total_including_mica(self):
         # Uncrushed sand: deleterious 4.0 + mica 4.5 = 8.5 > 8.00 → fail
@@ -206,7 +223,7 @@ class TestFineTable2:
         checks = evaluate_is383_fine(
             _fine_result(), get_fine_band("II"), inputs, zone="II"
         )
-        mica = _by_title(checks, "Mica")
+        mica = _by_title(checks, "Mica content")
         assert mica.status == FAIL
         assert "including mica" in mica.requirement
 
