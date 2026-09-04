@@ -81,6 +81,14 @@ f'ck = fck + X            (if higher)
 ```
 Use whichever value is **higher**.
 
+### All codes — Target strength rounding (app policy)
+
+```
+Target = ceil(exact formula value) to whole MPa   (IS Cl. 4.2, ACI §4.7.4, DOE C2 §7.1)
+```
+The standards state no rounding rule for IS/ACI (DOE C2 rounds up); the app
+rounds every target UP to whole MPa — conservative, never under-designs.
+
 ### IS 10262:2019 — Volume Calculation Formula
 
 ```
@@ -108,11 +116,19 @@ Paste Volume (%) = (Volume of cement + Volume of water) / Total concrete volume 
 ### BRE 331:1997 (DOE Method) — Target Strength, density & aggregate
 
 ```
-fm = fc + k × s                                                 (Target mean strength)
-wc_ratio = 0.5 - 0.370938 * R + 0.045970 * R^2                  (W/C ratio, where R = ln(target/ref))
-density = 1144.3 * RD + 5.04 * W - 2.4590 * RD * W - 357.8      (Wet density of compacted concrete)
-prop = 40.9545 - 0.1295 * nmsa + 2.5 * wc_class + 9.0909 * wc_ratio - 0.2591 * p600  (Fine agg %)
+fm = ceil(fc + k × s)                                           (Target mean strength: C2 "two significant figures", rounded up — 45.68 → 46, §7.1)
+wc_ratio = 0.5 - 0.370938 * R + 0.045970 * R^2                  (W/C ratio, where R = ln(target/ref); read to 2 dp as in C3)
+density = 1144.3 * RD + 5.04 * W - 2.4590 * RD * W - 357.8      (Wet density of compacted concrete; Item 4.2 expresses it to the nearest 5 kg)
+Fine agg % = bilinear readout of Figure 6 panel (NMSA page × workability class 0–3) at (wc_ratio, %passing 600 µm)
+  classes: 0 = Slump 0–10 mm / Vebe >12 s; 1 = 10–30 mm / 6–12 s; 2 = 30–60 mm / 3–6 s; 3 = 60–180 mm / 0–3 s
 ```
+
+### BRE 331:1997 (DOE Method) — Reporting/rounding chain (per the worked examples §7.1–§7.4, §8.6, §9.4)
+
+- Cement C3 = (W ÷ w/c) rounded to the **nearest 5 kg** and the rounded value chains into C4 (§7.4: 215 ÷ 0.37 = 581 → 580; §7.1: 2400 − 340 − 160 = 1900).
+- Mixed-aggregate water = round5(2/3·Wf + 1/3·Wc) (§7.4: 213.3 → 215; §8.6: 146.7 → 145).
+- C4 total aggregate = D − C − W; C5 fine = round5(total × fines %), coarse = total − fine.
+- Every step value must equal the reported result-panel quantity (no hidden final re-rounding).
 
 ---
 

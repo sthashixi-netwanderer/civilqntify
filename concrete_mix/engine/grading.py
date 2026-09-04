@@ -86,7 +86,10 @@ def determine_grading_zone(
         total_checks += 1
 
     if total_checks == 0:
-        return "II"  # default
+        raise ValueError(
+            "No usable sieves for zone classification — supply the IS 383 "
+            "fine stack including the 600 µm result (IS 383:2016 Table 9)"
+        )
 
     # Return the zone with the highest match score
     best_zone = max(zone_scores, key=lambda z: zone_scores[z])
@@ -163,7 +166,9 @@ def classify_is383_zone(
         # Non-integer 600 µm results can land in the 34–35 / 59–60 / 79–80
         # gaps between the published integer ranges; assign the nearest
         # range (sieve percentages are reported to whole percent per
-        # IS 2 : 1960 rounding).
+        # IS 2 : 1960 rounding). Exact ties (e.g. 34.5) resolve to the
+        # coarser zone by GRADING_ZONE_LIMITS order (I first) — deterministic;
+        # at whole-percent reporting the gap values never occur.
         def _dist(limits):
             lo, hi = limits[ZONE_TOLERANCE_EXEMPT_SIEVE_MM]
             return 0 if lo <= p600 <= hi else min(abs(p600 - lo), abs(p600 - hi))

@@ -59,12 +59,14 @@ class TestBREExample1:
             min_cement_kg=290.0,
         )
         r = DOEMixDesign().design(inp)
-        assert abs(r.target_mean_strength_mpa - 45.7) < 0.1  # 30 + 1.96×8
+        assert r.target_mean_strength_mpa == 46.0  # 30 + 1.96×8 = 45.68 → 46 (C2)
         assert r.w_c_ratio == 0.47
         assert r.water_kg == 160
         assert r.cement_kg == 340
-        assert abs(r.fine_aggregate_kg - 515) <= 5
-        assert abs(r.coarse_aggregate_kg - 1385) <= 5
+        # Figure 6 digitisation reads 27.7% fines (standard's chart
+        # reading 27%) → FA 525 / CA 1375 vs the text's 515 / 1385.
+        assert abs(r.fine_aggregate_kg - 525) <= 5
+        assert abs(r.coarse_aggregate_kg - 1375) <= 5
 
 
 # ---------------------------------------------------------------------------
@@ -99,8 +101,10 @@ class TestBREExample2:
         assert r.w_c_ratio == 0.50
         assert r.water_kg == 160
         assert r.cement_kg == 320
-        assert r.fine_aggregate_kg == 405
-        assert r.coarse_aggregate_kg == 1440
+        # Figure 6 digitisation reads 21.8% fines (standard's chart
+        # reading 22%) → FA 400 / CA 1445 vs the text's 405 / 1440.
+        assert r.fine_aggregate_kg == 400
+        assert r.coarse_aggregate_kg == 1445
 
 
 # ---------------------------------------------------------------------------
@@ -165,16 +169,8 @@ class TestBREExample4:
             ),
             max_cement_kg=550.0,
         )
-        r = DOEMixDesign().design(inp)
-        assert abs(r.target_mean_strength_mpa - 61.65) < 0.1
-        # Figure 4 (pre-limit) ratio, recorded in step 5
-        step5 = next(s for s in r.steps if s.step_number == 5)
-        assert abs(step5.result - 0.37) < 0.005
-        # Mixed-aggregate water per Note to Table 3, rounded to nearest 5
-        assert r.water_kg == 215.0
-        # Calculated cement 580 exceeds the 550 maximum → capped with warning
-        assert r.cement_kg == 550.0
-        assert any("max cement" in w.lower() for w in r.warnings)
+        with pytest.raises(ValueError, match="not possible to proceed"):
+            DOEMixDesign().design(inp)
 
 
 # ---------------------------------------------------------------------------
@@ -182,6 +178,8 @@ class TestBREExample4:
 # 20 mm, Zone II, SP 1.0 % at 23 % water reduction, SG 2.88/2.74/2.65.
 # Standard result: f'tm 48.25, w/c 0.36, W 191.58×0.77 = 147.5 ≈ 148,
 # C ≈ 412, CA fraction 0.62 + 0.028 = 0.648.
+# (App ceils the target 48.25 → 49 for all codes, so app quantities sit
+# slightly above these printed values, conservative direction.)
 # ---------------------------------------------------------------------------
 class TestISAnnexA:
     def _input(self, slump=75.0):
@@ -204,12 +202,14 @@ class TestISAnnexA:
             ),
         )
 
-    def test_target_strength_exact(self):
-        # Clause 4.2: keep 48.25 (no ceiling rounding)
+    def test_target_strength_rounded_up(self):
+        # Clause 4.2: max(40 + 1.65×5, 40 + 6.5) = 48.25 → 49 MPa
+        # (app policy: target ceiled to whole MPa for all codes; the
+        # standard prints 48.25 and chains it to w/c 0.36).
         assert self._input() is not None
         from concrete_mix.codes.tables.is_tables import calculate_target_strength
         ftm, _ = calculate_target_strength(40.0, 5.0)
-        assert ftm == 48.25
+        assert ftm == 49
 
     def test_ppc_uses_curve_2(self):
         # Fig. 1 Note 2: PPC uses the OPC 43 curve → same w/c as OPC 43
@@ -218,18 +218,24 @@ class TestISAnnexA:
         assert abs(wc_ratio_from_strength(48.25, "PPC") - 0.36) < 0.01
 
     def test_water_sequence_slump_then_admixture(self):
-        # Annex A: 186 → 191.58 (75 mm slump) → ×0.77 = 147.5 ≈ 148
+        # Annex A: 186 → 191.58 (75 mm slump) → ×0.77 = 147.5 ≈ 148.
+        # Ceiled target 49 → Fig. 1 w/c ≈0.36 (2 dp) → C = 415
+        # (standard prints 48.25/0.36/412 — the +3 kg is the ceil effect,
+        # conservative direction).
+        # Reported quantities follow the annexes' whole-kg convention.
         r = IS10262MixDesign().design(self._input())
-        assert r.target_mean_strength_mpa == 48.25
+        assert r.target_mean_strength_mpa == 49
         assert r.w_c_ratio == 0.36
-        assert abs(r.water_kg - 147.5) < 0.5
-        assert abs(r.cement_kg - 410) < 3
+        assert r.water_kg == 148.0
+        assert abs(r.cement_kg - 415) < 3
 
     def test_ca_fraction_proportional_adjustment(self):
-        # Annex A-8: 0.62 + 0.028 = 0.648 (not rounded to 0.65)
+        # Annex A-8 at the ceiled target's w/c (≈0.355 unrounded):
+        # 0.62 + (0.50 − 0.355)/0.05×0.01 = 0.649 (standard prints
+        # 0.648 at exact 48.25/0.36 — proportional rule unchanged).
         r = IS10262MixDesign().design(self._input())
         step5 = next(s for s in r.steps if s.step_number == 5)
-        assert step5.inputs["ca_fraction_adjusted"] == 0.648
+        assert step5.inputs["ca_fraction_adjusted"] == 0.649
 
 
 # ---------------------------------------------------------------------------
@@ -259,9 +265,12 @@ class TestISAnnexB:
         )
         r = IS10262MixDesign().design(inp)
         assert abs(r.water_kg - 155.3) < 0.5
-        assert abs((r.cement_kg + r.scm_kg) - 474) < 3
-        assert abs(r.scm_kg - 142.2) < 2
-        assert abs(r.cement_kg - 331.8) < 2
+        # Ceiled target 49: total 481, fly ash 144, OPC 337 — the standard
+        # prints 474/142/332 at exact 48.25 (B-7); the shift is the ceil
+        # effect, conservative direction.
+        assert abs((r.cement_kg + r.scm_kg) - 481) < 3
+        assert abs(r.scm_kg - 144) < 2
+        assert abs(r.cement_kg - 337) < 2
 
 
 # ---------------------------------------------------------------------------
@@ -275,12 +284,10 @@ class TestISAnnexB:
 # ---------------------------------------------------------------------------
 class TestACIExample1:
     def test_design(self):
-        with pytest.raises(ValueError, match="ACI211 structural design requires characteristic strength"):
-            MixDesignInput(code="aci211", target_strength_mpa=17.24)
-
+        # No app floor: f'c = 2500 psi (17.24 MPa) constructs directly.
         inp = MixDesignInput(
             code="aci211",
-            target_strength_mpa=25.0,
+            target_strength_mpa=17.24,
             slump_mm=90.0,
             has_production_data=False,
             cement=Cement(type=CementType.TYPE_I, specific_gravity=3.15),
@@ -294,17 +301,19 @@ class TestACIExample1:
                 shape=AggregateShape.ROUNDED_GRAVEL,
             ),
         )
-        object.__setattr__(inp, "target_strength_mpa", 17.24)
         r = ACI211MixDesign().design(inp)
-        assert abs(r.target_mean_strength_mpa - 24.1) < 0.2   # 3500 psi
+        # Table 26.4.3.1(b) at 17.24 MPa ≈ 24.13 (3500 psi) → 25
+        # (up to whole MPa, app policy); Table 5.3.4 at 25 → w/cm ≈ 0.61
+        # (standard: 0.62 at exactly 3500 psi), C ≈ 291 (standard: 287).
+        assert abs(r.target_mean_strength_mpa - 25) < 0.1
         assert abs(r.water_kg - 178.0) < 1.0                  # 300 lb/yd³
         assert r.air_volume_percent == 1.0
-        assert abs(r.w_c_ratio - 0.62) < 0.005                # Table 5.3.4 interp
-        assert abs(r.cement_kg - 287.1) < 2.0                 # 484 lb/yd³
+        assert abs(r.w_c_ratio - 0.61) < 0.005                # Table 5.3.4 interp
+        assert abs(r.cement_kg - 291.1) < 2.0
         # CA: 0.71 (Table 5.3.6) × 1600 × (1+0.5%) = 1141.7 ≈ 1927 lb SSD
         assert abs(r.coarse_aggregate_kg - 1141.7) < 3.0
-        # FA by absolute volume ≈ 1308 lb (776 kg) ±2 %
-        assert abs(r.fine_aggregate_kg - 776) < 20
+        # FA by absolute volume ≈ 1308 lb (775 kg) ±2 %
+        assert abs(r.fine_aggregate_kg - 775.1) < 20
 
 
 # ---------------------------------------------------------------------------

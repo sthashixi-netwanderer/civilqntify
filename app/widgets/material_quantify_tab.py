@@ -129,7 +129,14 @@ class MaterialQuantifyTab(QWidget):
         design_scroll = QScrollArea()
         design_scroll.setWidgetResizable(True)
         design_scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        design_scroll.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        )
         design_widget = QWidget()
+        design_widget.setMinimumWidth(0)
+        design_widget.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred
+        )
         self._form = QVBoxLayout(design_widget)
         self._form.setContentsMargins(16, 16, 12, 16)
         self._form.setSpacing(8)
@@ -148,7 +155,14 @@ class MaterialQuantifyTab(QWidget):
         ratio_scroll = QScrollArea()
         ratio_scroll.setWidgetResizable(True)
         ratio_scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        ratio_scroll.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        )
         ratio_widget = QWidget()
+        ratio_widget.setMinimumWidth(0)
+        ratio_widget.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred
+        )
         self._ratio_form = QVBoxLayout(ratio_widget)
         self._ratio_form.setContentsMargins(16, 16, 12, 16)
         self._ratio_form.setSpacing(8)
@@ -173,8 +187,10 @@ class MaterialQuantifyTab(QWidget):
         splitter.addWidget(self._result_panel)
 
         splitter.setSizes([460, 740])
-        splitter.setStretchFactor(0, 0)
-        splitter.setStretchFactor(1, 1)
+        # Both panes share window-resize growth so the sidebar visibly
+        # responds; the handle itself stays freely draggable at all times.
+        splitter.setStretchFactor(0, 1)
+        splitter.setStretchFactor(1, 2)
         splitter.setCollapsible(0, False)
         splitter.setCollapsible(1, False)
         splitter.setHandleWidth(6)
@@ -182,6 +198,18 @@ class MaterialQuantifyTab(QWidget):
         # Wire export buttons
         self._result_panel.btn_csv.clicked.connect(self._export_csv)
         self._result_panel.btn_report.clicked.connect(self._show_preview)
+
+        # Responsive reflow: wrap long label+field rows so the form minimum
+        # drops to max(label, field) instead of their sum — the splitter
+        # then tracks the handle smoothly at any width, including mid-edit
+        # when typed spin text grows the field hint.
+        for _form_layout in self.findChildren(QFormLayout):
+            _form_layout.setRowWrapPolicy(
+                QFormLayout.RowWrapPolicy.WrapLongRows
+            )
+            _form_layout.setFieldGrowthPolicy(
+                QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow
+            )
 
     def _build_form(self) -> None:
         """Build Subtab 1: Design Mix Proportions form."""
@@ -250,6 +278,11 @@ class MaterialQuantifyTab(QWidget):
         self._elem_table.horizontalHeader().setSectionResizeMode(
             QHeaderView.ResizeMode.Stretch
         )
+        self._elem_table.horizontalHeader().setMinimumSectionSize(24)
+        self._elem_table.setMinimumWidth(0)
+        self._elem_table.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred
+        )
         self._elem_table.setMinimumHeight(160)
         self._elem_table.setMaximumHeight(260)
         self._elem_table.itemChanged.connect(self._on_element_changed)
@@ -259,9 +292,17 @@ class MaterialQuantifyTab(QWidget):
         elem_btn_row.setSpacing(8)
         self._btn_add_elem = QPushButton("Add Element")
         self._btn_add_elem.setObjectName("secondary")
+        self._btn_add_elem.setMinimumWidth(0)
+        self._btn_add_elem.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+        )
         self._btn_add_elem.clicked.connect(self._add_element)
         self._btn_del_elem = QPushButton("Remove Selected")
         self._btn_del_elem.setObjectName("secondary")
+        self._btn_del_elem.setMinimumWidth(0)
+        self._btn_del_elem.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+        )
         self._btn_del_elem.clicked.connect(self._remove_element)
         self._elem_total_label = QLabel("Total: 0.000 m\u00b3")
         self._elem_total_label.setStyleSheet(
@@ -464,7 +505,7 @@ class MaterialQuantifyTab(QWidget):
                 "  S = standard deviation (Table 2: 3.5–6.0 MPa)\n"
                 "  X = grade factor (Table 1: 5.0–8.0 MPa)\n\n"
                 "This is NOT the characteristic strength — it's higher to account for\n"
-                "variability. E.g., M30 → f'ck = 38.25 MPa.",
+                "variability. E.g., M30 → f'ck = 38.25 → 39 MPa (rounded up).",
             ),
             self._strength_spin,
         )
@@ -546,6 +587,10 @@ class MaterialQuantifyTab(QWidget):
         action_bar.setContentsMargins(16, 6, 12, 14)
         self.calc_btn = QPushButton("  Calculate Material Quantities")
         self.calc_btn.setMinimumHeight(44)
+        self.calc_btn.setMinimumWidth(0)
+        self.calc_btn.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+        )
         self.calc_btn.clicked.connect(self._run_quantification)
         action_bar.addWidget(self.calc_btn)
         self._action_bar = action_bar
@@ -621,6 +666,11 @@ class MaterialQuantifyTab(QWidget):
         self._ratio_elem_table.horizontalHeader().setSectionResizeMode(
             QHeaderView.ResizeMode.Stretch
         )
+        self._ratio_elem_table.horizontalHeader().setMinimumSectionSize(24)
+        self._ratio_elem_table.setMinimumWidth(0)
+        self._ratio_elem_table.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred
+        )
         self._ratio_elem_table.setMinimumHeight(160)
         self._ratio_elem_table.setMaximumHeight(260)
         self._ratio_elem_table.itemChanged.connect(self._on_ratio_element_changed)
@@ -630,9 +680,17 @@ class MaterialQuantifyTab(QWidget):
         elem_btn_row.setSpacing(8)
         self._btn_add_ratio_elem = QPushButton("Add Element")
         self._btn_add_ratio_elem.setObjectName("secondary")
+        self._btn_add_ratio_elem.setMinimumWidth(0)
+        self._btn_add_ratio_elem.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+        )
         self._btn_add_ratio_elem.clicked.connect(self._add_ratio_element)
         self._btn_del_ratio_elem = QPushButton("Remove Selected")
         self._btn_del_ratio_elem.setObjectName("secondary")
+        self._btn_del_ratio_elem.setMinimumWidth(0)
+        self._btn_del_ratio_elem.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+        )
         self._btn_del_ratio_elem.clicked.connect(self._remove_ratio_element)
         self._ratio_elem_total_label = QLabel("Total: 0.000 m\u00b3")
         self._ratio_elem_total_label.setStyleSheet(
@@ -832,6 +890,10 @@ class MaterialQuantifyTab(QWidget):
         ratio_action_bar.setContentsMargins(16, 6, 12, 14)
         self.ratio_calc_btn = QPushButton("  Calculate Material Quantities")
         self.ratio_calc_btn.setMinimumHeight(44)
+        self.ratio_calc_btn.setMinimumWidth(0)
+        self.ratio_calc_btn.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+        )
         self.ratio_calc_btn.clicked.connect(self._run_quantification)
         ratio_action_bar.addWidget(self.ratio_calc_btn)
         self._ratio_action_bar = ratio_action_bar
@@ -865,12 +927,24 @@ class MaterialQuantifyTab(QWidget):
         layout.addStretch()
         container = QWidget()
         container.setLayout(layout)
+        container.setMinimumWidth(0)
+        container.setSizePolicy(
+            QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum
+        )
         return container
 
     def _combo(
         self, items: list[tuple[str, object]], default: object = None
     ) -> QComboBox:
         cb = QComboBox()
+        # Shrinkable like the PSD helper: the closed field may narrow well
+        # below its widest item (popup still shows full texts) so combos
+        # never wedge the sidebar wide while typing nearby.
+        cb.setSizeAdjustPolicy(
+            QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
+        )
+        cb.setMinimumContentsLength(4)
+        cb.setMinimumWidth(0)
         cb.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         for label, data in items:
             cb.addItem(label, data)
@@ -898,6 +972,9 @@ class MaterialQuantifyTab(QWidget):
         if suffix:
             sb.setSuffix(suffix)
         sb.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        # Typed digits/suffixes grow a spin's hint mid-edit; 0 keeps the
+        # field shrinkable so the splitter never freezes while keying input.
+        sb.setMinimumWidth(0)
         return sb
 
     # ── Mix Ratio Subtab Event Handlers ──────────────────────────────

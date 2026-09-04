@@ -18,8 +18,9 @@ from concrete_mix.codes.tables.doe_tables import get_k_value, get_standard_devia
 from concrete_mix.codes.tables.is_tables import (
     _grade_from_fck,
     calculate_target_strength as calculate_is_target_strength,
-    get_std_dev,
+    site_assumed_std_dev,
 )
+from concrete_mix.codes.tables.aci_tables import modification_factor_k
 
 
 @dataclass(frozen=True)
@@ -43,6 +44,10 @@ def calculate_target_strength(
     has_production_data: bool = True,
     defective_percent: float = 5.0,
     num_test_cubes: int | None = None,
+    num_strength_tests: int | None = None,
+    site_control: str = "good",
+    std_deviation: float | None = None,
+    margin_mpa: float | None = None,
 ) -> TargetStrengthResult:
     """Calculate target mean strength using only target-strength inputs.
 
@@ -50,25 +55,36 @@ def calculate_target_strength(
     by the full mix-design pipeline. This avoids maintaining a second set of
     standard formulas for the mode-specific UI.
 
+    A user-supplied ``margin_mpa`` (DOE only, from established site records
+    per BRE 331:1997 §4.4) bypasses the k × s computation entirely: no
+    defective percentage, standard deviation, or test-cube count is needed
+    and the target is simply ``ceil(fc + M)`` per Calculation C2. It is
+    ignored for the IS/ACI branches, which have no margin concept.
+
     References:
         IS 10262:2019 target-strength relation and Tables 1–2
         ACI PRC-211.1-22 §4.7.4 and ACI 318 target-strength provisions
         BRE 331:1997 §4.4, §5.1, and Figure 3
     """
-    if not math.isfinite(characteristic_strength_mpa) or characteristic_strength_mpa < 25.0:
-        raise ValueError(
-            f"Structural mix design requires characteristic compressive strength "
-            f"fc ≥ 25 MPa. Got {characteristic_strength_mpa} MPa. "
-            f"This application assumes the design is for structural concrete."
-        )
-
     code = code.lower()
     fck = float(characteristic_strength_mpa)
 
+    # No app-imposed structural floor for any code: DOE Figure 3 spans the
+    # full axis, and IS/ACI durability is gated by exposure minima, not by
+    # an input floor. 5 MPa is a sanity floor for all three.
+    if not math.isfinite(fck) or not 5.0 <= fck <= 100.0:
+        raise ValueError(
+            f"Characteristic strength fc outside valid range [5, 100] MPa. "
+            f"Got {characteristic_strength_mpa} MPa."
+        )
+
     if code == "is10262":
-        target, formula = calculate_is_target_strength(fck)
         grade = _grade_from_fck(fck)
-        standard_deviation = get_std_dev(grade)
+        if std_deviation is not None and std_deviation > 0:
+            standard_deviation = std_deviation
+        else:
+            standard_deviation = site_assumed_std_dev(grade, site_control)
+        target, formula = calculate_is_target_strength(fck, standard_deviation)
         return TargetStrengthResult(
             code=code,
             standard_name="IS 10262:2019",
@@ -82,24 +98,41 @@ def calculate_target_strength(
 
     if code == "aci211":
         designer = ACI211MixDesign()
+        _s = std_deviation if (std_deviation is not None and std_deviation > 0) else None
         target = designer.calculate_target_mean_strength(
             fck,
+            std_dev=_s,
             has_production_data=has_production_data,
+            num_tests=num_strength_tests if has_production_data else None,
         )
         if has_production_data:
-            # The existing ACI implementation uses its documented 4 MPa default
-            # when no project-specific sample deviation is supplied.
-            standard_deviation = 4.0
+            # The ACI implementation uses its documented 4 MPa default when
+            # no project-specific sample deviation is supplied; 15–29 tests
+            # apply the Table 4.7.4.3 k-modification to s.
+            s_eff = _s if _s is not None else 4.0
+            k_eff = (
+                modification_factor_k(num_strength_tests)
+                if num_strength_tests is not None else 1.0
+            )
+            standard_deviation = s_eff
+            _ks = k_eff * s_eff
+            _branch = ("f'c + 2.33·k·s − 3.45" if fck <= 34.5
+                       else "0.90·f'c + 2.33·k·s")
             formula = (
-                "max(f'c + 1.34 × s, f'c + 2.33 × s − 3.45, "
-                "f'c + 2.4), s = 4.0 MPa"
+                f"max(f'c + 1.34·k·s, {_branch}, f'c + 2.4); "
+                f"s = {s_eff:g} MPa"
+                + (f", k = {k_eff:g} (n = {num_strength_tests}, Table 4.7.4.3)"
+                   if num_strength_tests is not None else "")
             )
         else:
             standard_deviation = None
-            formula = "ACI 318 Table 26.4.3.1(b), no prior strength-test data"
+            formula = (
+                "ACI 318 Table 26.4.3.1(b) / PRC-211.1-22 Table 4.7.4.1, "
+                "no prior strength-test data"
+            )
         return TargetStrengthResult(
             code=code,
-            standard_name="ACI PRC-211.1-22",
+            standard_name="ACI PRC-211.1:2022",
             characteristic_strength_mpa=fck,
             target_mean_strength_mpa=target,
             standard_deviation_mpa=standard_deviation,
@@ -109,10 +142,28 @@ def calculate_target_strength(
         )
 
     if code == "doe":
-        if fck < 25.0:
-            raise ValueError(
-                "DOE (BR 331:1997) structural design requires characteristic "
-                "strength fc ≥ 25 MPa (Figure 3, §4.4)"
+        if margin_mpa is not None:
+            # Known-margin path (BRE 331:1997 §4.4): M comes straight from
+            # site records, so k (defectives), s and n are all bypassed.
+            margin = float(margin_mpa)
+            if not math.isfinite(margin) or margin <= 0.0:
+                raise ValueError(
+                    f"Strength margin M must be positive. Got {margin_mpa} MPa."
+                )
+            target = float(math.ceil(fck + margin - 1e-9))
+            formula = (
+                f"fm = fc + M = {fck:.2f} + {margin:.2f} "
+                f"→ {target:.0f} (user-specified M, rounded up, C2)"
+            )
+            return TargetStrengthResult(
+                code=code,
+                standard_name="DOE (BRE 331:1997)",
+                characteristic_strength_mpa=fck,
+                target_mean_strength_mpa=target,
+                standard_deviation_mpa=None,
+                margin_mpa=margin,
+                formula=formula,
+                reference="BRE 331:1997 §4.4, §5.1 (Calculation C2)",
             )
         if not 0.5 <= defective_percent <= 15.0:
             raise ValueError("Defective percent must be between 0.5 and 15%")
@@ -135,7 +186,7 @@ def calculate_target_strength(
         )
         return TargetStrengthResult(
             code=code,
-            standard_name="DOE (BR 331:1997)",
+            standard_name="DOE (BRE 331:1997)",
             characteristic_strength_mpa=fck,
             target_mean_strength_mpa=target,
             standard_deviation_mpa=standard_deviation,

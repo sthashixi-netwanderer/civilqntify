@@ -17,6 +17,7 @@ from PyQt6.QtWidgets import (
     QLabel,
     QPushButton,
     QScrollArea,
+    QSizePolicy,
     QTreeWidget,
     QTreeWidgetItem,
     QVBoxLayout,
@@ -136,11 +137,16 @@ class QuantResultPanel(QWidget):
         self._table.setAlternatingRowColors(True)
         self._table.setRootIsDecorated(False)
         self._table.setColumnCount(5)
-        self._table.setFixedHeight(280)
-        outer.addWidget(self._table)
+        # Expanding (not fixed) so the breakdown uses the space below
+        # it; _fit_table_height() grows it per result. See ResultPanel
+        # calculation-steps fix: a fixed height + trailing stretch left
+        # the table cut halfway with blank space underneath.
+        self._table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self._table.setMinimumHeight(220)
+        outer.addWidget(self._table, stretch=1)
         self._table_header_units()
 
-        outer.addStretch()
+        outer.addStretch(0)
 
         scroll.setWidget(scroll.widget())
 
@@ -269,10 +275,44 @@ class QuantResultPanel(QWidget):
         for col in range(5):
             self._table.resizeColumnToContents(col)
 
+        self._fit_table_height()
+
         # Enable export
         self.btn_csv.setEnabled(True)
         self.btn_report.setEnabled(True)
         self._btn_cost.setEnabled(True)
+
+    def _fit_table_height(self) -> None:
+        """Size the breakdown table to its content height.
+
+        Same fix as ResultPanel calculation steps: the table sits in
+        the outer scroll area, so growing its minimum height consumes
+        the space below instead of cutting rows behind a nested
+        scrollbar. Clamped so long bills still scroll.
+        """
+        count = self._table.topLevelItemCount()
+        if count == 0:
+            self._table.setMinimumHeight(220)
+            return
+        try:
+            row_h = max(
+                (self._table.sizeHintForRow(i) or 0)
+                for i in range(count)
+            )
+        except Exception:
+            row_h = 0
+        if not row_h or row_h <= 0:
+            row_h = 30
+        try:
+            header_h = self._table.header().sizeHint().height() or 30
+        except Exception:
+            header_h = 30
+        try:
+            frame = 2 * self._table.frameWidth()
+        except Exception:
+            frame = 2
+        needed = header_h + count * row_h + frame + 6
+        self._table.setMinimumHeight(max(220, min(needed, 520)))
 
     def on_unit_changed(self) -> None:
         """Re-render the bill when unit preferences change."""
@@ -317,6 +357,7 @@ class QuantResultPanel(QWidget):
             card._value.setText("\u2014")
 
         self._table.clear()
+        self._table.setMinimumHeight(220)
         self.btn_csv.setEnabled(False)
         self.btn_report.setEnabled(False)
         self._btn_cost.setEnabled(False)

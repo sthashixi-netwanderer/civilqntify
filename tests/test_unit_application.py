@@ -207,3 +207,31 @@ def test_result_panel_rerenders_on_unit_change(fresh_prefs):
     imperial_text = " ".join(lbl.text() for lbl in panel.findChildren(QLabel))
     assert "psi" in imperial_text, "panel did not re-render in imperial units"
     assert f"{31.49 * 145.038:.1f}" in imperial_text  # converted target
+
+
+def test_result_panel_shows_ca_split_columns(fresh_prefs):
+    """DOE single-size split renders sizes-above/contents-below (BRE §5.5)."""
+    from app.widgets.result_panel import ResultPanel
+    from concrete_mix.codes.doe import DOEMixDesign
+    from concrete_mix.models.materials import FineAggregate
+    from concrete_mix.models.mix_input import MixDesignInput
+
+    _set(fresh_prefs, "metric")
+    panel = ResultPanel()
+    result = DOEMixDesign().design(
+        MixDesignInput(code="doe", target_strength_mpa=30.0, slump_mm=50.0,
+                       ca_split="10+20",
+                       fine_aggregate=FineAggregate(pct_passing_600um=70.0)))
+    panel.display_result(result)
+    assert not panel._ca_split_label.isHidden()
+    html = panel._ca_split_label.text()
+    # Column order: sizes above, contents below; unused 40 mm dashed.
+    assert html.index("10 mm") < html.index("20 mm") < html.index("40 mm")
+    assert "445" in html and "890" in html
+    assert "1 : 2" in html
+
+    plain = DOEMixDesign().design(
+        MixDesignInput(code="doe", target_strength_mpa=30.0, slump_mm=50.0,
+                       fine_aggregate=FineAggregate(pct_passing_600um=70.0)))
+    panel.display_result(plain)
+    assert panel._ca_split_label.isHidden()

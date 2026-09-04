@@ -69,9 +69,26 @@ def main() -> None:
     app = QApplication(sys.argv)
     app.setApplicationName("CivilQntify")
     app.setOrganizationName("CivilQntify")
+    # Linux (Wayland/X11): ties windows to the civilqntify.desktop entry so
+    # the taskbar/dock shows the app logo instead of a generic icon.
+    # Must match the .desktop file name installed by
+    # scripts/install_linux_desktop.sh (StartupWMClass=CivilQntify covers X11).
+    try:
+        app.setDesktopFileName("civilqntify")
+    except Exception:
+        pass
     app.setWindowIcon(QIcon(str(_resource_path("icon.png"))))
     window = MainWindow()
     window.show()
+    # X11 only: force the logo pixels into _NET_WM_ICON so the taskbar
+    # never falls back to a generic glyph (no-op elsewhere, never raises).
+    try:
+        if app.platformName() == "xcb":
+            app.processEvents()
+            from app.x11_icon import push_window_icon
+            push_window_icon(window, str(_resource_path("icon.png")))
+    except Exception:
+        pass
     sys.exit(app.exec())
 
 

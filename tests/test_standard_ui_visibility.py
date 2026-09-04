@@ -231,3 +231,113 @@ def test_input_sidebars_fit_their_360px_pane_floor(qapp):
                 f"CostEstimation input needs {width} px, "
                 "more than the 360 px sidebar floor"
             )
+
+
+def test_doe_ca_split_auto_selection(tab):
+    """Verify coarse aggregate auto-splits for DOE: 3 for 40mm, 2 for 20mm, only in DOE."""
+    # Start with DOE standard
+    tab.code_combo.setCurrentIndex(tab.code_combo.findData("doe"))
+    assert tab._lbl_ca_split.isHidden() is False
+    assert tab.ca_split_combo.isHidden() is False
+
+    # Default NMSA is 20 mm -> auto split to 2 ("10+20")
+    tab.nmsa_combo.setCurrentIndex(tab.nmsa_combo.findData(20))
+    assert tab.ca_split_combo.currentData() == "10+20"
+    # Verify model enablement: "10+20" enabled, "10+20+40" disabled
+    model = tab.ca_split_combo.model()
+    assert model.item(1).isEnabled() is True   # 10+20
+    assert model.item(2).isEnabled() is False  # 10+20+40
+
+    # NMSA = 40 mm -> auto split to 3 ("10+20+40")
+    tab.nmsa_combo.setCurrentIndex(tab.nmsa_combo.findData(40))
+    assert tab.ca_split_combo.currentData() == "10+20+40"
+    assert model.item(1).isEnabled() is False  # 10+20
+    assert model.item(2).isEnabled() is True   # 10+20+40
+
+    # NMSA = 10 mm -> no split ("")
+    tab.nmsa_combo.setCurrentIndex(tab.nmsa_combo.findData(10))
+    assert tab.ca_split_combo.currentData() == ""
+    assert model.item(1).isEnabled() is False
+    assert model.item(2).isEnabled() is False
+
+    # Switch to IS 10262 -> CA split hidden and reset to ""
+    tab.code_combo.setCurrentIndex(tab.code_combo.findData("is10262"))
+    assert tab._lbl_ca_split.isHidden() is True
+    assert tab.ca_split_combo.isHidden() is True
+    assert tab.ca_split_combo.currentData() == ""
+
+    # Changing NMSA in IS does not activate DOE split
+    tab.nmsa_combo.setCurrentIndex(tab.nmsa_combo.findData(40))
+    assert tab.ca_split_combo.currentData() == ""
+
+    # Switch back to DOE with NMSA=40 -> automatically selects 3 ("10+20+40")
+    tab.code_combo.setCurrentIndex(tab.code_combo.findData("doe"))
+    assert tab._lbl_ca_split.isHidden() is False
+    assert tab.ca_split_combo.isHidden() is False
+    assert tab.ca_split_combo.currentData() == "10+20+40"
+
+
+def test_scm_inputs_disabled_when_none(tab):
+    """Verify SCM fields are grayed out when SCM type is 'None' and enabled when selected."""
+    # Ensure SCM is None
+    tab.scm_type_combo.setCurrentIndex(tab.scm_type_combo.findData(""))
+    assert tab.scm_pct_spin.isEnabled() is False
+    assert tab.scm_sg_spin.isEnabled() is False
+    assert tab._lbl_scm_pct.isEnabled() is False
+    assert tab._lbl_scm_sg.isEnabled() is False
+    assert tab.scm_pct_spin.value() == 0.0
+
+    # Select Fly Ash
+    idx = tab.scm_type_combo.findData("fly_ash")
+    assert idx >= 0
+    tab.scm_type_combo.setCurrentIndex(idx)
+    assert tab.scm_pct_spin.isEnabled() is True
+    assert tab.scm_sg_spin.isEnabled() is True
+    assert tab._lbl_scm_pct.isEnabled() is True
+    assert tab._lbl_scm_sg.isEnabled() is True
+
+    # Select None again -> disabled and reset
+    tab.scm_type_combo.setCurrentIndex(tab.scm_type_combo.findData(""))
+    assert tab.scm_pct_spin.isEnabled() is False
+    assert tab.scm_sg_spin.isEnabled() is False
+    assert tab._lbl_scm_pct.isEnabled() is False
+    assert tab._lbl_scm_sg.isEnabled() is False
+    assert tab.scm_pct_spin.value() == 0.0
+
+
+def test_admixture_inputs_disabled_when_none(tab):
+    """Verify Admixture fields are grayed out when Admixture type is 'None' and enabled when selected."""
+    # Ensure Admixture is None
+    tab.admix_type_combo.setCurrentIndex(tab.admix_type_combo.findData(""))
+    assert tab.admix_dosage_spin.isEnabled() is False
+    assert tab.admix_spin.isEnabled() is False
+    assert tab.admix_sg_spin.isEnabled() is False
+    assert tab.admix_water_spin.isEnabled() is False
+    assert tab.reduced_water_label.isEnabled() is False
+    assert tab._lbl_admix_dosage.isEnabled() is False
+    assert tab._lbl_admix_reduction.isEnabled() is False
+    assert tab._lbl_reduced_water.isEnabled() is False
+    assert tab.admix_spin.value() == 0.0
+    assert tab.reduced_water_label.text() == "—"
+
+    # Select Superplasticizer
+    idx = tab.admix_type_combo.findData("superplasticizer")
+    assert idx >= 0
+    tab.admix_type_combo.setCurrentIndex(idx)
+    assert tab.admix_dosage_spin.isEnabled() is True
+    assert tab.admix_spin.isEnabled() is True
+    assert tab.admix_sg_spin.isEnabled() is True
+    assert tab.reduced_water_label.isEnabled() is True
+    assert tab._lbl_admix_dosage.isEnabled() is True
+    assert tab._lbl_admix_reduction.isEnabled() is True
+    assert tab._lbl_reduced_water.isEnabled() is True
+
+    # Select None again -> disabled and reset
+    tab.admix_type_combo.setCurrentIndex(tab.admix_type_combo.findData(""))
+    assert tab.admix_dosage_spin.isEnabled() is False
+    assert tab.admix_spin.isEnabled() is False
+    assert tab.admix_sg_spin.isEnabled() is False
+    assert tab.reduced_water_label.isEnabled() is False
+    assert tab.admix_spin.value() == 0.0
+    assert tab.reduced_water_label.text() == "—"
+

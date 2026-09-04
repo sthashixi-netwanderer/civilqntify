@@ -69,7 +69,7 @@ def design_mix_simple(
     code: str,
     target_strength_mpa: float,
     slump_mm: float,
-    nmsa: int = 20,
+    nmsa: int | float = 20,
     characteristic_strength_mpa: float | None = None,
     ca_volume_fraction_override: float | None = None,
     cement_type: str = "OPC_43",
@@ -100,6 +100,34 @@ def design_mix_simple(
     volume_m3: float = 1.0,
     has_production_data: bool = True,
     sulfate_exposure_class: str = "S0",
+    freezing_exposure_class: str = "F0",
+    water_exposure_class: str = "W0",
+    corrosion_exposure_class: str = "C0",
+    form_width_mm: float | None = None,
+    slab_depth_mm: float | None = None,
+    bar_spacing_mm: float | None = None,
+    concrete_temp_c: float = 22.5,
+    manufactured_sand: bool = False,
+    prestressed: bool = False,
+    trial_density_kg_m3: float | None = None,
+    trial_slump_mm: float | None = None,
+    trial_air_pct: float | None = None,
+    trial_strength_mpa: float | None = None,
+    num_strength_tests: int | None = None,
+    target_paste_volume_pct: float | None = None,
+    air_pct: float = 0.0,
+    vebe_s: float | None = None,
+    ca_split: str | None = None,
+    placing_method: str = "chute",
+    pump_ca_reduction_percent: float | None = None,
+    site_control: str = "good",
+    admixture_water_kg: float = 0.0,
+    mass_concrete: bool = False,
+    scc_class: str | None = None,
+    scc_slump_flow_mm: float | None = None,
+    scc_lbox_ratio: float | None = None,
+    scc_segregation_pct: float | None = None,
+    scc_vfunnel_s: float | None = None,
     w_c_ratio: float | None = None,
     defective_percent: float = 5.0,
     age_days: int = 28,
@@ -143,6 +171,31 @@ def design_mix_simple(
         volume_m3: Target volume (default 1.0)
         has_production_data: Whether ≥30 test results exist (ACI only) / ≥20 results exist (DOE)
         sulfate_exposure_class: ACI 318 sulfate class ("S0"-""S3")
+        freezing_exposure_class: ACI 301 freezing-and-thawing class ("F0"-"F3")
+        water_exposure_class: ACI 301 water-contact class ("W0"-"W2")
+        corrosion_exposure_class: ACI 301 corrosion class ("C0"-"C2", non-prestressed)
+        form_width_mm: narrowest form dimension, mm (ACI NMSA check, optional)
+        slab_depth_mm: slab depth, mm (ACI NMSA check, optional)
+        bar_spacing_mm: min clear bar spacing, mm (ACI NMSA check, optional)
+        concrete_temp_c: fresh concrete temperature, °C (ACI T5.3.3.1; 22.5 = baseline)
+        manufactured_sand: fine aggregate is manufactured sand (ACI +5% water)
+        prestressed: prestressed reinforcement present (ACI chloride scope)
+        trial_density_kg_m3: measured trial fresh density (ACI §5.3.10 yield check)
+        trial_slump_mm: measured trial slump (ACI §5.3.10.1)
+        trial_air_pct: measured trial air (ACI §5.3.10.2)
+        trial_strength_mpa: measured trial 28-day strength (ACI §5.3.10.3)
+        air_pct: entrained air % (DOE §8; 0 = non-air-entrained)
+        vebe_s: Vebe time in seconds as workability basis (DOE; None = slump)
+        ca_split: "10+20" or "10+20+40" CA subdivision (DOE §5.5)
+        placing_method: "chute" or "pump" (IS §5.5.2 CA reduction)
+        site_control: "good" or "fair" (IS Table 2 Note 1, fair adds 1 MPa)
+        admixture_water_kg: liquid-admixture water in kg/m³ (IS Cl. 5.1 note)
+        mass_concrete: design as mass concrete (IS §9; NMSA 40/80/150)
+        scc_class: target slump-flow class "SF1"/"SF2"/"SF3" (IS §7.2.1)
+        scc_slump_flow_mm: measured slump-flow (IS SCC acceptance)
+        scc_lbox_ratio: measured L-box ratio (IS SCC, ≥0.80 passes)
+        scc_segregation_pct: measured sieve-segregation SR % (IS SCC)
+        scc_vfunnel_s: measured V-funnel time in s (IS SCC)
         w_c_ratio: Water-cement ratio manual override (or durability limit for DOE)
         defective_percent: Percentage of defectives (DOE only)
         age_days: Age in days for target strength (DOE only)
@@ -193,16 +246,19 @@ def design_mix_simple(
             ),
         )
 
+    # BRE 331:1997 Stages 1-5 (Table 3, C3, Figure 5, Figure 6) assume no
+    # chemical admixture; §5.3 introduces a water-reducing admixture only as
+    # an explicit option when the C3 cement content exceeds the specified
+    # maximum. "None" must therefore mean a plain mix: any stray
+    # water-reduction/dosage values (e.g. left over in the UI spins after
+    # switching the type back to None) are ignored, never synthesised into
+    # a default superplasticizer.
     admixture = None
-    if admixture_type and admixture_type != "":
+    _admix_type_norm = (admixture_type or "").strip().lower()
+    if _admix_type_norm and _admix_type_norm != "none":
         admixture = Admixture(
             type=admixture_type,
             dosage_percent=admixture_dosage,
-            water_reduction_percent=admixture_water_reduction,
-            specific_gravity=admixture_sg,
-        )
-    elif admixture_water_reduction > 0:
-        admixture = Admixture(
             water_reduction_percent=admixture_water_reduction,
             specific_gravity=admixture_sg,
         )
@@ -267,6 +323,34 @@ def design_mix_simple(
         volume_m3=volume_m3,
         has_production_data=has_production_data,
         sulfate_exposure_class=sulfate_exposure_class,
+        freezing_exposure_class=freezing_exposure_class,
+        water_exposure_class=water_exposure_class,
+        corrosion_exposure_class=corrosion_exposure_class,
+        form_width_mm=form_width_mm,
+        slab_depth_mm=slab_depth_mm,
+        bar_spacing_mm=bar_spacing_mm,
+        concrete_temp_c=concrete_temp_c,
+        manufactured_sand=manufactured_sand,
+        prestressed=prestressed,
+        trial_density_kg_m3=trial_density_kg_m3,
+        trial_slump_mm=trial_slump_mm,
+        trial_air_pct=trial_air_pct,
+        trial_strength_mpa=trial_strength_mpa,
+        num_strength_tests=num_strength_tests,
+        target_paste_volume_pct=target_paste_volume_pct,
+        air_pct=air_pct,
+        vebe_s=vebe_s,
+        ca_split=ca_split,
+        placing_method=placing_method,
+        pump_ca_reduction_percent=pump_ca_reduction_percent,
+        site_control=site_control,
+        admixture_water_kg=admixture_water_kg,
+        mass_concrete=mass_concrete,
+        scc_class=scc_class,
+        scc_slump_flow_mm=scc_slump_flow_mm,
+        scc_lbox_ratio=scc_lbox_ratio,
+        scc_segregation_pct=scc_segregation_pct,
+        scc_vfunnel_s=scc_vfunnel_s,
         w_c_ratio=w_c_ratio,
         defective_percent=defective_percent,
         age_days=age_days,

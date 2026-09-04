@@ -371,16 +371,16 @@ class TestISDesignIntegration:
         )
 
     def test_m25_target_mean_strength(self):
-        """ftm = 25 + 1.65 × 4.0 = 31.6 MPa."""
+        """ftm = 25 + 1.65 × 4.0 = 31.6 → 32 MPa (ceiled, Cl. 4.2)."""
         designer = IS10262MixDesign()
         result = designer.calculate_target_mean_strength(25.0, 4.0)
-        assert abs(result - 31.6) < 0.1
+        assert abs(result - 32) < 0.01
 
     def test_m20_target_mean_strength(self):
-        """ftm = 20 + 1.65 × 4.0 = 26.6 MPa."""
+        """ftm = 20 + 1.65 × 4.0 = 26.6 → 27 MPa (ceiled, Cl. 4.2)."""
         designer = IS10262MixDesign()
         result = designer.calculate_target_mean_strength(20.0, 4.0)
-        assert abs(result - 26.6) < 0.1
+        assert abs(result - 27) < 0.01
 
     def test_no_double_water_adjustment(self):
         """Verify water is NOT double-counted for high slump."""
@@ -521,8 +521,537 @@ class TestIS10262TrialMixesClause58:
         assert len(trial_warnings) >= 1
         assert "±10%" in trial_warnings[0]
 
-    def test_structural_strength_minimum_enforced(self):
-        """Verify IS 10262 rejects non-structural characteristic strength < 25 MPa."""
-        with pytest.raises(ValueError, match="IS10262 structural design requires characteristic strength"):
-            MixDesignInput(code="is10262", target_strength_mpa=20.0)
+    def test_no_app_floor_m20_designs(self):
+        """No 25 MPa floor: M20 IS designs with Table 2 values (S=4.0, X=5.5)."""
+        designer = IS10262MixDesign()
+        result = designer.design(MixDesignInput(
+            code="is10262", target_strength_mpa=20.0, slump_mm=75.0,
+            exposure_class="mild"))
+        # ftm = max(20 + 1.65×4.0, 20 + 5.5) = 26.6 → 27 MPa (ceiled, Cl. 4.2)
+        assert abs(result.target_mean_strength_mpa - 27) < 0.01
+
+    def test_sanity_floor_still_guards(self):
+        """The [5, 100] MPa sanity range still rejects nonsense."""
+        with pytest.raises(ValueError, match=r"\[5, 100\]"):
+            MixDesignInput(code="is10262", target_strength_mpa=4.0)
+
+
+# ---------------------------------------------------------------------------
+# IS 10262 small scope items: placing method, site control, SD record,
+# admixture water (gap-audit all-phases)
+# ---------------------------------------------------------------------------
+class TestISPlacingSiteControlAdmixWater:
+    def test_pump_reduces_ca_ten_percent(self):
+        """Pumped placing cuts the Table 5 fraction by 10% (§5.5.2)."""
+        from concrete_mix import design_mix_simple
+
+        chute = design_mix_simple(code="is10262", target_strength_mpa=30.0,
+                                  slump_mm=75.0, nmsa=20, exposure_class="mild")
+        pump = design_mix_simple(code="is10262", target_strength_mpa=30.0,
+                                 slump_mm=75.0, nmsa=20, exposure_class="mild",
+                                 placing_method="pump")
+        assert pump.fine_aggregate_kg > chute.fine_aggregate_kg
+        assert pump.coarse_aggregate_kg < chute.coarse_aggregate_kg
+        assert any("§5.5.2" in w for w in pump.warnings)
+
+    def test_invalid_placing_rejected(self):
+        with pytest.raises(ValueError, match="Placing method"):
+            MixDesignInput(code="is10262", target_strength_mpa=30.0,
+                           placing_method="crane")
+
+    def test_pump_explicit_percent_honoured(self):
+        """Explicit 6% pump reduction applies instead of the 10% maximum."""
+        from concrete_mix import design_mix_simple
+
+        auto = design_mix_simple(code="is10262", target_strength_mpa=30.0,
+                                 slump_mm=75.0, nmsa=20, exposure_class="mild",
+                                 placing_method="pump")
+        explicit = design_mix_simple(
+            code="is10262", target_strength_mpa=30.0, slump_mm=75.0,
+            nmsa=20, exposure_class="mild", placing_method="pump",
+            pump_ca_reduction_percent=6.0)
+        assert explicit.coarse_aggregate_kg > auto.coarse_aggregate_kg
+        assert any("6%" in w for w in explicit.warnings)
+
+    def test_pump_percent_above_route_max_rejected(self):
+        """12% is rejected at the model (0–10); 8% on a high-strength
+        route is rejected by the engine (§6.2.7 caps at 5%)."""
+        with pytest.raises(ValueError, match="0–10"):
+            MixDesignInput(code="is10262", target_strength_mpa=30.0,
+                           placing_method="pump",
+                           pump_ca_reduction_percent=12.0)
+        designer = IS10262MixDesign()
+        with pytest.raises(ValueError, match="5% maximum"):
+            designer.design(MixDesignInput(
+                code="is10262", target_strength_mpa=70.0, slump_mm=75.0,
+                placing_method="pump", pump_ca_reduction_percent=8.0))
+
+    def test_unknown_zone_rejected(self):
+        """Table 5/13 tabulate every zone — unknown zones raise (F7)."""
+        from concrete_mix.codes.tables.is_tables import (
+            get_ca_volume_fraction, mass_ca_volume_fraction)
+        with pytest.raises(ValueError, match="Grading zone"):
+            get_ca_volume_fraction(20, "V")
+        with pytest.raises(ValueError, match="Grading zone"):
+            mass_ca_volume_fraction(40, "V")
+
+    def test_fair_site_control_raises_target(self):
+        """Fair control adds 1 N/mm² to S (Table 2 Note 1)."""
+        from concrete_mix.engine.target_strength import calculate_target_strength
+
+        good = calculate_target_strength("is10262", 30.0, site_control="good")
+        fair = calculate_target_strength("is10262", 30.0, site_control="fair")
+        # good: 30 + 1.65×5 = 38.25 → 39; fair: 30 + 1.65×6 = 39.9 → 40 (ceiled, Cl. 4.2)
+        assert good.target_mean_strength_mpa == pytest.approx(39)
+        assert fair.target_mean_strength_mpa == pytest.approx(40)
+        assert fair.target_mean_strength_mpa > good.target_mean_strength_mpa
+        assert fair.standard_deviation_mpa == 6.0
+
+    def test_user_std_deviation_override(self):
+        """A site record (≥30 results) replaces the assumed deviation."""
+        from concrete_mix.engine.target_strength import calculate_target_strength
+
+        r = calculate_target_strength("is10262", 30.0, std_deviation=4.0)
+        assert r.standard_deviation_mpa == 4.0
+        # 30 + 1.65×4 = 36.6 → 37 MPa (ceiled, IS 10262 Cl. 4.2)
+        assert abs(r.target_mean_strength_mpa - 37) < 0.01
+
+    def test_design_honours_site_control_and_override(self):
+        designer = IS10262MixDesign()
+        fair_inp = MixDesignInput(code="is10262", target_strength_mpa=30.0,
+                                  site_control="fair")
+        # 30 + 1.65×6 = 39.9 → 40 MPa (ceiled, IS 10262 Cl. 4.2)
+        assert abs(designer.design(fair_inp).target_mean_strength_mpa
+                   - 40) < 0.01
+        user_inp = MixDesignInput(code="is10262", target_strength_mpa=30.0,
+                                  std_deviation=4.5)
+        # 30 + 1.65×4.5 = 37.425 → 38 MPa (ceiled, IS 10262 Cl. 4.2)
+        assert abs(designer.design(user_inp).target_mean_strength_mpa
+                   - 38) < 0.01
+
+    def test_std_helpers_validate_records(self):
+        from concrete_mix.codes.tables.is_tables import (
+            pooled_std_dev, std_from_samples)
+
+        with pytest.raises(ValueError, match="at least 30"):
+            std_from_samples([30.0] * 29)
+        assert abs(std_from_samples([30.0] * 30) - 0.0) < 1e-9
+        with pytest.raises(ValueError, match="n1,n2"):
+            pooled_std_dev(4.0, 9, 4.0, 25)
+        assert abs(pooled_std_dev(4.0, 15, 5.0, 15) - 4.528) < 0.01
+
+    def test_admixture_water_counted_at_cap(self):
+        """Admixture water breaching the durability cap blocks (Cl. 5.1 note)."""
+        designer = IS10262MixDesign()
+        ok_inp = MixDesignInput(
+            code="is10262", target_strength_mpa=30.0, slump_mm=75.0,
+            exposure_class="mild",
+            admixture_water_kg=5.0,
+        )
+        ok = designer.design(ok_inp)
+        assert any(s.step_number == 3.1 for s in ok.steps)
+        # M25/moderate with a manual 0.60 w/c: capped to 0.50, so 60 kg of
+        # admixture water pushes the effective ratio far over the cap.
+        bad_inp = MixDesignInput(
+            code="is10262", target_strength_mpa=25.0, slump_mm=75.0,
+            exposure_class="moderate", w_c_ratio=0.60,
+            admixture_water_kg=60.0,
+        )
+        with pytest.raises(ValueError, match="durability maximum"):
+            designer.design(bad_inp)
+# ---------------------------------------------------------------------------
+# IS 10262 §6 — high-strength concrete (M65+)
+# ---------------------------------------------------------------------------
+class TestISHighStrength:
+    def _m70(self, **kw):
+        from concrete_mix.models.materials import (
+            AggregateShape, Cement, CementType, CoarseAggregate, FineAggregate,
+        )
+
+        base = dict(
+            code="is10262", target_strength_mpa=70.0, slump_mm=50.0,
+            exposure_class="severe", concrete_type="reinforced",
+            cement=Cement(type=CementType.OPC_53, specific_gravity=3.15),
+            fine_aggregate=FineAggregate(specific_gravity=2.65, grading_zone="II"),
+            coarse_aggregate=CoarseAggregate(
+                nominal_max_size_mm=20, specific_gravity=2.74,
+                shape=AggregateShape.ANGULAR),
+        )
+        base.update(kw)
+        return MixDesignInput(**base)
+
+    def test_m70_uses_table8_and_table7(self):
+        """ftm max(70 + 1.65×6, 70 + 8) = 79.9 → 80 (ceiled) → w/cm ≈0.29 (Table 8); water 186 (Table 7); air 0.5."""
+        designer = IS10262MixDesign()
+        result = designer.design(self._m70())
+        assert abs(result.target_mean_strength_mpa - 80) < 0.05
+        assert abs(result.w_c_ratio - 0.29) < 0.02
+        assert result.water_kg == 186.0
+        assert result.air_volume_percent == 0.5
+        assert any("Table 8" in s.clause_ref for s in result.steps)
+
+    def test_m70_flags_heat_and_hrwra(self):
+        """640 kg cement triggers the 450 warning + PCE + quality notes."""
+        designer = IS10262MixDesign()
+        result = designer.design(self._m70())
+        assert any("450" in w for w in result.warnings)
+        assert any("PCE" in w for w in result.warnings)
+        assert any("22%" in w for w in result.warnings)
+
+    def test_40mm_blocked(self):
+        from concrete_mix.models.materials import CoarseAggregate
+
+        designer = IS10262MixDesign()
+        inp = self._m70(coarse_aggregate=CoarseAggregate(
+            nominal_max_size_mm=40, specific_gravity=2.74))
+        with pytest.raises(ValueError, match="§6.2.2"):
+            designer.design(inp)
+
+    def test_zone_iv_blocked(self):
+        from concrete_mix.models.materials import FineAggregate
+
+        designer = IS10262MixDesign()
+        inp = self._m70(fine_aggregate=FineAggregate(
+            specific_gravity=2.65, grading_zone="IV"))
+        with pytest.raises(ValueError, match="Table 10"):
+            designer.design(inp)
+
+    def test_m80_prefers_10mm(self):
+        designer = IS10262MixDesign()
+        inp = self._m70()
+        object.__setattr__(inp, "target_strength_mpa", 80.0)
+        result = designer.design(inp)
+        assert any("10.0–12.5" in w for w in result.warnings)
+
+    def test_silica_dosage_band(self):
+        from concrete_mix.models.materials import SCM, SCMType
+
+        designer = IS10262MixDesign()
+        inp = self._m70(scms=(SCM(type=SCMType.SILICA_FUME,
+                                  replacement_percent=12.0),))
+        result = designer.design(inp)
+        assert any("Table 9" in w for w in result.warnings)
+
+    def test_trial_clause_is_629(self):
+        designer = IS10262MixDesign()
+        result = designer.design(self._m70())
+        step8 = next(s for s in result.steps if s.step_number == 8)
+        assert "6.2.9" in step8.clause_ref
+
+    def test_table_helpers(self):
+        from concrete_mix.codes.tables.is_tables import (
+            hs_ca_volume_fraction, hs_wcm_ratio, hs_water_content)
+
+        assert hs_wcm_ratio(70.0, 20) == 0.33
+        assert abs(hs_wcm_ratio(77.5, 20) - 0.30) < 1e-9
+        assert hs_water_content(10, 75.0) == 206.0
+        assert hs_ca_volume_fraction(20, "II") == 0.66
+        with pytest.raises(ValueError, match="Table 10"):
+            hs_ca_volume_fraction(20, "IV")
+        with pytest.raises(ValueError, match="§6.2.2"):
+            hs_water_content(40, 50.0)
+
+
+# ---------------------------------------------------------------------------
+# IS 10262 §9 — mass concrete
+# ---------------------------------------------------------------------------
+class TestISMassConcrete:
+    def _m25_80mm(self, **kw):
+        from concrete_mix.models.materials import (
+            AggregateShape, CoarseAggregate, FineAggregate,
+        )
+
+        base = dict(
+            code="is10262", target_strength_mpa=25.0, slump_mm=50.0,
+            exposure_class="mild", concrete_type="reinforced",
+            mass_concrete=True,
+            fine_aggregate=FineAggregate(specific_gravity=2.65,
+                                         grading_zone="II"),
+            coarse_aggregate=CoarseAggregate(
+                nominal_max_size_mm=80, specific_gravity=2.70,
+                shape=AggregateShape.ANGULAR),
+        )
+        base.update(kw)
+        return MixDesignInput(**base)
+
+    def test_80mm_uses_table12_and_wet_sieving(self):
+        """Water 145 (Table 12); target 32 × 1.2 = 38.4 (§9.2,
+        reporting only — w/c keeps the un-raised 32); air 0.3."""
+        designer = IS10262MixDesign()
+        result = designer.design(self._m25_80mm())
+        assert result.water_kg == 145.0
+        assert abs(result.target_mean_strength_mpa - 38.4) < 0.01
+        assert result.air_volume_percent == 0.3
+
+    def test_mortar_check_present(self):
+        """80 mm designs carry the §9.10/Table 15 mortar step."""
+        designer = IS10262MixDesign()
+        result = designer.design(self._m25_80mm())
+        assert any(s.step_number == 6.1 for s in result.steps)
+
+    def test_rounded_cut(self):
+        """Rounded 80 mm gravel cuts 15 kg (§9.4): 145 → 130."""
+        from concrete_mix.models.materials import (
+            AggregateShape, CoarseAggregate,
+        )
+
+        designer = IS10262MixDesign()
+        inp = self._m25_80mm(coarse_aggregate=CoarseAggregate(
+            nominal_max_size_mm=80, specific_gravity=2.70,
+            shape=AggregateShape.ROUNDED_GRAVEL))
+        assert designer.design(inp).water_kg == 130.0
+
+    def test_40mm_mass_has_no_mortar_step(self):
+        """Table 15 covers 80/150 mm only — 40 mm mass skips the check."""
+        from concrete_mix.models.materials import CoarseAggregate
+
+        designer = IS10262MixDesign()
+        inp = self._m25_80mm(coarse_aggregate=CoarseAggregate(
+            nominal_max_size_mm=40, specific_gravity=2.70))
+        result = designer.design(inp)
+        assert result.water_kg == 165.0
+        assert not any(s.step_number == 6.1 for s in result.steps)
+
+    def test_80mm_auto_routes_to_mass(self):
+        """80 mm aggregate without the flag still takes the mass route."""
+        designer = IS10262MixDesign()
+        inp = self._m25_80mm(mass_concrete=False)
+        result = designer.design(inp)
+        assert result.water_kg == 145.0
+
+    def test_mass_ggbs30_bump(self):
+        """Mass GGBS ≥30% earns the §9.6.1 preliminary-trial increase."""
+        from concrete_mix.models.materials import SCM, SCMType
+
+        designer = IS10262MixDesign()
+        inp = self._m25_80mm(
+            scms=(SCM(type=SCMType.GGBFS, replacement_percent=30.0),))
+        result = designer.design(inp)
+        assert any(s.step_number == 4.05 for s in result.steps)
+
+    def test_hs_mass_conflict_blocked(self):
+        designer = IS10262MixDesign()
+        inp = self._m25_80mm()
+        object.__setattr__(inp, "target_strength_mpa", 70.0)
+        with pytest.raises(ValueError, match="no combined"):
+            designer.design(inp)
+
+    def test_trial_clause_is_911(self):
+        designer = IS10262MixDesign()
+        result = designer.design(self._m25_80mm())
+        step8 = next(s for s in result.steps if s.step_number == 8)
+        assert "9.11" in step8.clause_ref
+
+
+# ---------------------------------------------------------------------------
+# IS 10262 §§7–8 — self-compacting concrete checks
+# ---------------------------------------------------------------------------
+class TestISSCC:
+    def _scc_base(self, **kw):
+        from concrete_mix.models.materials import (
+            Admixture, AdmixtureType, AggregateShape, CoarseAggregate,
+            FineAggregate,
+        )
+
+        base = dict(
+            code="is10262", target_strength_mpa=30.0, slump_mm=50.0,
+            exposure_class="mild", concrete_type="reinforced",
+            fine_aggregate=FineAggregate(specific_gravity=2.65,
+                                         grading_zone="I"),
+            coarse_aggregate=CoarseAggregate(
+                nominal_max_size_mm=10, specific_gravity=2.70,
+                shape=AggregateShape.ANGULAR),
+            admixture=Admixture(
+                type=AdmixtureType.SUPERPLASTICIZER, dosage_percent=1.0,
+                water_reduction_percent=30.0),
+        )
+        base.update(kw)
+        return MixDesignInput(**base)
+
+    def test_passing_scc_has_no_scc_warnings(self):
+        """In-class SF2 measurements on an in-envelope mix stay quiet.
+
+        Slump 100 mm with the §8.3(c) PCE reduction (30%) keeps the mixing
+        water inside the 150–210 kg/m³ band; coarser Zone I sand keeps fine
+        aggregate within 48–60%.
+        """
+        designer = IS10262MixDesign()
+        result = designer.design(self._scc_base(
+            slump_mm=100.0,
+            scc_class="SF2", scc_slump_flow_mm=700.0, scc_lbox_ratio=0.85,
+            scc_segregation_pct=12.0, scc_vfunnel_s=6.0))
+        assert any(s.step_number == 8.1 for s in result.steps)
+        assert not any(("SF2" in w and "outside" in w) or "L-box" in w
+                       or "Segregation" in w or "V-funnel" in w
+                       or "48–60%" in w or "150–210" in w or "PCE" in w
+                       for w in result.warnings)
+
+    def test_scc_admixture_below_30pct_warns(self):
+        """§8.3(c): SCC water reduction comes from PCE HRWRA at >30%."""
+        from concrete_mix.models.materials import Admixture, AdmixtureType
+
+        designer = IS10262MixDesign()
+        result = designer.design(self._scc_base(
+            slump_mm=100.0,
+            scc_class="SF2", admixture=Admixture(
+                type=AdmixtureType.SUPERPLASTICIZER, dosage_percent=1.0,
+                water_reduction_percent=25.0)))
+        assert any("PCE" in w for w in result.warnings)
+
+    def test_slump_flow_outside_target_warns(self):
+        designer = IS10262MixDesign()
+        result = designer.design(self._scc_base(
+            scc_class="SF2", scc_slump_flow_mm=800.0))
+        assert any("outside the target SF2" in w for w in result.warnings)
+
+    def test_lbox_segregation_vfunnel_warn(self):
+        designer = IS10262MixDesign()
+        result = designer.design(self._scc_base(
+            scc_lbox_ratio=0.70, scc_segregation_pct=25.0,
+            scc_vfunnel_s=30.0))
+        assert any("0.80" in w for w in result.warnings)
+        assert any("SR1" in w for w in result.warnings)
+        assert any("V2" in w for w in result.warnings)
+
+    def test_powder_over_600_blocks(self):
+        """Cement+SCM alone above 600 kg/m³ provably breaches §8.3(a)."""
+        from concrete_mix.models.materials import SCM, SCMType
+
+        designer = IS10262MixDesign()
+        inp = self._scc_base(
+            target_strength_mpa=40.0, admixture=None,
+            scms=(SCM(type=SCMType.FLY_ASH, replacement_percent=20.0),),
+            scc_class="SF2")
+        with pytest.raises(ValueError, match="400–600"):
+            designer.design(inp)
+
+    def test_invalid_scc_inputs_rejected(self):
+        with pytest.raises(ValueError, match="SCC class"):
+            MixDesignInput(code="is10262", target_strength_mpa=30.0,
+                           scc_class="SF4")
+        with pytest.raises(ValueError, match="must be positive"):
+            MixDesignInput(code="is10262", target_strength_mpa=30.0,
+                           scc_lbox_ratio=-0.5)
+# ---------------------------------------------------------------------------
+# IS 456:2000 Table 5 durability gates (gap-audit Phase 1)
+# ---------------------------------------------------------------------------
+class TestIS456DurabilityGates:
+    """Minimum-grade enforcement, 450 kg/m³ preferred maximum, Zone IV rule."""
+
+    def test_severe_exposure_rejects_below_m30(self):
+        """M25 + severe/reinforced violates the M30 minimum (IS 456 Table 5)."""
+        designer = IS10262MixDesign()
+        inp = MixDesignInput(
+            code="is10262",
+            target_strength_mpa=25.0,
+            slump_mm=75.0,
+            exposure_class="severe",
+            concrete_type="reinforced",
+        )
+        with pytest.raises(ValueError, match="minimum grade M30"):
+            designer.design(inp)
+
+    def test_extreme_exposure_rejects_below_m40(self):
+        """M30 + extreme/reinforced violates the M40 minimum (IS 456 Table 5)."""
+        designer = IS10262MixDesign()
+        inp = MixDesignInput(
+            code="is10262",
+            target_strength_mpa=30.0,
+            slump_mm=75.0,
+            exposure_class="extreme",
+            concrete_type="reinforced",
+        )
+        with pytest.raises(ValueError, match="minimum grade M40"):
+            designer.design(inp)
+
+    def test_severe_exposure_accepts_m30(self):
+        """M30 + severe/reinforced is exactly the Table 5 minimum — passes."""
+        designer = IS10262MixDesign()
+        inp = MixDesignInput(
+            code="is10262",
+            target_strength_mpa=30.0,
+            slump_mm=75.0,
+            exposure_class="severe",
+            concrete_type="reinforced",
+        )
+        result = designer.design(inp)
+        assert result.w_c_ratio <= 0.45
+
+    def test_no_exposure_no_grade_gate(self):
+        """Without an exposure class there is no Table 5 grade to enforce."""
+        designer = IS10262MixDesign()
+        inp = MixDesignInput(code="is10262", target_strength_mpa=25.0)
+        result = designer.design(inp)
+        assert result.target_mean_strength_mpa > 25.0
+
+    def test_cement_above_450_warns(self):
+        """Cement-only content above 450 kg/m³ warns per IS 456 Cl 8.2.4.2."""
+        designer = IS10262MixDesign()
+        inp = MixDesignInput(
+            code="is10262",
+            target_strength_mpa=30.0,
+            slump_mm=180.0,
+            exposure_class="mild",
+            concrete_type="reinforced",
+        )
+        result = designer.design(inp)
+        assert result.cement_kg > 450.0
+        assert any("450" in w and "8.2.4.2" in w for w in result.warnings)
+
+    def test_zone_iv_reinforced_warns(self):
+        """Zone IV sand in reinforced concrete warns per Table 5 Note 4."""
+        from concrete_mix.models.materials import FineAggregate
+
+        designer = IS10262MixDesign()
+        inp = MixDesignInput(
+            code="is10262",
+            target_strength_mpa=30.0,
+            slump_mm=75.0,
+            exposure_class="mild",
+            concrete_type="reinforced",
+            fine_aggregate=FineAggregate(grading_zone="IV"),
+        )
+        result = designer.design(inp)
+        assert any("Zone IV" in w for w in result.warnings)
+
+    def test_zone_iv_plain_no_warning(self):
+        """Zone IV in plain concrete is not subject to the Note 4 warning."""
+        from concrete_mix.models.materials import FineAggregate
+
+        designer = IS10262MixDesign()
+        inp = MixDesignInput(
+            code="is10262",
+            target_strength_mpa=25.0,
+            slump_mm=75.0,
+            exposure_class="mild",
+            concrete_type="plain",
+            fine_aggregate=FineAggregate(grading_zone="IV"),
+        )
+        result = designer.design(inp)
+        assert not any("Zone IV" in w for w in result.warnings)
+
+    def test_admixture_mass_without_water_reduction(self):
+        """A dosed admixture with 0% reduction still has mass/volume (A-9e)."""
+        from concrete_mix.models.materials import Admixture, AdmixtureType
+
+        designer = IS10262MixDesign()
+        inp = MixDesignInput(
+            code="is10262",
+            target_strength_mpa=30.0,
+            slump_mm=75.0,
+            exposure_class="mild",
+            admixture=Admixture(
+                type=AdmixtureType.SUPERPLASTICIZER,
+                dosage_percent=1.0,
+                water_reduction_percent=0.0,
+            ),
+        )
+        result = designer.design(inp)
+        assert result.admixture_kg is not None and result.admixture_kg > 0
+        # Water must be unreduced (no reduction applied): 186 × 1.03
+        # (75 mm slump) − 15 kg (default gravel shape, Cl. 5.3).
+        assert abs(result.water_kg - 176.6) < 1.0
+        # ... yet the admixture mass step must exist.
+        adm_steps = [s for s in result.steps if "Admixture content" in s.description]
+        assert len(adm_steps) == 1
 

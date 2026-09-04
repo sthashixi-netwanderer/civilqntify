@@ -261,15 +261,20 @@ def _shrinkable_combo(combo: QComboBox) -> QComboBox:
     """Let a sidebar combo shrink below its widest item's width.
 
     A QComboBox's minimum-size hint otherwise equals its widest item,
-    which forces the input column wider than the sidebar's 360 px floor
-    and pushes neighbouring fields off-screen when the pane is narrowed.
-    With this policy the closed field may shrink (the dropdown popup
-    still sizes itself to the full item texts).
+    which forces the input column wider than the sidebar's floor
+    and pushes neighbouring fields off-screen when the pane is narrowed
+    (the splitter then appears stuck because the content minimum exceeds
+    the requested size). With this policy the closed field may shrink to
+    a few characters (the dropdown popup still sizes itself to the full
+    item texts), and an Expanding policy lets it fill the field column
+    when space is available.
     """
     combo.setSizeAdjustPolicy(
         QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
     )
-    combo.setMinimumContentsLength(12)
+    combo.setMinimumContentsLength(4)
+    combo.setMinimumWidth(0)
+    combo.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
     return combo
 
 
@@ -1110,8 +1115,16 @@ class ParticleSizeDistributionTab(QWidget):
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
+        # Never scroll sideways: the setup grid, sieve table (which scrolls
+        # internally) and quality grids reflow/shrink instead, so dragging
+        # the splitter narrower always moves the handle.
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
 
         container = QWidget()
+        container.setMinimumWidth(0)
+        container.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred
+        )
         layout = QVBoxLayout(container)
         layout.setContentsMargins(16, 16, 12, 16)
         layout.setSpacing(12)
@@ -1161,7 +1174,7 @@ class ParticleSizeDistributionTab(QWidget):
         self.standard_combo = _shrinkable_combo(QComboBox())
         self.standard_combo.addItem("IS 383:2016", "is383")
         self.standard_combo.addItem("ASTM C33/C33M", "astm_c33")
-        self.standard_combo.setMinimumWidth(150)
+        self.standard_combo.setMinimumWidth(0)
         self.standard_combo.currentIndexChanged.connect(self._on_standard_changed)
         form.addWidget(self._label("Standard"), 0, 0)
         form.addWidget(self.standard_combo, 0, 1)
@@ -1172,14 +1185,14 @@ class ParticleSizeDistributionTab(QWidget):
         self.agg_combo.addItem("Coarse Aggregate (gravel/stone)", "coarse")
         # Floor the width so the combo's minimumSizeHint (widest item) does
         # not force the sidebar wider than its 360px floor; text elides.
-        self.agg_combo.setMinimumWidth(150)
+        self.agg_combo.setMinimumWidth(0)
         self.agg_combo.currentIndexChanged.connect(self._on_agg_type_changed)
         form.addWidget(self._label("Aggregate Type"), 1, 0)
         form.addWidget(self.agg_combo, 1, 1)
 
         # Reference band selector — depends on standard and aggregate type
         self.band_combo = _shrinkable_combo(QComboBox())
-        self.band_combo.setMinimumWidth(150)
+        self.band_combo.setMinimumWidth(0)
         self.band_combo.currentIndexChanged.connect(self._on_band_changed)
         self._lbl_band = self._label_with_info(
             "Reference Band",
@@ -1192,7 +1205,7 @@ class ParticleSizeDistributionTab(QWidget):
         form.addWidget(self._lbl_band, 2, 0)
         form.addWidget(self.band_combo, 2, 1)
 
-        form.setColumnStretch(2, 1)
+        form.setColumnStretch(1, 1)
         return grp
 
     def _build_table(self) -> QGroupBox:
@@ -1240,9 +1253,13 @@ class ParticleSizeDistributionTab(QWidget):
         :meth:`_rebuild_table` each time rows are created.
         """
         hdr = self.table.horizontalHeader()
-        hdr.setMinimumSectionSize(24)
-        hdr.setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)
-        hdr.resizeSection(1, 160)
+        hdr.setMinimumSectionSize(16)
+        hdr.setSectionResizeMode(1, QHeaderView.ResizeMode.Interactive)
+        hdr.resizeSection(1, 110)
+        self.table.setMinimumWidth(0)
+        self.table.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
+        )
         self.table.setStyleSheet(
             "QTableWidget { border: 1px solid #e2e8f0; }"
             "QTableWidget::item { padding: 2px 4px; }"
@@ -1266,10 +1283,18 @@ class ParticleSizeDistributionTab(QWidget):
 
         self.plot_btn = QPushButton("  Compute & Plot")
         self.plot_btn.setMinimumHeight(40)
+        self.plot_btn.setMinimumWidth(0)
+        self.plot_btn.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+        )
         self.plot_btn.clicked.connect(self._on_compute_plot)
         lay.addWidget(self.plot_btn, 2)
 
         self.clear_btn = QPushButton("  Clear")
+        self.clear_btn.setMinimumWidth(0)
+        self.clear_btn.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+        )
         self.clear_btn.setObjectName("secondary")
         self.clear_btn.setMinimumHeight(40)
         self.clear_btn.clicked.connect(self._on_clear)
@@ -1295,9 +1320,8 @@ class ParticleSizeDistributionTab(QWidget):
         spin.setSuffix(" %")
         spin.setSpecialValueText("not tested")
         spin.setValue(_NOT_TESTED)
-        # Wide enough for the full "not tested" special-value text plus
-        # the spin controls, so it never renders clipped.
-        spin.setMinimumWidth(130)
+        spin.setMinimumWidth(0)
+        spin.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         return spin
 
     def _build_quality_group(self) -> QGroupBox:
@@ -1414,7 +1438,7 @@ class ParticleSizeDistributionTab(QWidget):
             "within 0.20 of this number.",
         ), 2, 0)
         f1.addWidget(self.fine_base_fm_spin, 2, 1)
-        f1.setColumnStretch(2, 1)
+        f1.setColumnStretch(1, 1)
         v.addWidget(g1)
 
         # Deleterious substances — Table 1 (Clause 7.1).
@@ -1461,7 +1485,7 @@ class ParticleSizeDistributionTab(QWidget):
         ), 1, 0, 1, 2)
 
         self.fine_manufactured_check = QCheckBox(
-            "Manufactured sand (limits 5.0 / 7.0 %)"
+            "Manufactured sand"
         )
         self.fine_manufactured_check.setToolTip(
             "Table 1 Footnote A: for manufactured sand whose material "
@@ -1529,11 +1553,11 @@ class ParticleSizeDistributionTab(QWidget):
             "brownish-black or black material counts; coke excluded)."
         )
         f2.addWidget(self.fine_coal_spin, 5, 1)
-        f2.setColumnStretch(2, 1)
+        f2.setColumnStretch(1, 1)
         v.addWidget(g2)
 
         # Organic impurities (7.2) and soundness (8.1).
-        g3 = QGroupBox("Organic Impurities (7.2) and Soundness (8.1)")
+        g3 = QGroupBox("Organic Impurities & Soundness")
         f3 = QGridLayout(g3)
         f3.setContentsMargins(12, 16, 12, 12)
         f3.setSpacing(8)
@@ -1565,7 +1589,7 @@ class ParticleSizeDistributionTab(QWidget):
         self.fine_organic_combo.addItem(
             "Darker — no exemption applies", "darker_no_exemption"
         )
-        self.fine_organic_combo.setMinimumWidth(150)
+        self.fine_organic_combo.setMinimumWidth(0)
         self.fine_organic_combo.currentIndexChanged.connect(
             self._on_fine_organic_changed
         )
@@ -1636,11 +1660,11 @@ class ParticleSizeDistributionTab(QWidget):
             "follows the salt selected above."
         )
         f3.addWidget(self.fine_soundness_spin, 3, 1)
-        f3.setColumnStretch(2, 1)
+        f3.setColumnStretch(1, 1)
         v.addWidget(g3)
 
         # Reactive materials (7.3).
-        g4 = QGroupBox("Deleteriously Reactive Materials (Clause 7.3)")
+        g4 = QGroupBox("Reactive Materials (§7.3)")
         f4 = QGridLayout(g4)
         f4.setContentsMargins(12, 16, 12, 12)
         f4.setSpacing(8)
@@ -1661,7 +1685,7 @@ class ParticleSizeDistributionTab(QWidget):
             "“Not applicable” covers concrete never exposed to wetting "
             "or moisture.",
         ), 0, 0, 1, 2)
-        f4.setColumnStretch(2, 1)
+        f4.setColumnStretch(1, 1)
         v.addWidget(g4)
 
         # The stack sizes every page to the tallest (coarse) page; without
@@ -1713,7 +1737,7 @@ class ParticleSizeDistributionTab(QWidget):
         self.coarse_class_combo.setCurrentIndex(
             astm_q.COARSE_CLASS_ORDER.index("3S")
         )
-        self.coarse_class_combo.setMinimumWidth(150)
+        self.coarse_class_combo.setMinimumWidth(0)
         self.coarse_class_combo.setToolTip(
             "Table 3 limits depend on the class designation and weathering "
             "region.\n\nClause 11.1: if the class is not specified, the "
@@ -1732,7 +1756,7 @@ class ParticleSizeDistributionTab(QWidget):
         )
         f1.addWidget(lbl, 0, 0)
         f1.addWidget(self.coarse_class_combo, 0, 1)
-        f1.setColumnStretch(2, 1)
+        f1.setColumnStretch(1, 1)
         v.addWidget(g1)
 
         # Deleterious substances — Table 3.
@@ -1812,7 +1836,7 @@ class ParticleSizeDistributionTab(QWidget):
             "1S/1M/2N."
         )
         f2.addWidget(self.coarse_coal_spin, 3, 1)
-        f2.setColumnStretch(2, 1)
+        f2.setColumnStretch(1, 1)
         v.addWidget(g2)
 
         # Material finer than 75 µm — Table 3 Footnote C.
@@ -1838,7 +1862,7 @@ class ParticleSizeDistributionTab(QWidget):
         f3.addWidget(self.coarse_finer_75um_spin, 0, 1)
 
         self.coarse_clay_free_check = QCheckBox(
-            "Clay/shale free — 1.5 % (Footnote C)"
+            "Clay/shale free"
         )
         self.coarse_clay_free_check.setToolTip(
             "Table 3 Footnote C (1): the 1.0 % limit is permitted to be "
@@ -1934,7 +1958,7 @@ class ParticleSizeDistributionTab(QWidget):
             "coarse aggregate.",
         ), 5, 0)
         f3.addWidget(self.coarse_a_spin, 5, 1)
-        f3.setColumnStretch(2, 1)
+        f3.setColumnStretch(1, 1)
         v.addWidget(g3)
 
         # Physical properties — abrasion (Footnote A) and soundness (fn B).
@@ -1961,7 +1985,7 @@ class ParticleSizeDistributionTab(QWidget):
         f4.addWidget(self.coarse_abrasion_spin, 0, 1)
 
         self.coarse_slag_check = QCheckBox(
-            "Blast-furnace slag (abrasion exempt)"
+            "Blast-furnace slag"
         )
         self.coarse_slag_check.setToolTip(
             "Table 3 Footnote A: crushed air-cooled blast-furnace slag is "
@@ -2038,11 +2062,11 @@ class ParticleSizeDistributionTab(QWidget):
             "follows the salt selected above."
         )
         f4.addWidget(self.coarse_soundness_spin, 4, 1)
-        f4.setColumnStretch(2, 1)
+        f4.setColumnStretch(1, 1)
         v.addWidget(g4)
 
         # Reactive materials (11.2).
-        g5 = QGroupBox("Deleteriously Reactive Materials (Clause 11.2)")
+        g5 = QGroupBox("Reactive Materials (§11.2)")
         f5 = QGridLayout(g5)
         f5.setContentsMargins(12, 16, 12, 12)
         f5.setSpacing(8)
@@ -2062,7 +2086,7 @@ class ParticleSizeDistributionTab(QWidget):
             "“Not applicable” covers concrete never exposed to wetting "
             "or moisture.",
         ), 0, 0, 1, 2)
-        f5.setColumnStretch(2, 1)
+        f5.setColumnStretch(1, 1)
         v.addWidget(g5)
 
         v.addStretch(1)
@@ -2154,7 +2178,7 @@ class ParticleSizeDistributionTab(QWidget):
         combo = _shrinkable_combo(QComboBox())
         for label, data in (self._IS_FINE_SOURCES if fine else self._IS_COARSE_SOURCES):
             combo.addItem(label, data)
-        combo.setMinimumWidth(150)
+        combo.setMinimumWidth(0)
         setattr(self, f"{prefix}_source_combo", combo)
         combo.currentIndexChanged.connect(
             lambda *_: self._on_is_source_changed(prefix)
@@ -2186,7 +2210,7 @@ class ParticleSizeDistributionTab(QWidget):
         )
         f.addWidget(self._label_with_info("Source Type", fine_col_info if fine else coarse_col_info), 0, 0)
         f.addWidget(combo, 0, 1)
-        f.setColumnStretch(2, 1)
+        f.setColumnStretch(1, 1)
         return grp
 
     def _build_is_table2_group(self, prefix: str, fine: bool) -> QGroupBox:
@@ -2267,7 +2291,7 @@ class ParticleSizeDistributionTab(QWidget):
             mica_type = _shrinkable_combo(QComboBox())
             mica_type.addItem("Muscovite", "muscovite")
             mica_type.addItem("Muscovite + biotite", "muscovite_biotite")
-            mica_type.setMinimumWidth(150)
+            mica_type.setMinimumWidth(0)
             setattr(self, f"{prefix}_mica_type_combo", mica_type)
             f.addWidget(self._label_with_info(
                 "Mica type",
@@ -2279,7 +2303,7 @@ class ParticleSizeDistributionTab(QWidget):
             row += 1
 
             tests = QCheckBox(
-                "Supporting tests conducted (Note 3)"
+                "Supporting tests conducted"
             )
             setattr(self, f"{prefix}_mica_tests_check", tests)
             f.addWidget(self._field_with_info(tests,
@@ -2308,7 +2332,7 @@ class ParticleSizeDistributionTab(QWidget):
             "components entered above.",
         ), row, 0)
         f.addWidget(total, row, 1)
-        f.setColumnStretch(2, 1)
+        f.setColumnStretch(1, 1)
         return grp
 
     def _build_is_organic_group(self, prefix: str) -> QGroupBox:
@@ -2326,7 +2350,7 @@ class ParticleSizeDistributionTab(QWidget):
             "fail_color_relieved",
         )
         combo.addItem("Darker — no relief applies", "fail_color")
-        combo.setMinimumWidth(150)
+        combo.setMinimumWidth(0)
         setattr(self, f"{prefix}_organic_combo", combo)
 
         strength = QDoubleSpinBox()
@@ -2361,7 +2385,7 @@ class ParticleSizeDistributionTab(QWidget):
             "accepted. Minimum 95 % (Clause 5.2 Note 4).",
         ), 1, 0)
         f.addWidget(strength, 1, 1)
-        f.setColumnStretch(2, 1)
+        f.setColumnStretch(1, 1)
         return grp
 
     def _build_is_shape_group(self, prefix: str) -> QGroupBox:
@@ -2414,7 +2438,7 @@ class ParticleSizeDistributionTab(QWidget):
             "performance.",
         ), 2, 0)
         f.addWidget(combined, 2, 1)
-        f.setColumnStretch(2, 1)
+        f.setColumnStretch(1, 1)
         return grp
 
     def _build_is_soundness_group(self, prefix: str) -> QGroupBox:
@@ -2429,7 +2453,7 @@ class ParticleSizeDistributionTab(QWidget):
         salt.addItem("Not tested", "")
         salt.addItem("Sodium sulphate", "sodium")
         salt.addItem("Magnesium sulphate", "magnesium")
-        salt.setMinimumWidth(150)
+        salt.setMinimumWidth(0)
         setattr(self, f"{prefix}_soundness_salt_combo", salt)
 
         loss = self._pct_spin(hi=100.0)
@@ -2454,7 +2478,7 @@ class ParticleSizeDistributionTab(QWidget):
             f"({limits}, Clause 5.5.1 Note).",
         ), 1, 0)
         f.addWidget(loss, 1, 1)
-        f.setColumnStretch(2, 1)
+        f.setColumnStretch(1, 1)
         return grp
 
     def _build_is_aar_group(self, prefix: str) -> QGroupBox:
@@ -2467,7 +2491,7 @@ class ParticleSizeDistributionTab(QWidget):
         combo = _shrinkable_combo(QComboBox())
         for label, data in self._IS_AAR_METHODS:
             combo.addItem(label, data)
-        combo.setMinimumWidth(150)
+        combo.setMinimumWidth(0)
         setattr(self, f"{prefix}_aar_combo", combo)
 
         expansion = QDoubleSpinBox()
@@ -2482,7 +2506,7 @@ class ParticleSizeDistributionTab(QWidget):
         age = _shrinkable_combo(QComboBox())
         for label, data in self._IS_AAR_AGES:
             age.addItem(label, data)
-        age.setMinimumWidth(150)
+        age.setMinimumWidth(0)
         age.setEnabled(False)
         setattr(self, f"{prefix}_aar_age_combo", age)
 
@@ -2519,7 +2543,7 @@ class ParticleSizeDistributionTab(QWidget):
             "accelerated mortar-bar test.",
         ), 2, 0)
         f.addWidget(age, 2, 1)
-        f.setColumnStretch(2, 1)
+        f.setColumnStretch(1, 1)
         return grp
 
     def _build_is_mechanical_group(self) -> QGroupBox:
@@ -2580,7 +2604,8 @@ class ParticleSizeDistributionTab(QWidget):
         fines.setValue(_NOT_TESTED)
         fines.setSuffix(" kN")
         fines.setSpecialValueText("not tested")
-        fines.setMinimumWidth(130)
+        fines.setMinimumWidth(0)
+        fines.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.is_coarse_ten_pct_fines_spin = fines
         f.addWidget(self._label_with_info(
             "Ten percent fines load",
@@ -2606,13 +2631,13 @@ class ParticleSizeDistributionTab(QWidget):
             "• Wearing surfaces: ≤ 30 %\n"
             "• Other concrete: ≤ 50 %",
         )
-        f.setColumnStretch(2, 1)
+        f.setColumnStretch(1, 1)
         return grp
 
     def _build_is_manufactured_group(self, prefix: str) -> QGroupBox:
         """Clause 5.7 / Table 3 — additional requirements for manufactured
         aggregates (shown only when the source is manufactured)."""
-        grp = QGroupBox("Manufactured Aggregate (Clause 5.7, Table 3)")
+        grp = QGroupBox("Manufactured Aggregate (§5.7)")
         f = QGridLayout(grp)
         f.setContentsMargins(12, 16, 12, 12)
         f.setSpacing(8)
@@ -2621,7 +2646,7 @@ class ParticleSizeDistributionTab(QWidget):
         mtype = _shrinkable_combo(QComboBox())
         for label, data in self._IS_MANUFACTURED_TYPES:
             mtype.addItem(label, data)
-        mtype.setMinimumWidth(150)
+        mtype.setMinimumWidth(0)
         setattr(self, f"{prefix}_mfd_type_combo", mtype)
         f.addWidget(self._label_with_info(
             "Manufactured type",
@@ -2689,7 +2714,7 @@ class ParticleSizeDistributionTab(QWidget):
         row += 1
 
         prewet = QCheckBox(
-            "RCA / RA pre-wetted (Table 3 Note 1)"
+            "RCA / RA pre-wetted"
         )
         setattr(self, f"{prefix}_mfd_prewetted_check", prewet)
         f.addWidget(self._field_with_info(prewet,
@@ -2698,7 +2723,7 @@ class ParticleSizeDistributionTab(QWidget):
             "pre-wetting (saturation) of the aggregate before batching "
             "and mixing.",
         ), row, 0, 1, 2)
-        f.setColumnStretch(2, 1)
+        f.setColumnStretch(1, 1)
         return grp
 
     # ── IS 383 quality: dynamic behaviour and gathering ──────────────
@@ -2860,7 +2885,7 @@ class ParticleSizeDistributionTab(QWidget):
             "preventive_material",
         )
         combo.addItem("Reactive — no mitigation", "reactive_unmitigated")
-        combo.setMinimumWidth(150)
+        combo.setMinimumWidth(0)
         combo.setToolTip(
             "Clause 7.3 / 11.2: for concrete subject to wetting, extended "
             "exposure to humid atmosphere or contact with moist ground, "

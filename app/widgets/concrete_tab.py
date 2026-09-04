@@ -51,11 +51,14 @@ from concrete_mix import (
     generate_pdf_report,
     map_cement_type,
 )
+from concrete_mix.codes.tables.doe_tables import WORKABILITY_CLASS_INFO
 from concrete_mix.codes.tables.is_tables import (
     CA_VOLUME_FRACTION,
+    MASS_WATER_CONTENT,
     WATER_CONTENT,
     compute_water_reduction,
     get_exposure_limits,
+    mass_water_content,
 )
 from concrete_mix.models.materials import AggregateShape
 
@@ -128,7 +131,17 @@ class ConcreteMixTab(QWidget):
         input_scroll = QScrollArea()
         input_scroll.setWidgetResizable(True)
         input_scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        # Never scroll sideways: wrapped form rows reflow (label above the
+        # field) instead, so dragging the splitter narrower always moves
+        # the handle instead of clipping behind a horizontal scrollbar.
+        input_scroll.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        )
         input_widget = QWidget()
+        input_widget.setMinimumWidth(0)
+        input_widget.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred
+        )
         self._form = QVBoxLayout(input_widget)
         self._form.setContentsMargins(16, 16, 12, 16)
         self._form.setSpacing(8)
@@ -173,8 +186,11 @@ class ConcreteMixTab(QWidget):
         splitter.addWidget(self._result_stack)
 
         splitter.setSizes([440, 760])
-        splitter.setStretchFactor(0, 0)
-        splitter.setStretchFactor(1, 1)
+        # Both panes share window-resize growth (sidebar 1 : results 2) so
+        # enlarging the window visibly widens the inputs; the splitter
+        # handle itself remains freely draggable at all times.
+        splitter.setStretchFactor(0, 1)
+        splitter.setStretchFactor(1, 2)
         splitter.setCollapsible(0, False)
         splitter.setCollapsible(1, False)
         splitter.setHandleWidth(6)
@@ -185,6 +201,24 @@ class ConcreteMixTab(QWidget):
         # Wire export buttons
         self._result_panel.btn_csv.clicked.connect(self._export_csv)
         self._result_panel.btn_report.clicked.connect(self._show_preview)
+
+        # ── Responsive reflow ──
+        # Side-by-side label+field rows (QFormLayout default DontWrapRows)
+        # force each group minimum to label_min + field_min (~400 px), so
+        # the splitter cannot shrink below it and typed-in spin text (which
+        # grows the field's size hint) makes the handle feel stuck. Wrapping
+        # long rows stacks the field below its label when narrow, dropping
+        # the group minimum to max(label, field) so the sidebar tracks the
+        # handle smoothly at any width. Runs here (not in _build_form)
+        # because the form widgets are only parented to this tab once the
+        # scroll container and splitter pages above are assembled.
+        for _form_layout in self.findChildren(QFormLayout):
+            _form_layout.setRowWrapPolicy(
+                QFormLayout.RowWrapPolicy.WrapLongRows
+            )
+            _form_layout.setFieldGrowthPolicy(
+                QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow
+            )
 
         # Wire quantification handoff
         self._result_panel.send_to_quantification.connect(self.mix_design_ready.emit)
@@ -228,6 +262,66 @@ class ConcreteMixTab(QWidget):
         label.setEnabled(enabled)
         control.setEnabled(enabled)
 
+    def _update_scm_enabled_state(self) -> None:
+        """Gray out SCM replacement and SG when SCM Type is 'None'."""
+        mix_mode = not self._is_target_strength_mode() if hasattr(self, "mode_combo") else True
+        has_scm = bool(self.scm_type_combo.currentData()) if hasattr(self, "scm_type_combo") else False
+        enabled = mix_mode and has_scm
+        if hasattr(self, "_lbl_scm_pct") and hasattr(self, "scm_pct_spin"):
+            self._set_enabled(self._lbl_scm_pct, self.scm_pct_spin, enabled)
+        if hasattr(self, "_lbl_scm_sg") and hasattr(self, "scm_sg_spin"):
+            self._set_enabled(self._lbl_scm_sg, self.scm_sg_spin, enabled)
+
+    def _update_admix_enabled_state(self) -> None:
+        """Gray out Admixture fields when Admixture Type is 'None'."""
+        mix_mode = not self._is_target_strength_mode() if hasattr(self, "mode_combo") else True
+        has_admix = bool(self.admix_type_combo.currentData()) if hasattr(self, "admix_type_combo") else False
+        enabled = mix_mode and has_admix
+        if hasattr(self, "_lbl_admix_dosage") and hasattr(self, "admix_dosage_spin"):
+            self._set_enabled(self._lbl_admix_dosage, self.admix_dosage_spin, enabled)
+        if hasattr(self, "_lbl_admix_reduction") and hasattr(self, "admix_spin"):
+            self._set_enabled(self._lbl_admix_reduction, self.admix_spin, enabled)
+        if hasattr(self, "_lbl_admix_sg") and hasattr(self, "admix_sg_spin"):
+            self._set_enabled(self._lbl_admix_sg, self.admix_sg_spin, enabled)
+        if hasattr(self, "_lbl_admix_water") and hasattr(self, "admix_water_spin"):
+            self._set_enabled(self._lbl_admix_water, self.admix_water_spin, enabled)
+        if hasattr(self, "_lbl_reduced_water") and hasattr(self, "reduced_water_label"):
+            self._set_enabled(self._lbl_reduced_water, self.reduced_water_label, enabled)
+
+    def _update_ca_split_for_doe(self) -> None:
+        """DOE only: automatically split coarse aggregate based on NMSA (BRE 331 §5.5).
+
+        - NMSA 40 mm: automatically split to 3 (10+20+40 mm, 1 : 1.5 : 3)
+        - NMSA 20 mm: automatically split to 2 (10+20 mm, 1 : 2)
+        - NMSA 10 mm / other: Single stock (no split)
+        Only applied when the DOE standard is selected.
+        """
+        if not hasattr(self, "code_combo") or not hasattr(self, "ca_split_combo"):
+            return
+        code = self.code_combo.currentData()
+        if code != "doe":
+            return
+        nmsa = self.nmsa_combo.currentData() if hasattr(self, "nmsa_combo") else 20
+        target = ""
+        if nmsa == 40:
+            target = "10+20+40"
+        elif nmsa == 20:
+            target = "10+20"
+
+        idx = self.ca_split_combo.findData(target)
+        if idx >= 0:
+            self.ca_split_combo.setCurrentIndex(idx)
+
+        # Enable/disable dropdown options based on compatibility with NMSA
+        model = self.ca_split_combo.model()
+        if model:
+            item_2way = model.item(1)  # "10+20"
+            if item_2way:
+                item_2way.setEnabled(nmsa == 20)
+            item_3way = model.item(2)  # "10+20+40"
+            if item_3way:
+                item_3way.setEnabled(nmsa == 40)
+
     def _apply_mode_state(self) -> None:
         """Apply the mode-specific active-field matrix.
 
@@ -248,6 +342,10 @@ class ConcreteMixTab(QWidget):
         # Step 2 and Step 3 are only meaningful for full mix proportioning.
         self._grp_step2.setEnabled(mix_mode)
         self._grp_step3.setEnabled(mix_mode)
+        if hasattr(self, "_grp_trial"):
+            self._grp_trial.setEnabled(mix_mode)
+        if hasattr(self, "_grp_scc"):
+            self._grp_scc.setEnabled(mix_mode)
 
         # Step 1: standard and mode are always available.
         self.code_combo.setEnabled(True)
@@ -257,12 +355,22 @@ class ConcreteMixTab(QWidget):
         # not the target mean strength itself.
         for label, control in (
             (self._lbl_concrete_type, self.concrete_type_combo),
+            (self._lbl_placing, self.placing_combo),
+            (self._lbl_mass, self.mass_check),
             (self._lbl_exposure, self.exposure_combo),
             (self._lbl_max_wc, self.max_wc_label),
             (self._lbl_air, self.air_check),
+            (self._lbl_prestressed, self.prestressed_check),
             (self._lbl_sulfate, self.sulfate_combo),
+            (self._lbl_frost, self.frost_combo),
+            (self._lbl_water_exp, self.water_exp_combo),
+            (self._lbl_corr, self.corr_combo),
             (self._slump_label_container, self.slump_spin),
             (self._lbl_nmsa, self.nmsa_combo),
+            (self._lbl_temp, self.temp_spin),
+            (self._lbl_form_width, self.form_width_spin),
+            (self._lbl_slab_depth, self.slab_depth_spin),
+            (self._lbl_bar_spacing, self.bar_spacing_spin),
             (self._lbl_water, self.water_content_label),
             (self._lbl_volume, self.volume_spin),
         ):
@@ -273,26 +381,43 @@ class ConcreteMixTab(QWidget):
         # production data is selected.
         self.prod_data_check.setEnabled(mix_mode or is_aci)
 
-        # DOE target strength uses defective percentage and Figure 3's n rule.
+        # DOE target strength uses defective percentage and Figure 3's n rule —
+        # unless the margin M is known, which bypasses k, s and n entirely
+        # (BRE 331:1997 §4.4: fm = fc + M from site records).
+        margin_known = (
+            is_doe
+            and hasattr(self, "margin_known_check")
+            and self.margin_known_check.isChecked()
+        )
         for label, control in (
             (self._lbl_defective_pct, self.defective_pct_spin),
             (self._lbl_n_cubes, self.n_cubes_spin),
         ):
-            self._set_enabled(label, control, mix_mode or is_doe)
+            self._set_enabled(label, control, (mix_mode or is_doe) and not margin_known)
         self._set_enabled(
             self._lbl_std_dev,
             self.std_dev_display,
-            mix_mode or is_doe,
+            (mix_mode or is_doe) and not margin_known,
         )
+        if hasattr(self, "margin_known_check"):
+            self.margin_known_check.setEnabled(mix_mode or is_doe)
+        if hasattr(self, "margin_spin"):
+            self._set_enabled(
+                self._lbl_margin, self.margin_spin, (mix_mode or is_doe) and margin_known
+            )
         self.doe_structural_label.setEnabled(mix_mode or is_doe)
 
         # Target-strength mode does not need DOE age, durability cement limits,
-        # or a manual W/C limit. These are re-enabled for full design mode.
+        # workability range, or a manual W/C limit. These are re-enabled for
+        # full design mode.
         for label, control in (
             (self._lbl_age, self.age_combo),
             (self._lbl_min_cement, self.min_cement_spin),
             (self._lbl_max_cement, self.max_cement_spin),
             (self._lbl_max_wc_override, self.max_wc_override_spin),
+            (self._lbl_air_pct, self.air_pct_spin),
+            (self._lbl_vebe, self.vebe_spin),
+            (self._lbl_doe_workability, self.doe_workability_combo),
         ):
             self._set_enabled(label, control, mix_mode)
 
@@ -304,6 +429,10 @@ class ConcreteMixTab(QWidget):
         # These booleans are intentionally unused here; they document why the
         # controls above are allowed to remain disabled when hidden by code.
         _ = (is_aci, is_is, is_doe)
+
+        # Step 3 sub-controls: SCM and Admixture fields depend on combo selection
+        self._update_scm_enabled_state()
+        self._update_admix_enabled_state()
 
         # Locked PSD-fed fields must stay locked regardless of mode/standard
         # toggling (mode swaps re-enable rows above).
@@ -322,7 +451,8 @@ class ConcreteMixTab(QWidget):
         "standard": {
             "is10262": "IS 10262:2019 — Indian Standard for concrete mix proportioning.\n"
             "Uses metric units (kg/m³). Tables 7–10, Fig. 1 for w/c vs strength.\n"
-            "Clause 8: Covers ordinary, high-strength, SCC, and mass concrete.",
+            "Clause 8: Covers ordinary, high-strength, and mass concrete;\n"
+            "SCC §§7–8 fresh-property checks overlay (not full Annex E design).",
             "aci211": "ACI 211.1-22 — American Concrete Institute guide for mix proportioning.\n"
             "Uses absolute volume method. Tables 5.3.3–5.3.6 for water, w/c, and aggregates.\n"
             "Chapter 9: Worked examples for various scenarios.",
@@ -339,7 +469,8 @@ class ConcreteMixTab(QWidget):
             "  S = standard deviation (Table 2: 3.5–6.0 N/mm²)\n"
             "  X = grade factor (Table 1: 5.0–8.0 N/mm²)\n\n"
             "Example M30:\n"
-            "  f'ck = max(30 + 1.65×5, 30+6.5) = max(38.25, 36.5) = 38.25 MPa\n\n"
+            "  f'ck = max(30 + 1.65×5, 30+6.5) = max(38.25, 36.5) = 38.25\n"
+            "  → 39 MPa (rounded up to whole N/mm², like DOE C2)\n\n"
             "Always use the HIGHER of the two values.",
             "aci211": "Target average compressive strength (ACI 211.1 §5.3.2).\n\n"
             "f'cr = f'c + 1.2·s  (no production data, <30 tests)\n"
@@ -347,16 +478,15 @@ class ConcreteMixTab(QWidget):
             "  f'c = specified compressive strength\n"
             "  s = standard deviation (Table 5.3.2.2)\n\n"
             "Example (f'c = 4000 psi, s = 500 psi):\n"
-            "  f'cr = 4000 + 1.2×500 = 4600 psi (≈31.7 MPa)",
-            "doe": "Target mean strength — DOE Stage 1 (structural, BRE 331:1997 §4.4).\n\n"
-             "fm = fc + M = fc + k × s\n"
-             "  fc = characteristic strength (structural: fc ≥ 25 MPa)\n"
+            "  f'cr = 4000 + 1.2×500 = 4600 psi (≈31.7 MPa → 32 MPa reported)",
+            "doe": "Target mean strength — DOE Stage 1 (BRE 331:1997 §4.4, Figure 3).\n\n"
+             "fm = fc + M = fc + k × s  (any grade ≥ 5 MPa)\n"
              "  k = defectives multiplier (e.g., 1.64 for 5%, 1.96 for 2.5%)\n"
-             "  s = standard deviation: n < 20 → 8 MPa (Line A), n ≥ 20 → 4 MPa (Line B)\n"
-             "      (n = number of test cubes cast for strength testing, Figure 3)\n"
-             "      n < 20 → s = 8 MPa (Figure 3 Line A)\n"
-             "      n ≥ 20 → s = 4 MPa (Figure 3 Line B, §4.4)\n"
-             "This app assumes the mix is for structural elements (fc ≥ 25 MPa).",
+             "  s from Figure 3 by test-cube count n:\n"
+             "      n < 20 → Line A: s = 0.4 × fc (fc ≤ 20), else 8 MPa\n"
+             "      n ≥ 20 → Line B: s = 0.2 × fc (fc ≤ 20), else 4 MPa\n"
+             "      (n = number of test cubes cast for strength testing)\n"
+             "The applied s, line and equation are shown in calculation Step 1.",
         },
         "slump": {
             "is10262": "Workability per IS 1199 (Part 1) — slump test method.\n\n"
@@ -602,12 +732,13 @@ class ConcreteMixTab(QWidget):
             "  • Rounded gravel — river gravel (reduce water by 25 kg/m³)",
         },
         "pct_passing_600um": {
-            "doe": "Percentage of fine aggregate passing the 600 \u00b5m sieve (BRE 331:1997 Figure 6).\n\n"
-            "Fine aggregate grading is characterized by % passing 600 \u00b5m:\n"
-            "  • Coarse sand: ~15–35% passing 600 \u00b5m\n"
-            "  • Medium sand: ~40–60% passing 600 \u00b5m\n"
-            "  • Fine sand: ~65–100% passing 600 \u00b5m\n\n"
-            "Used with slump and NMSA to find fine aggregate % in total aggregate (Figure 6).",
+            "doe": "Percentage of fine aggregate passing the 600 µm sieve (BRE 331:1997 Figure 6) — REQUIRED.\n\n"
+            "Fine aggregate grading is characterized by % passing 600 µm:\n"
+            "  • Coarse sand: ~15–35% passing 600 µm\n"
+            "  • Medium sand: ~40–60% passing 600 µm\n"
+            "  • Fine sand: ~65–100% passing 600 µm\n\n"
+            "Used with slump and NMSA to find fine aggregate % in total aggregate (Figure 6). "
+            "Off-chart values below 15% are read on the 15% curve.",
         },
         "exposure": {
             "is10262": "Environmental exposure class per IS 456:2000 Table 3.\n\n"
@@ -788,7 +919,7 @@ class ConcreteMixTab(QWidget):
 
         # Design standard
         self.code_combo = self._combo(
-            [("ACI 211.1", "aci211"), ("IS 10262", "is10262"), ("DOE (BR 331)", "doe")],
+            [("ACI PRC-211.1:2022", "aci211"), ("IS 10262:2019", "is10262"), ("DOE (BRE 331:1997)", "doe")],
             default="is10262",
         )
         self.code_combo.currentIndexChanged.connect(self._on_code_changed)
@@ -796,10 +927,11 @@ class ConcreteMixTab(QWidget):
             self._label_with_info(
                 "Standard",
                 "Design code governing the mix proportioning method.\n\n"
-                "ACI 211.1: American Concrete Institute — uses absolute volume method, "
+                "ACI PRC-211.1:2022: American Concrete Institute — uses absolute volume method, "
                 "imperial units (lb/yd³), Tables 5.3.3–5.3.6.\n\n"
-                "IS 10262: Bureau of Indian Standards — uses metric units (kg/m³), "
-                "Tables 7–10, Fig. 1 for w/c vs strength.",
+                "IS 10262:2019: Bureau of Indian Standards — uses metric units (kg/m³), "
+                "Tables 7–10, Fig. 1 for w/c vs strength.\n\n"
+                "DOE (BRE 331:1997): British Department of the Environment method.",
                 key="standard",
             ),
             self.code_combo,
@@ -877,6 +1009,92 @@ class ConcreteMixTab(QWidget):
         )
         self._lbl_max_wc = self._label("Max Free W/C Ratio")
         f1.addRow(self._lbl_max_wc, self.max_wc_label)
+
+        # IS-specific: placing method (§5.5.2) and site control (Table 2 Note 1).
+        self.placing_combo = self._combo(
+            [
+                ("Chute (non-pumpable)", "chute"),
+                ("Pumping", "pump"),
+            ],
+            default="chute",
+        )
+        self._lbl_placing = self._label_with_info(
+            "Placing Method",
+            "How the concrete will be placed (IS only).\n\n"
+            "Pumping (or congested reinforcement) reduces the Table 5\n"
+            "coarse-aggregate fraction by up to 10% (IS 10262 §5.5.2;\n"
+            "up to 5% for high-strength, §6.2.7).",
+            key="placing",
+        )
+        f1.addRow(self._lbl_placing, self.placing_combo)
+
+        # IS-specific: pumped-placing CA reduction override (§5.5.2 "up to").
+        # Short "Auto" text: the checkbox shares its row with the explicit
+        # % spin, and the full wording would wedge the form wider than the
+        # sidebar (a no-wrap QCheckBox minimum equals its full text width,
+        # freezing the splitter). Detail lives in the tooltip.
+        self.pump_auto_check = QCheckBox("Auto")
+        self.pump_auto_check.setChecked(True)
+        self.pump_auto_check.setToolTip(
+            "Checked: 10% ordinary / 5% high-strength (worked-example "
+            "values). Unchecked: use the explicit % beside it."
+        )
+        self.pump_reduction_spin = self._spin(10.0, 0.0, 10.0, 0.5, 1)
+        self.pump_reduction_spin.setSuffix(" %")
+        self.pump_reduction_spin.setEnabled(False)
+        self.pump_auto_check.toggled.connect(self.pump_reduction_spin.setEnabled)
+        _pump_row = QWidget()
+        _pump_layout = QHBoxLayout(_pump_row)
+        _pump_layout.setContentsMargins(0, 0, 0, 0)
+        _pump_layout.addWidget(self.pump_auto_check)
+        _pump_layout.addWidget(self.pump_reduction_spin)
+        self._lbl_pump_reduction = self._label_with_info(
+            "Pump CA Reduction",
+            "Explicit pumped-placing CA reduction, 0–10% (IS only).\n\n"
+            "Auto: 10% ordinary (§5.5.2) / 5% high-strength (§6.2.7).\n"
+            "Explicit values above the route maximum are rejected.\n"
+            "Mass sizes have no tabulated value — explicit % only.\n"
+            "Honoured only when Placing Method is Pumping.",
+            key="pump_reduction",
+        )
+        f1.addRow(self._lbl_pump_reduction, _pump_row)
+        self.placing_combo.currentIndexChanged.connect(self._on_code_changed)
+
+        self.site_control_combo = self._combo(
+            [
+                ("Good site control", "good"),
+                ("Fair site control (+1 MPa SD)", "fair"),
+            ],
+            default="good",
+        )
+        self._lbl_site_control = self._label_with_info(
+            "Site Control",
+            "Degree of site control (IS only, Table 2 Note 1).\n\n"
+            "Good: proper cement storage, weigh batching, controlled\n"
+            "water, regular material/grading/moisture checks.\n"
+            "Fair: any deviation — assumed deviation +1 N/mm².\n"
+            "Applies to target strength as well as full design.",
+            key="site_control",
+        )
+        f1.addRow(self._lbl_site_control, self.site_control_combo)
+
+        # IS-specific: mass-concrete route (§9).
+        # Bare checkbox: the "MASS CONCRETE" label beside it already names
+        # the option, and a no-wrap QCheckBox minimum equals its full text
+        # width — the previous long text wedged Step 1 wider than the
+        # sidebar and froze the splitter. Detail lives in the tooltip.
+        self.mass_check = QCheckBox("")
+        self.mass_check.setToolTip(
+            "Mass concrete (IS 10262 §9): dams, rafts, mass pours — "
+            "uses Table 12 water content."
+        )
+        self._lbl_mass = QWidget()
+        _mass_layout = QHBoxLayout(self._lbl_mass)
+        _mass_layout.setContentsMargins(0, 0, 0, 0)
+        _mass_lbl = self._label("Mass Concrete")
+        _mass_layout.addWidget(_mass_lbl)
+        _mass_layout.addStretch()
+        f1.addRow(self._lbl_mass, self.mass_check)
         self.exposure_combo.currentIndexChanged.connect(
             self._update_exposure_wc_display
         )
@@ -885,7 +1103,12 @@ class ConcreteMixTab(QWidget):
         )
 
         # ACI-specific: Air-Entrained
-        self.air_check = QCheckBox("Air-Entrained Concrete")
+        # Bare checkbox (see mass_check): the beside label already names
+        # the option; long no-wrap text would wedge the form wide.
+        self.air_check = QCheckBox("")
+        self.air_check.setToolTip(
+            "Air-entrained concrete for freeze-thaw exposure (ACI 211.1)."
+        )
         self._lbl_air = QWidget()
         _air_layout = QHBoxLayout(self._lbl_air)
         _air_layout.setContentsMargins(0, 0, 0, 0)
@@ -920,10 +1143,136 @@ class ConcreteMixTab(QWidget):
         )
         f1.addRow(self._lbl_sulfate, self.sulfate_combo)
 
+        # ACI-specific: Freezing-and-Thawing Exposure (F-class)
+        self.frost_combo = self._combo(
+            [
+                ("F0 \u2014 Not exposed to freezing", "F0"),
+                ("F1 \u2014 Freezing, no deicing salts", "F1"),
+                ("F2 \u2014 Freezing + deicing salts / seawater", "F2"),
+                ("F3 \u2014 Continuously wet + freezing + deicing", "F3"),
+            ],
+            default="F0",
+        )
+        self._lbl_frost = self._label_with_info(
+            "Freezing Exposure",
+            "Freezing-and-thawing exposure class per ACI 318 Chapter 19 /\n"
+            "ACI 301 Table 4.2.2.6(c).\n\n"
+            "F0 — Not exposed: no durability cap\n"
+            "F1 — Exposed, no deicing: w/c ≤ 0.55, min 3500 psi, air per Table 4.7.3.1\n"
+            "F2 — Exposed to deicing/seawater: w/c ≤ 0.45, min 4500 psi\n"
+            "F3 — Continuously wet + freezing + deicing: w/c ≤ 0.40, min 5000 psi,\n"
+            "  SCM caps (fly ash 25%, slag 50%, silica fume 10%)\n\n"
+            "F1–F3 REQUIRE air-entrained concrete. The lowest w/c from\n"
+            "strength, sulfate, and freezing governs (§4.7.1).",
+            key="frost",
+        )
+        f1.addRow(self._lbl_frost, self.frost_combo)
+
+        # ACI-specific: Water-Contact Exposure (W-class)
+        self.water_exp_combo = self._combo(
+            [
+                ("W0 \u2014 Dry / protected from water", "W0"),
+                ("W1 \u2014 In contact, permeability a concern", "W1"),
+                ("W2 \u2014 Water barrier (tank, reservoir)", "W2"),
+            ],
+            default="W0",
+        )
+        self._lbl_water_exp = self._label_with_info(
+            "Water Exposure",
+            "Water-contact exposure class per ACI 318 Chapter 19 /\n"
+            "ACI 301 Table 4.2.2.6(d).\n\n"
+            "W0 — Dry or protected: no durability cap\n"
+            "W1 — In contact where permeability matters:\n"
+            "  min 2500 psi + 4.2.2.6(a) low-permeability practice\n"
+            "W2 — Water-barrier elements: w/c ≤ 0.50, min 4000 psi\n\n"
+            "The lowest w/c from strength, sulfate, freezing, water,\n"
+            "and corrosion governs (§4.7.1).",
+            key="water_exp",
+        )
+        f1.addRow(self._lbl_water_exp, self.water_exp_combo)
+
+        # ACI-specific: Corrosion Protection (C-class, non-prestressed scope)
+        self.corr_combo = self._combo(
+            [
+                ("C0 \u2014 Dry / protected from moisture", "C0"),
+                ("C1 \u2014 Damp, no external chlorides", "C1"),
+                ("C2 \u2014 External chlorides (deicing/seawater)", "C2"),
+            ],
+            default="C0",
+        )
+        self._lbl_corr = self._label_with_info(
+            "Corrosion Exposure",
+            "Corrosion-protection class per ACI 318 Chapter 19 /\n"
+            "ACI 301 Table 4.2.2.6(e) — non-prestressed concrete.\n\n"
+            "C0 — Dry/protected: chloride ≤ 1.00%\n"
+            "C1 — No external chlorides: chloride ≤ 0.30%\n"
+            "C2 — External chlorides: w/c ≤ 0.40, min 5000 psi,\n"
+            "  chloride ≤ 0.15% (verify by constituent testing)\n\n"
+            "Chloride caps are % water-soluble Cl⁻ by mass of\n"
+            "cementitious material — guidance, not auto-computed.",
+            key="corr",
+        )
+        f1.addRow(self._lbl_corr, self.corr_combo)
+
+        # ACI-specific: prestressed reinforcement (chloride scope).
+        # Bare checkbox (see mass_check): the beside label already names
+        # the option; long no-wrap text would wedge the form wide.
+        self.prestressed_check = QCheckBox("")
+        self.prestressed_check.setToolTip(
+            "Prestressed reinforcement present (chloride exposure scope)."
+        )
+        self._lbl_prestressed = QWidget()
+        _pre_layout = QHBoxLayout(self._lbl_prestressed)
+        _pre_layout.setContentsMargins(0, 0, 0, 0)
+        _pre_lbl = self._label("Prestressing")
+        _pre_layout.addWidget(_pre_lbl)
+        _pre_layout.addStretch()
+        f1.addRow(self._lbl_prestressed, self.prestressed_check)
+
         # ACI-specific: Production Data
         self.prod_data_check = QCheckBox("Has Production Data (\u226530 tests)")
         self.prod_data_check.setChecked(True)
         f1.addRow(None, self.prod_data_check)
+
+        # ACI-specific: number of strength tests behind the sample standard
+        # deviation (Table 4.7.4.3 k-modification for 15–29 tests).
+        self.aci_tests_spin = QSpinBox()
+        self.aci_tests_spin.setRange(15, 1000)
+        self.aci_tests_spin.setValue(30)
+        self.aci_tests_spin.setSingleStep(1)
+        self._lbl_aci_tests = self._label_with_info(
+            "Strength Tests (n)",
+            "Number of strength tests behind the sample standard deviation "
+            "(ACI only).\n\n"
+            "ACI PRC-211.1-22 Tables 4.7.4.3–4.7.4.4:\n"
+            "  n \u2265 30 \u2192 s used unmodified (k = 1.00)\n"
+            "  n = 15\u201329 \u2192 s \u00d7 k (1.16 / 1.08 / 1.03)\n"
+            "  n < 15 \u2192 no-data table (uncheck production data)\n\n"
+            "Requires 'Has Production Data' to be checked.",
+            key="aci_strength_tests",
+        )
+        f1.addRow(self._lbl_aci_tests, self.aci_tests_spin)
+
+        # ACI-specific: target paste volume (Example 4 / AASHTO PP 84).
+        self.paste_vol_spin = self._spin(0.0, 0.0, 45.0, 0.5, 1)
+        self.paste_vol_spin.setToolTip(
+            "Target paste volume as % of concrete volume (ACI only; 0 = off).\n\n"
+            "ACI PRC-211.1-22 Example 4 (\u00a79.5): solves the cementitious contents\n"
+            "for this paste volume at the design w/cm and SCM fraction, then\n"
+            "rebalances the aggregates. AASHTO PP 84 cites 25% for slab warping\n"
+            "and shrinkage-cracking control."
+        )
+        self._lbl_paste_vol = self._label_with_info(
+            "Target Paste Volume (%)",
+            "Target paste volume (cementitious + water) as a percentage of the\n"
+            "concrete volume (ACI only). 0 = keep the strength-designed\n"
+            "proportions (paste volume is still reported).\n\n"
+            "ACI PRC-211.1-22 \u00a79.5, Example 4 \u2014 lower paste volume lowers\n"
+            "shrinkage, heat, cost and carbon; AASHTO PP 84 suggests 25% for\n"
+            "slabs. The reduced water normally needs an HRWRA.",
+            key="aci_paste_volume",
+        )
+        f1.addRow(self._lbl_paste_vol, self.paste_vol_spin)
 
         # DOE-specific fields in Step 1
         self.defective_pct_spin = self._spin(5.0, 1.0, 10.0, 0.5, 1)
@@ -937,7 +1286,7 @@ class ConcreteMixTab(QWidget):
             key="defective_percent",
         )
 
-        # DOE: Number of test cubes (n) — structural assumption
+        # DOE: Number of test cubes (n) for the Figure 3 line selection.
         self.n_cubes_spin = QSpinBox()
         self.n_cubes_spin.setRange(1, 200)
         self.n_cubes_spin.setValue(20)
@@ -951,19 +1300,17 @@ class ConcreteMixTab(QWidget):
             "Number of Test Cubes (n)",
             "Number of test cubes (number of results, n) that will be cast for testing "
             "the compressive strength (BRE 331:1997 §4.4, Figure 3).\n\n"
-            "DOE structural assumption (this app assumes structural elements, fc ≥ 25 MPa):\n"
-            "  n < 20 → standard deviation s = 8 MPa (Figure 3 Line A)\n"
-            "  n ≥ 20 → s = 4 MPa (Figure 3 Line B, §4.4)\n\n"
+            "Figure 3 lines (any grade):\n"
+            "  n < 20 → Line A: s = 0.4×fc (fc ≤ 20), else 8 MPa\n"
+            "  n ≥ 20 → Line B: s = 0.2×fc (fc ≤ 20), else 4 MPa\n\n"
             "The s value is then used to compute the margin M = k×s\n"
             "and target mean strength f_m = f_c + M (Calculations C1/C2).\n"
-            "For non-structural reference the classic Figure 3 is retained when n\n"
-            "is not supplied, but the UI always supplies n for DOE structural designs.",
+            "The UI always supplies n for DOE designs.",
             key="n_cubes",
         )
 
-        # DOE: Standard deviation — display only (shows the s actually applied)
-        # BRE 331 §4.4 Figure 3: n<20 → 8 MPa (Line A), n≥20 → 4 MPa (Line B)
-        # This field is NOT editable; it simply shows the calculation value.
+        # DOE: Standard deviation — display only (shows the s actually applied
+        # per the Figure 3 piecewise lines). NOT editable.
         self.std_dev_display = QLabel("—")
         self.std_dev_display.setWordWrap(True)
         self.std_dev_display.setStyleSheet(
@@ -974,18 +1321,42 @@ class ConcreteMixTab(QWidget):
             "Std Deviation (MPa) — Applied",
             "Standard deviation actually applied in the DOE calculation "
             "(BRE 331 §4.4, Figure 3) — display only.\n\n"
-            "n < 20 → s = 8 MPa (Line A)\n"
-            "n ≥ 20 → s = 4 MPa (Line B)\n"
+            "n < 20 → Line A: s = 0.4×fc (fc ≤ 20), else 8 MPa\n"
+            "n ≥ 20 → Line B: s = 0.2×fc (fc ≤ 20), else 4 MPa\n"
             "This value is used for M = k×s and fm = fc + M and is derived "
-            "from the Number of Test Cubes (n) you entered above. For structural "
-            "DOE (fc ≥ 25 MPa) it is the only value used — no manual override.",
+            "from the Number of Test Cubes (n) you entered above — "
+            "no manual override.",
             key="std_deviation",
         )
         # Keep a hidden spin for backwards compat where some code may still read it;
         # it is never shown for DOE and always stays at Auto (0) → engine derives s from n.
         self.std_dev_spin = UnitSpinBox("strength", 0.0, 0.0, 20.0, 0.1, 1)
-        self.std_dev_spin.setSpecialValueText("Auto (Figure 3: n<20→8, n≥20→4)")
+        self.std_dev_spin.setSpecialValueText("Auto (Figure 3 lines by n)")
         self.std_dev_spin.setVisible(False)
+
+        # DOE: known-margin bypass (BRE 331:1997 §4.4). When M comes straight
+        # from site records, M = k×s is skipped entirely — defectives (k),
+        # test-cube count (n) and the applied-s display are deactivated and
+        # the target is fm = fc + M (Calculation C2, rounded up).
+        self.margin_known_check = QCheckBox("Margin is known")
+        self.margin_known_check.setChecked(False)
+        self.margin_known_check.setToolTip(
+            "Check when the strength margin M is known from site records.\n"
+            "Defective %, Number of Test Cubes and the applied Std Deviation\n"
+            "are deactivated; the target is fm = fc + M (BRE 331 §4.4, C2)."
+        )
+        self.margin_known_check.toggled.connect(self._on_margin_known_toggled)
+        self.margin_spin = UnitSpinBox("strength", 10.0, 0.5, 40.0, 0.5, 1)
+        self.margin_spin.setEnabled(False)
+        self._lbl_margin = self._label_with_info(
+            "Margin M (MPa)",
+            "Known strength margin from site records (DOE only, BRE 331 §4.4).\n\n"
+            "Used directly as fm = fc + M (rounded up, C2) — the k×s\n"
+            "computation and its defectives / test-cube inputs are bypassed.\n"
+            "Enable via the 'Margin is known' checkbox above.",
+            key="margin_mpa",
+        )
+        self._lbl_margin.setEnabled(False)
 
         self.age_combo = self._combo(
             [("3 Days", 3), ("7 Days", 7), ("28 Days", 28), ("91 Days", 91)],
@@ -1025,16 +1396,41 @@ class ConcreteMixTab(QWidget):
         f1.addRow(self._lbl_defective_pct, self.defective_pct_spin)
         f1.addRow(self._lbl_n_cubes, self.n_cubes_spin)
         f1.addRow(self._lbl_std_dev, self.std_dev_display)
+        f1.addRow(None, self.margin_known_check)
+        f1.addRow(self._lbl_margin, self.margin_spin)
         f1.addRow(self._lbl_age, self.age_combo)
         f1.addRow(self._lbl_min_cement, self.min_cement_spin)
         f1.addRow(self._lbl_max_cement, self.max_cement_spin)
         f1.addRow(self._lbl_max_wc_override, self.max_wc_override_spin)
 
-        # Structural concrete assumption banner (applicable to all design standards)
+        # DOE-specific: entrained air (§8) and Vebe workability alternative.
+        self.air_pct_spin = self._spin(0.0, 0.0, 10.0, 0.5, 1)
+        self._lbl_air_pct = self._label_with_info(
+            "Entrained Air (%)",
+            "Entrained air content (DOE only, BRE 331:1997 §8).\n\n"
+            "0 = non-air-entrained (normal design).\n"
+            "3–7% = §8 air-entrained design: inflated target strength,\n"
+            "water from one class lower, density correction.\n"
+            "Outside 3–7% warns (allowances validated over 3–7%).",
+            key="doe_air",
+        )
+        f1.addRow(self._lbl_air_pct, self.air_pct_spin)
+
+        self.vebe_spin = self._spin(0.0, 0.0, 120.0, 0.5, 1)
+        self._lbl_vebe = self._label_with_info(
+            "Vebe Time (s)",
+            "Vebe time as the workability basis instead of slump (DOE only).\n\n"
+            "Table 3 classes: >12 s, 6–12 s, 3–6 s, 0–3 s\n"
+            "(same four classes as slump 0–10/10–30/30–60/60–180 mm).\n"
+            "0 = use slump. When set, Vebe governs water and Figure 6.",
+            key="vebe",
+        )
+        f1.addRow(self._lbl_vebe, self.vebe_spin)
+
+        # Design-note banner (text set per code in _on_code_changed).
         self.doe_structural_label = QLabel(
-            "ⓘ Structural Concrete Design: This app assumes the mix is for structural elements "
-            "(characteristic strength ≥ 25 MPa across IS 10262, ACI 211.1, and BRE 331). "
-            "Minimum characteristic strength is 25 MPa."
+            "ⓘ Any grade 5–100 MPa. Durability is gated by the exposure "
+            "selection — e.g. severe exposure still requires its minimum grade."
         )
         self.doe_structural_label.setWordWrap(True)
         self.doe_structural_label.setStyleSheet(
@@ -1044,12 +1440,13 @@ class ConcreteMixTab(QWidget):
         )
         f1.addRow(self.doe_structural_label)
 
-        # Strength, slump, NMSA, water, volume (minimum strength 25 MPa for structural concrete)
-        self.strength_spin = UnitSpinBox("strength", 25.0, 25.0, 100.0, 0.5, 2)
+        # No app-imposed structural floor: any grade 5–100 MPa per code
+        # (exposure classes impose their own minima downstream).
+        self.strength_spin = UnitSpinBox("strength", 25.0, 5.0, 100.0, 0.5, 2)
         self.strength_spin.valueChanged.connect(self._update_std_dev_display)
         self.slump_spin = UnitSpinBox("slump", 75.0, 10.0, 250.0, 5.0, 0)
         self.nmsa_combo = self._combo(
-            [("10 mm", 10), ("20 mm", 20), ("40 mm", 40)],
+            [("10 mm", 10), ("12.5 mm", 12.5), ("20 mm", 20), ("40 mm", 40)],
             default=20,
         )
         self.nmsa_combo.currentIndexChanged.connect(self._on_nmsa_changed)
@@ -1061,13 +1458,15 @@ class ConcreteMixTab(QWidget):
         self._lbl_strength = self._label_with_info(
             "Characteristic Strength fck (MPa)",
             "Characteristic compressive strength at 28 days.\n\n"
-            "This application assumes concrete is proportioned for structural use "
-            "(minimum 25 MPa across IS 10262, ACI 211.1, and BRE 331/DOE).\n\n"
+            "Any grade 5–100 MPa in all three codes — durability is gated by\n"
+            "the exposure selection (IS 456 Table 5 / ACI 318 Chapter 19), not\n"
+            "by an input floor. DOE (Figure 3) designs any grade directly.\n\n"
             "IS 10262:2019: f'ck = max(fck + 1.65·S,  fck + X) — take the higher value.\n"
             "  S = standard deviation (Table 2); X = grade factor (Table 1).\n"
-            "  e.g., M30 → f'ck = max(30+8.25, 30+6.5) = 38.25 MPa.\n\n"
+            "  e.g., M30 → f'ck = max(30+8.25, 30+6.5) = 38.25 → 39 MPa (rounded up).\n\n"
             "ACI 211.1: f'cr = f'c + 1.34·s (with data) or ACI 318 Table 26.4.3.1(b) overdesign.\n\n"
-            "DOE (BRE 331): fm = fc + k·s (Line A: s=8 MPa for n<20, Line B: s=4 MPa for n≥20).\n\n"
+            "DOE (BRE 331 Figure 3): fm = fc + k·s — Line A (n<20): s = 0.4×fc "
+            "(fc≤20) else 8 MPa; Line B (n≥20): s = 0.2×fc (fc≤20) else 4 MPa.\n\n"
             "Typical range: 25–50 MPa (structural), 50–100 MPa (high-strength).",
             key="strength",
         )
@@ -1077,6 +1476,38 @@ class ConcreteMixTab(QWidget):
             self._slump_label_widget(),
             self.slump_spin,
         )
+
+        # DOE-only workability range selector (BRE 331 Table 3 / Figure 6).
+        # Table 3 and every Figure 6 panel are organised by workability
+        # RANGE (one column per NMSA page), not by exact slump — typing a
+        # number alone hides which column governs the design and jumps at
+        # the 10/30/60 mm boundaries. The combo selects the range (the
+        # standard's actual input); the slump spin stays as the specified
+        # target value (Table 1 Item 2.1) and follows the range. Labels
+        # carry the live Table 3 water for the current NMSA/type.
+        self.doe_workability_combo = self._combo(
+            [(f"Slump {info['slump']} (Vebe {info['vebe']})", info["class"])
+             for info in WORKABILITY_CLASS_INFO],
+            default=1,
+        )
+        self.doe_workability_combo.currentIndexChanged.connect(
+            self._on_doe_workability_changed
+        )
+        self._lbl_doe_workability = self._label_with_info(
+            "Workability Range (DOE)",
+            "BRE 331:1997 Table 3 workability range — the design input that\n"
+            "selects the Table 3 water column AND the Figure 6 chart panel\n"
+            "(NMSA page × this column), for every aggregate size.\n\n"
+            "Ranges (slump / Vebe):\n"
+            "  0–10 mm / >12 s — very low workability\n"
+            "  10–30 mm / 6–12 s — low (roads, mass)\n"
+            "  30–60 mm / 3–6 s — medium (general RC)\n"
+            "  60–180 mm / 0–3 s — high (heavily reinforced)\n\n"
+            "Picking the range sets the specified slump to the class\n"
+            "mid-value (5/20/45/120 mm). Setting Vebe time overrides both.",
+            key="doe_workability",
+        )
+        f1.addRow(self._lbl_doe_workability, self.doe_workability_combo)
         self._lbl_nmsa = self._label_with_info(
             "NMSA",
             "Nominal Maximum Size of Aggregate — largest sieve retaining 0–15% of aggregate.\n\n"
@@ -1089,6 +1520,39 @@ class ConcreteMixTab(QWidget):
             key="nmsa",
         )
         f1.addRow(self._lbl_nmsa, self.nmsa_combo)
+
+        # ACI-only structural dimensions for the NMSA check
+        # (ACI 318 26.4.2.1(a)(5)). 0 = not supplied = not checked.
+        self.form_width_spin = UnitSpinBox("length_mm", 0.0, 0.0, 100000.0, 10.0, 0)
+        self._lbl_form_width = self._label_with_info(
+            "Form Width (narrowest)",
+            "Narrowest dimension between form sides (ACI only, optional).\n\n"
+            "NMSA must not exceed 1/5 of this value\n"
+            "(ACI 318 26.4.2.1(a)(5)). Leave at 0 to skip the check.",
+            key="form_width",
+        )
+        f1.addRow(self._lbl_form_width, self.form_width_spin)
+
+        self.slab_depth_spin = UnitSpinBox("length_mm", 0.0, 0.0, 100000.0, 10.0, 0)
+        self._lbl_slab_depth = self._label_with_info(
+            "Slab Depth",
+            "Depth of slab, if the pour is a slab (ACI only, optional).\n\n"
+            "NMSA must not exceed 1/3 of the slab depth\n"
+            "(ACI 318 26.4.2.1(a)(5)). Leave at 0 to skip the check.",
+            key="slab_depth",
+        )
+        f1.addRow(self._lbl_slab_depth, self.slab_depth_spin)
+
+        self.bar_spacing_spin = UnitSpinBox("length_mm", 0.0, 0.0, 100000.0, 5.0, 0)
+        self._lbl_bar_spacing = self._label_with_info(
+            "Clear Bar Spacing (min)",
+            "Minimum clear spacing between individual bars, bundles,\n"
+            "or prestressing strands (ACI only, optional).\n\n"
+            "NMSA must not exceed 3/4 of this spacing\n"
+            "(ACI 318 26.4.2.1(a)(5)). Leave at 0 to skip the check.",
+            key="bar_spacing",
+        )
+        f1.addRow(self._lbl_bar_spacing, self.bar_spacing_spin)
         self._lbl_water = self._label_with_info(
             "Water Content (kg/m\u00b3)",
             "Water content from IS 10262:2019 Table 4 \u2014 determined by NMSA only.\n\n"
@@ -1109,6 +1573,19 @@ class ConcreteMixTab(QWidget):
             key="volume",
         )
         f1.addRow(self._lbl_volume, self.volume_spin)
+
+        # ACI-specific: fresh concrete temperature (Table 5.3.3.1 baseline
+        # is 68–77 °F; 22.5 °C reproduces the unadjusted table estimate).
+        self.temp_spin = self._spin(22.5, -10.0, 60.0, 0.5, 1)
+        self._lbl_temp = self._label_with_info(
+            "Concrete Temp (°C)",
+            "Fresh concrete temperature (ACI only).\n\n"
+            "Table 5.3.3.1: ±2% mixing water per 10 °F (±5.6 °C)\n"
+            "deviation from standard laboratory 68–77 °F.\n"
+            "22.5 °C = baseline = no adjustment.",
+            key="temp",
+        )
+        f1.addRow(self._lbl_temp, self.temp_spin)
         grp1.setLayout(f1)
         self._grp_step1 = grp1
         self._form.addWidget(grp1)
@@ -1212,8 +1689,9 @@ class ConcreteMixTab(QWidget):
         self.fa_moist_spin = self._spin(0.0, 0.0, 20.0, 0.5, 1)
         self.pct_passing_600um_spin = self._spin(60.0, 0.0, 100.0, 1.0, 1)
         self._lbl_pct_passing_600um = self._label_with_info(
-            "FA Passing 600 \u00b5m (%)",
-            "Percentage of fine aggregate passing the 600 \u00b5m sieve (DOE only).\n\n"
+            "FA Passing 600 \u00b5m (%) *",
+            "Percentage of fine aggregate passing the 600 \u00b5m sieve "
+            "(DOE only, required).\n\n"
             "This value determines the grading of the sand. Figure 6 uses this percentage "
             "along with the nominal maximum size of aggregate (NMSA) and slump to "
             "determine the fine aggregate proportion in the total aggregate.",
@@ -1251,9 +1729,47 @@ class ConcreteMixTab(QWidget):
             self.fa_sg_spin,
         )
         f2.addRow(self._lbl_fm, self.fm_spin)
+        # ACI-specific: manufactured sand flag (Table 5.3.3.1 +5% water).
+        # Bare checkbox (see mass_check): the beside label already names
+        # the option; long no-wrap text would wedge the form wide.
+        self.mfg_sand_check = QCheckBox("")
+        self.mfg_sand_check.setToolTip(
+            "Manufactured (crushed) sand — ACI Table 5.3.3.1 adds 5% water."
+        )
+        self._lbl_mfg_sand = QWidget()
+        _mfg_layout = QHBoxLayout(self._lbl_mfg_sand)
+        _mfg_layout.setContentsMargins(0, 0, 0, 0)
+        _mfg_lbl = self._label("Manufactured Sand")
+        _mfg_layout.addWidget(_mfg_lbl)
+        _mfg_layout.addStretch()
+        f2.addRow(self._lbl_mfg_sand, self.mfg_sand_check)
         f2.addRow(self._lbl_zone, self.grading_combo)
         f2.addRow(self._lbl_ca_frac, self.ca_fraction_combo)
         f2.addRow(self._lbl_pct_passing_600um, self.pct_passing_600um_spin)
+        # Live Figure 6 readout directly under the % passing 600 µm field:
+        # re-runs the DOE engine on the current form values and reports
+        # step 11 — the proportion of fine aggregate read from the chart
+        # panel selected by NMSA and the slump/Vebe workability class.
+        self.fig6_prop_label = QLabel("—")
+        self.fig6_prop_label.setWordWrap(True)
+        self.fig6_prop_label.setStyleSheet(
+            "font-weight: 600; color: #1e40af; font-size: 13px;")
+        self._lbl_fig6_prop = self._label_with_info(
+            "Figure 6 Fine Agg. (%)",
+            "Proportion of fine aggregate in the total aggregate, read live "
+            "from BRE 331:1997 Figure 6 for the values currently in the "
+            "form (BRE 331:1997 §5.5, Item 5.1–5.3).\n\n"
+            "The chart panel is chosen automatically from the nominal maximum "
+            "aggregate size and the workability class — enter either a slump "
+            "or a Vebe time and the matching column is used.\n\n"
+            "The free-water/cement ratio comes from the full design chain "
+            "(strength → Figure 4, capped by any max W/C override), and "
+            "off-table w/c or passing values are interpolated between the "
+            "printed grid lines. This preview matches design step 11 "
+            "exactly; the authoritative value appears in the results.",
+            key="fig6_prop",
+        )
+        f2.addRow(self._lbl_fig6_prop, self.fig6_prop_label)
         f2.addRow(self._lbl_fa_type, self.fa_type_combo)
         f2.addRow(
             self._label_with_info(
@@ -1370,6 +1886,25 @@ class ConcreteMixTab(QWidget):
             ),
             self.ca_moist_spin,
         )
+
+        # DOE-specific: subdivide total CA into single sizes (§5.5).
+        self.ca_split_combo = self._combo(
+            [
+                ("Single stock (no split)", ""),
+                ("10 + 20 mm  (1 : 2)", "10+20"),
+                ("10 + 20 + 40 mm  (1 : 1.5 : 3)", "10+20+40"),
+            ],
+            default="",
+        )
+        self._lbl_ca_split = self._label_with_info(
+            "CA Split (single sizes)",
+            "Subdivide total coarse aggregate into single-size fractions\n"
+            "(DOE only, BRE 331:1997 §5.5).\n\n"
+            "10+20 (needs 20 mm NMSA) → 1 : 2\n"
+            "10+20+40 (needs 40 mm NMSA) → 1 : 1.5 : 3",
+            key="ca_split",
+        )
+        f2.addRow(self._lbl_ca_split, self.ca_split_combo)
         grp2.setLayout(f2)
         self._grp_step2 = grp2
         self._form.addWidget(grp2)
@@ -1493,11 +2028,28 @@ class ConcreteMixTab(QWidget):
         )
         f3.addRow(self._lbl_admix_sg, self.admix_sg_spin)
 
+        # IS-specific: water contributed by liquid admixtures (Cl. 5.1 note).
+        self.admix_water_spin = self._spin(0.0, 0.0, 50.0, 0.5, 1)
+        self._lbl_admix_water = self._label_with_info(
+            "Admix. Water (kg/m³)",
+            "Mixing water carried in by liquid admixtures (IS only).\n\n"
+            "Counted in the water-cement ratio at durability upper\n"
+            "limits (IS 10262 Cl. 5.1 note) — from the admixture's\n"
+            "solids content. 0 = none or already included.",
+            key="admix_water",
+        )
+        f3.addRow(self._lbl_admix_water, self.admix_water_spin)
+
         self.reduced_water_label = QLabel("—")
         self.reduced_water_label.setWordWrap(True)
         self.reduced_water_label.setStyleSheet(
-            "font-weight: 600; color: #1e40af; font-size: 12px; padding: 6px 10px; "
-            "background: #eff4ff; border: 1px solid #dbeafe; border-radius: 4px;"
+            "QLabel {"
+            "  font-weight: 600; color: #1e40af; font-size: 12px; padding: 6px 10px; "
+            "  background: #eff4ff; border: 1px solid #dbeafe; border-radius: 4px;"
+            "}\n"
+            "QLabel:disabled {"
+            "  font-weight: normal; color: #94a3b8; background-color: #f1f5f9; border: 1px solid #e2e8f0;"
+            "}"
         )
         self._lbl_reduced_water = self._label_with_info(
             "Reduced Water (kg/m\u00b3)",
@@ -1514,6 +2066,132 @@ class ConcreteMixTab(QWidget):
         self._grp_step3 = grp3
         self._form.addWidget(grp3)
 
+        # ════════════════════════════════════════════════════════════════
+        # Trial Check (optional) — measured trial-batch observations for
+        # ACI 211.1 §5.3.10 post-trial adjustments. 0 = not measured.
+        # ════════════════════════════════════════════════════════════════
+        grp_trial = self._group("Trial Check (optional) — ACI §5.3.10")
+        ft = QFormLayout()
+        ft.setSpacing(8)
+        ft.setContentsMargins(12, 16, 12, 12)
+
+        self.trial_density_spin = UnitSpinBox("density", 0.0, 0.0, 3000.0, 10.0, 0)
+        self._lbl_trial_density = self._label_with_info(
+            "Trial Density (measured)",
+            "Measured fresh density of the trial batch, ASTM C138 (ACI only).\n\n"
+            "Enables the yield check: Ry = design volume / actual yield.\n"
+            "Working tolerance 0.98–1.02 (§4.7.9.3). 0 = not measured.",
+            key="trial_density",
+        )
+        ft.addRow(self._lbl_trial_density, self.trial_density_spin)
+
+        self.trial_slump_spin = UnitSpinBox("slump", 0.0, 0.0, 250.0, 5.0, 0)
+        self._lbl_trial_slump = self._label_with_info(
+            "Trial Slump (measured)",
+            "Measured slump of the trial batch (ACI only).\n\n"
+            "Re-estimates water at ±10 lb/yd³ per inch of correction (§5.3.10.1).\n"
+            "Requires trial density above. 0 = not measured.",
+            key="trial_slump",
+        )
+        ft.addRow(self._lbl_trial_slump, self.trial_slump_spin)
+
+        self.trial_air_spin = self._spin(0.0, 0.0, 15.0, 0.1, 1)
+        self._lbl_trial_air = self._label_with_info(
+            "Trial Air % (measured)",
+            "Measured air content of the trial batch (ACI only).\n\n"
+            "Adjusts water ∓5 lb/yd³ per 1% air change (§5.3.10.2).\n"
+            "Applies to air-entrained concrete. 0 = not measured.",
+            key="trial_air",
+        )
+        ft.addRow(self._lbl_trial_air, self.trial_air_spin)
+
+        self.trial_strength_spin = UnitSpinBox("strength", 0.0, 0.0, 120.0, 0.5, 1)
+        self._lbl_trial_strength = self._label_with_info(
+            "Trial Strength (measured)",
+            "Measured 28-day strength of the trial batch (ACI only).\n\n"
+            "Re-estimates cement via cement efficiency, holding w/c\n"
+            "constant (§5.3.10.3). 0 = not measured.",
+            key="trial_strength",
+        )
+        ft.addRow(self._lbl_trial_strength, self.trial_strength_spin)
+
+        grp_trial.setLayout(ft)
+        self._grp_trial = grp_trial
+        self._form.addWidget(grp_trial)
+
+        # ════════════════════════════════════════════════════════════════
+        # SCC (optional) — target slump-flow class + measured fresh
+        # properties for IS 10262 §§7–8 acceptance and §8.3 envelope.
+        # 0 / blank = not measured.
+        # ════════════════════════════════════════════════════════════════
+        grp_scc = self._group("SCC fresh-property checks (optional, IS)")
+        fs = QFormLayout()
+        fs.setSpacing(8)
+        fs.setContentsMargins(12, 16, 12, 12)
+
+        self.scc_class_combo = self._combo(
+            [
+                ("None", ""),
+                ("SF1 — 550–650 mm", "SF1"),
+                ("SF2 — 660–750 mm", "SF2"),
+                ("SF3 — 760–850 mm", "SF3"),
+            ],
+            default="",
+        )
+        self._lbl_scc_class = self._label_with_info(
+            "SCC Target Class",
+            "Target slump-flow class (IS only, §7.2.1).\n\n"
+            "SF1 550–650 mm — lightly reinforced, short flow\n"
+            "SF2 660–750 mm — normal walls/columns\n"
+            "SF3 760–850 mm — heavily reinforced/complex shapes\n\n"
+            "Any selection activates the §§7–8 checks on the result.",
+            key="scc_class",
+        )
+        fs.addRow(self._lbl_scc_class, self.scc_class_combo)
+
+        self.scc_flow_spin = self._spin(0.0, 0.0, 1000.0, 10.0, 0)
+        self._lbl_scc_flow = self._label_with_info(
+            "Slump-Flow (measured, mm)",
+            "Measured slump-flow, IS 1199 (Part 6) (IS only).\n\n"
+            "Checked against the target class above (§7.2.1).\n"
+            "0 = not measured.",
+            key="scc_flow",
+        )
+        fs.addRow(self._lbl_scc_flow, self.scc_flow_spin)
+
+        self.scc_lbox_spin = self._spin(0.0, 0.0, 1.0, 0.05, 2)
+        self._lbl_scc_lbox = self._label_with_info(
+            "L-Box Ratio (measured)",
+            "Passing ability h2/h1, IS 1199 (Part 6) (IS only).\n\n"
+            "Minimum 0.80 (§7.2.2). 0 = not measured.",
+            key="scc_lbox",
+        )
+        fs.addRow(self._lbl_scc_lbox, self.scc_lbox_spin)
+
+        self.scc_sr_spin = self._spin(0.0, 0.0, 100.0, 0.5, 1)
+        self._lbl_scc_sr = self._label_with_info(
+            "Segregation SR % (measured)",
+            "Sieve segregation ratio after 15 min + 2 min (§7.2.3).\n\n"
+            "SR1 15–20% (short flow), SR2 <15% (long/vertical flow).\n"
+            "0 = not measured.",
+            key="scc_sr",
+        )
+        fs.addRow(self._lbl_scc_sr, self.scc_sr_spin)
+
+        self.scc_v_spin = self._spin(0.0, 0.0, 120.0, 0.5, 1)
+        self._lbl_scc_v = self._label_with_info(
+            "V-Funnel Time (measured, s)",
+            "V-funnel flow time, IS 1199 (Part 6) (IS only).\n\n"
+            "V1 ≤ 8 s (self-levelling), V2 8–25 s (§7.2.4).\n"
+            "0 = not measured.",
+            key="scc_v",
+        )
+        fs.addRow(self._lbl_scc_v, self.scc_v_spin)
+
+        grp_scc.setLayout(fs)
+        self._grp_scc = grp_scc
+        self._form.addWidget(grp_scc)
+
         # ── Buttons ──
         # Built as a standalone action bar and pinned below the scroll area
         # by _build_ui, so the primary action is always reachable without
@@ -1524,10 +2202,18 @@ class ConcreteMixTab(QWidget):
 
         self.calc_btn = QPushButton("  Calculate Mix Design")
         self.calc_btn.setMinimumHeight(44)
+        self.calc_btn.setMinimumWidth(0)
+        self.calc_btn.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+        )
         self.calc_btn.clicked.connect(self._on_calculate)
         btn_layout.addWidget(self.calc_btn, 3)
 
         self.clear_btn = QPushButton("  Clear")
+        self.clear_btn.setMinimumWidth(0)
+        self.clear_btn.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+        )
         self.clear_btn.setObjectName("secondary")
         self.clear_btn.setMinimumHeight(44)
         self.clear_btn.clicked.connect(self._on_clear)
@@ -1542,7 +2228,36 @@ class ConcreteMixTab(QWidget):
 
         # Update water content display when slump or NMSA changes
         self.slump_spin.valueChanged.connect(self._update_water_display)
+        # Vebe (DOE) drives the Table 3 / Figure 6 class and re-points the
+        # slump field to the governing class's representative slump, so the
+        # form always shows the slump the design actually uses.
+        self.vebe_spin.valueChanged.connect(self._on_vebe_changed)
+        # … and the Figure 6 fines preview also follows the inputs that
+        # feed it directly: the 600 µm grading itself and the w/c chain
+        # (strength margin inputs, cement grade/age, durability caps,
+        # air, cement limits, admixture water reduction).
+        for _w in (
+            self.pct_passing_600um_spin,
+            self.n_cubes_spin,
+            self.defective_pct_spin,
+            self.max_wc_override_spin,
+            self.air_pct_spin,
+            self.min_cement_spin,
+            self.max_cement_spin,
+            self.admix_spin,
+        ):
+            _w.valueChanged.connect(self._update_fig6_prop_display)
+        for _c in (self.age_combo, self.cement_type_combo):
+            _c.currentIndexChanged.connect(self._update_fig6_prop_display)
+        self.ca_type_combo.currentIndexChanged.connect(self._update_water_display)
+        self.fa_type_combo.currentIndexChanged.connect(self._update_water_display)
+        self.strength_spin.valueChanged.connect(self._update_water_display)
+        self.mass_check.toggled.connect(lambda _c: self._update_water_display())
         self.grading_combo.currentIndexChanged.connect(self._update_water_display)
+        self.temp_spin.valueChanged.connect(self._update_water_display)
+        self.mfg_sand_check.toggled.connect(lambda _c: self._update_water_display())
+        self.scm_type_combo.currentIndexChanged.connect(self._update_water_display)
+        self.scm_pct_spin.valueChanged.connect(self._update_water_display)
 
         # IS mode: the visible Table 5 row ("Zone X — fraction") drives the
         # grading zone the engine consumes — keep the two combos in step.
@@ -1599,6 +2314,12 @@ class ConcreteMixTab(QWidget):
         layout.addStretch()
         container = QWidget()
         container.setLayout(layout)
+        # The label row must never dictate the form width: 0 lets wrapped
+        # labels shrink with the sidebar instead of blocking the splitter.
+        container.setMinimumWidth(0)
+        container.setSizePolicy(
+            QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum
+        )
         if key and hasattr(self, "_info_buttons"):
             self._info_buttons[key] = btn
         return container
@@ -1648,9 +2369,13 @@ class ConcreteMixTab(QWidget):
         self, items: list[tuple[str, object]], default: object = None
     ) -> QComboBox:
         # Shrinkable: a combo's minimum hint is otherwise its widest item,
-        # which forces form rows beyond the sidebar's 360 px floor.
+        # which forces form rows beyond the sidebar floor. MinimumContents
+        # Length 4 (via _shrinkable_combo) + minimumWidth 0 lets the closed
+        # field shrink while the popup still shows full item texts; Expanding
+        # fills the field column when space is available.
         cb = _shrinkable_combo(QComboBox())
         cb.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        cb.setMinimumWidth(0)
         for label, data in items:
             cb.addItem(label, data)
         if default is not None:
@@ -1669,6 +2394,10 @@ class ConcreteMixTab(QWidget):
         sb.setSingleStep(step)
         sb.setDecimals(decimals)
         sb.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        # A spin's hint grows with its text (typed digits + suffix), which
+        # would otherwise push the form wider while editing and freeze the
+        # splitter; 0 lets the field shrink with the sidebar at any time.
+        sb.setMinimumWidth(0)
         return sb
 
     # ── Dynamic Visibility ───────────────────────────────────────────
@@ -1694,15 +2423,21 @@ class ConcreteMixTab(QWidget):
         scm_type = self.scm_type_combo.currentData()
         if scm_type and scm_type in self._SCM_SG_DEFAULTS:
             self.scm_sg_spin.setValue(self._SCM_SG_DEFAULTS[scm_type])
-        # Constrain replacement % range
+        # Constrain replacement % range. DOE (BRE 331 §10.3) has no
+        # procedure above 40% ggbs — cap the control so the engine never
+        # receives a value it must reject.
         if scm_type and scm_type in self._SCM_REPLACEMENT_RANGE:
             lo, hi = self._SCM_REPLACEMENT_RANGE[scm_type]
+            if self.code_combo.currentData() == "doe" and scm_type == "ggbfs":
+                hi = min(hi, 40)
             self.scm_pct_spin.setRange(lo, hi)
             self.scm_pct_spin.setValue((lo + hi) // 2)
             self.scm_pct_spin.setSuffix(f"  ({lo}–{hi}%)")
         else:
             self.scm_pct_spin.setRange(0, 70)
+            self.scm_pct_spin.setValue(0.0)
             self.scm_pct_spin.setSuffix("")
+        self._update_scm_enabled_state()
 
     def _on_admix_changed(self) -> None:
         """Auto-compute water reduction from admixture type + dosage per relevant standard."""
@@ -1715,6 +2450,15 @@ class ConcreteMixTab(QWidget):
             self.admix_spin.setValue(reduction)
             self.admix_spin.setToolTip(desc)
         else:
+            # BRE 331:1997 Stages 1-5 assume no admixture (§5.3 introduces a
+            # water-reducing admixture only as an explicit option). "None"
+            # must leave the Table 3 water untouched, so clear any stale
+            # auto-computed reduction left over from a previous selection —
+            # otherwise it would still be sent to the engine.
+            if not admix_type or admix_type == "":
+                self.admix_spin.blockSignals(True)
+                self.admix_spin.setValue(0.0)
+                self.admix_spin.blockSignals(False)
             if code == "aci211":
                 self.admix_spin.setToolTip(
                     "Percentage of mixing water reduced (ACI PRC-211.1-22 §6.3).\n\n"
@@ -1741,9 +2485,14 @@ class ConcreteMixTab(QWidget):
                     "(Abrams' law: strength ∝ 1/(w/c ratio))"
                 )
         self._update_reduced_water()
+        self._update_admix_enabled_state()
 
     def _update_reduced_water(self) -> None:
         """Update the reduced water content display based on base water and reduction %."""
+        admix_type = self.admix_type_combo.currentData() if hasattr(self, "admix_type_combo") else None
+        if not admix_type:
+            self.reduced_water_label.setText("\u2014")
+            return
         reduction = self.admix_spin.value()
         if self._base_water_content > 0:
             if reduction > 0:
@@ -1767,21 +2516,39 @@ class ConcreteMixTab(QWidget):
         is_aci = code == "aci211"
         is_doe = code == "doe"
 
-        if is_is and nmsa in WATER_CONTENT:
+        if is_is and (nmsa in WATER_CONTENT or nmsa in MASS_WATER_CONTENT):
             from concrete_mix.codes.tables.is_tables import (
                 interpolate_water_content,
+                hs_water_content,
+                HS_WATER_CONTENT,
                 AGGREGATE_SHAPE_ADJUSTMENT_KG,
             )
 
             slump = self.slump_spin.value()
             zone = self.grading_combo.currentData() or "II"
+            mass_mode = self.mass_check.isChecked() or nmsa in (80, 150)
+            hs_mode = self.strength_spin.value() >= 65.0
 
-            wc = interpolate_water_content(nmsa, slump, zone)
-            shape = self.agg_shape_combo.currentData() or "gravel"
-            shape_adj_kg = AGGREGATE_SHAPE_ADJUSTMENT_KG.get(shape, 0.0)
-            wc = wc + shape_adj_kg
-
-            base = WATER_CONTENT[nmsa]
+            if mass_mode and nmsa in MASS_WATER_CONTENT:
+                shape = self.agg_shape_combo.currentData() or "gravel"
+                wc = mass_water_content(
+                    nmsa, slump,
+                    rounded_gravel=(shape == "rounded_gravel"))
+                base = MASS_WATER_CONTENT[nmsa]
+                tag = "Table 12"
+                shape_adj_kg = 0.0
+            elif hs_mode and nmsa in HS_WATER_CONTENT:
+                wc = hs_water_content(nmsa, slump)
+                base = HS_WATER_CONTENT[nmsa]
+                tag = "Table 7"
+                shape_adj_kg = 0.0
+            else:
+                wc = interpolate_water_content(nmsa, slump, zone)
+                shape = self.agg_shape_combo.currentData() or "gravel"
+                shape_adj_kg = AGGREGATE_SHAPE_ADJUSTMENT_KG.get(shape, 0.0)
+                wc = wc + shape_adj_kg
+                base = WATER_CONTENT[nmsa]
+                tag = "Table 4"
             delta = (slump - 50.0) / 25.0 * 3.0
             parts = [f"{base:.0f}"]
             if abs(delta) > 0.01:
@@ -1789,45 +2556,88 @@ class ConcreteMixTab(QWidget):
             if shape_adj_kg != 0:
                 parts.append(f"{shape_adj_kg:+.0f} kg shape")
             self.water_content_label.setText(
-                f"{self._fmt_water_content(wc)}  ({' '.join(parts)})"
+                f"{self._fmt_water_content(wc)}  ({tag}: {' '.join(parts)})"
             )
             self._lbl_water.setVisible(True)
             self.water_content_label.setVisible(True)
             self._base_water_content = wc
         elif is_aci:
             from concrete_mix.codes.tables.aci_tables import interpolate_water_content
+            from concrete_mix.codes.tables.aci_tables import water_adjustment_531
             slump = self.slump_spin.value()
             air_entrained = self.air_check.isChecked()
             try:
                 wc = interpolate_water_content(nmsa, slump, air_entrained=air_entrained)
                 air_text = " (air-entrained)" if air_entrained else " (non-air-entrained)"
-                self.water_content_label.setText(
-                    f"{self._fmt_water_content(wc)}  (ACI Table 5.3.3{air_text})"
+                # Preview Table 5.3.3.1 refinements the engine will apply.
+                _scm_t = self.scm_type_combo.currentData()
+                _scm_p = self.scm_pct_spin.value()
+                _adj_pct, _ = water_adjustment_531(
+                    temp_c=self.temp_spin.value(),
+                    fly_ash_pct=_scm_p if _scm_t in ("fly_ash", "fly_ash_c") else 0.0,
+                    slag_pct=_scm_p if _scm_t == "ggbfs" else 0.0,
+                    manufactured_sand=self.mfg_sand_check.isChecked(),
                 )
+                if abs(_adj_pct) > 1e-9:
+                    _wc_adj = wc * (1.0 + _adj_pct / 100.0)
+                    self.water_content_label.setText(
+                        f"{self._fmt_water_content(_wc_adj)}  "
+                        f"(ACI Table 5.3.3{air_text} {self._fmt_water_content(wc)} "
+                        f"{_adj_pct:+.1f}% T5.3.3.1)"
+                    )
+                else:
+                    self.water_content_label.setText(
+                        f"{self._fmt_water_content(wc)}  (ACI Table 5.3.3{air_text})"
+                    )
                 self._lbl_water.setVisible(True)
                 self.water_content_label.setVisible(True)
-                self._base_water_content = wc
+                self._base_water_content = wc * (1.0 + _adj_pct / 100.0)
             except Exception:
                 self._lbl_water.setVisible(False)
                 self.water_content_label.setVisible(False)
                 self._base_water_content = 0.0
         elif is_doe:
-            from concrete_mix.codes.tables.doe_tables import get_free_water_content
+            from concrete_mix.codes.tables.doe_tables import (
+                get_free_water_content,
+                resolve_workability_class,
+                workability_class_label,
+            )
             slump = self.slump_spin.value()
+            _vebe = self.vebe_spin.value()
+            # Vebe = 0 means "use slump" (spin convention); the resolver
+            # cross-checks the two scales and flags a class disagreement.
+            _wcls, _conflict = resolve_workability_class(
+                slump, _vebe if _vebe > 0 else None
+            )
+            if _vebe > 0:
+                _basis = f"Vebe {_vebe:.1f} s governs"
+            else:
+                _basis = f"Slump {slump:.0f} mm"
+            if _conflict:
+                _basis += " — slump/Vebe classes disagree, Vebe governs"
             ca_type = self.ca_type_combo.currentData() or "uncrushed"
             fa_type = self.fa_type_combo.currentData() or "uncrushed"
+            # Keep the range selector in step with the numeric inputs and
+            # refresh its per-range Table 3 water (depends on NMSA/type).
+            self._sync_doe_workability_combo(_wcls)
+            self._rebuild_doe_workability_labels(nmsa, ca_type, fa_type)
             try:
                 if ca_type != fa_type:
-                    w_fine = get_free_water_content(nmsa, fa_type, slump)
-                    w_coarse = get_free_water_content(nmsa, ca_type, slump)
+                    w_fine = get_free_water_content(
+                        nmsa, fa_type, workability_class=_wcls)
+                    w_coarse = get_free_water_content(
+                        nmsa, ca_type, workability_class=_wcls)
                     wc = (2.0 / 3.0) * w_fine + (1.0 / 3.0) * w_coarse
                     self.water_content_label.setText(
-                        f"{self._fmt_water_content(wc)}  (BRE 331 Table 3 Note: 2/3 Wf + 1/3 Wc)"
+                        f"{self._fmt_water_content(wc)}  (BRE 331 Table 3 Note: 2/3 Wf + 1/3 Wc · "
+                        f"{workability_class_label(_wcls)} · {_basis})"
                     )
                 else:
-                    wc = get_free_water_content(nmsa, ca_type, slump)
+                    wc = get_free_water_content(
+                        nmsa, ca_type, workability_class=_wcls)
                     self.water_content_label.setText(
-                        f"{self._fmt_water_content(wc)}  (BRE 331 Table 3)"
+                        f"{self._fmt_water_content(wc)}  (BRE 331 Table 3 · "
+                        f"{workability_class_label(_wcls)} · {_basis})"
                     )
                 self._lbl_water.setVisible(True)
                 self.water_content_label.setVisible(True)
@@ -1841,6 +2651,142 @@ class ConcreteMixTab(QWidget):
             self.water_content_label.setVisible(False)
             self._base_water_content = 0.0
         self._update_reduced_water()
+        # Figure 6 fines preview follows every water-display trigger
+        # (slump, Vebe, types, strength, NMSA, SCM) …
+        self._update_fig6_prop_display()
+
+    # ── DOE workability-range selector (BRE 331 Table 3 / Figure 6) ──
+
+    def _update_fig6_prop_display(self) -> None:
+        """Live Figure 6 fines proportion under the % passing 600 µm field.
+
+        Runs the full DOE design on the current form values (the same
+        builder the Calculate button uses) and reports step 11 — the
+        proportion of fine aggregate — with the chart panel selected by
+        NMSA and the governing slump/Vebe workability class, plus the
+        free-water/cement ratio actually read into Figure 6. Any input
+        change (passing %, slump, Vebe, strength chain, max W/C override)
+        re-reads the chart, interpolating off-table values; the preview
+        therefore always equals design step 11. Shows "—" while the form
+        is not designable.
+        """
+        if self.code_combo.currentData() != "doe":
+            return
+        try:
+            from concrete_mix import design_mix_simple
+
+            result = design_mix_simple(**self._build_kwargs())
+            s11 = next(s for s in result.steps if s.step_number == 11)
+            panel = s11.inputs.get("figure6_panel", "")
+            ratio = s11.inputs.get("ratio")
+            text = f"{s11.result:.1f} %"
+            if ratio is not None:
+                text += f"  at w/c {float(ratio):.2f}"
+            if panel:
+                text += f"  ({panel})"
+            self.fig6_prop_label.setText(text)
+        except Exception:
+            self.fig6_prop_label.setText("—")
+
+    def _on_vebe_changed(self) -> None:
+        """Vebe input → governing class's representative slump (Table 3).
+
+        Table 3 and every Figure 6 panel are class-based, so entering a
+        Vebe time re-points the slump field to the mid-value
+        (5/20/45/120 mm) of the class the Vebe time selects — the form
+        then shows the slump the design actually uses. Vebe = 0 means
+        "use slump" and leaves the field untouched.
+        """
+        if self.code_combo.currentData() != "doe":
+            return
+        _vebe = self.vebe_spin.value()
+        if _vebe > 0:
+            from concrete_mix.codes.tables.doe_tables import (
+                vebe_to_workability_class,
+            )
+            try:
+                rep = WORKABILITY_CLASS_INFO[
+                    vebe_to_workability_class(_vebe)
+                ]["rep_slump_mm"]
+            except (KeyError, IndexError, TypeError, ValueError):
+                rep = None
+            if rep is not None:
+                self.slump_spin.blockSignals(True)
+                self.slump_spin.setValue(rep)
+                self.slump_spin.blockSignals(False)
+        self._update_water_display()
+
+    def _on_doe_workability_changed(self) -> None:
+        """Range combo → specified slump (Table 1 Item 2.1).
+
+        Picking a range sets the slump to the class mid-value
+        (5/20/45/120 mm) and clears Vebe so slump governs. Numeric
+        edits flow back via _update_water_display → combo sync.
+        """
+        if self.code_combo.currentData() != "doe":
+            return
+        wc_class = self.doe_workability_combo.currentData()
+        if wc_class is None:
+            return
+        try:
+            rep = WORKABILITY_CLASS_INFO[int(wc_class)]["rep_slump_mm"]
+        except (KeyError, IndexError, TypeError, ValueError):
+            return
+        self.slump_spin.blockSignals(True)
+        self.slump_spin.setValue(rep)
+        self.slump_spin.blockSignals(False)
+        self.vebe_spin.blockSignals(True)
+        self.vebe_spin.setValue(0.0)
+        self.vebe_spin.blockSignals(False)
+        self._update_water_display()
+
+    def _sync_doe_workability_combo(self, wc_class: int) -> None:
+        """Reflect the effective workability class in the range combo."""
+        if not hasattr(self, "doe_workability_combo"):
+            return
+        idx = self.doe_workability_combo.findData(int(wc_class))
+        if idx >= 0 and idx != self.doe_workability_combo.currentIndex():
+            self.doe_workability_combo.blockSignals(True)
+            self.doe_workability_combo.setCurrentIndex(idx)
+            self.doe_workability_combo.blockSignals(False)
+
+    def _rebuild_doe_workability_labels(
+        self, nmsa: int, ca_type: str, fa_type: str
+    ) -> None:
+        """Rewrite range-combo labels with live Table 3 water (DOE).
+
+        Each of the four ranges shows the free-water content it selects
+        for the current NMSA and aggregate type(s), so the range picker
+        doubles as the Table 3 data readout ("pick the data"). The
+        selected class is preserved across rebuilds.
+        """
+        if not hasattr(self, "doe_workability_combo"):
+            return
+        from concrete_mix.codes.tables.doe_tables import get_free_water_content
+
+        cur = self.doe_workability_combo.currentData()
+        self.doe_workability_combo.blockSignals(True)
+        self.doe_workability_combo.clear()
+        for info in WORKABILITY_CLASS_INFO:
+            c = info["class"]
+            try:
+                if ca_type != fa_type:
+                    w = ((2.0 / 3.0)
+                         * get_free_water_content(nmsa, fa_type, workability_class=c)
+                         + (1.0 / 3.0)
+                         * get_free_water_content(nmsa, ca_type, workability_class=c))
+                else:
+                    w = get_free_water_content(nmsa, ca_type, workability_class=c)
+                label = (f"Slump {info['slump']} (Vebe {info['vebe']}) — "
+                         f"{w:.0f} kg/m³")
+            except Exception:
+                label = f"Slump {info['slump']} (Vebe {info['vebe']})"
+            self.doe_workability_combo.addItem(label, c)
+        if cur is not None:
+            idx = self.doe_workability_combo.findData(cur)
+            if idx >= 0:
+                self.doe_workability_combo.setCurrentIndex(idx)
+        self.doe_workability_combo.blockSignals(False)
 
     def _on_nmsa_changed(self) -> None:
         nmsa = self.nmsa_combo.currentData()
@@ -1879,6 +2825,9 @@ class ConcreteMixTab(QWidget):
         # NMSA change is exactly when the IS zone source swaps; keep a locked
         # zone re-targeted (and disabled) on whichever combo is now visible.
         self._enforce_psd_locks()
+
+        if code == "doe":
+            self._update_ca_split_for_doe()
 
     def _on_ca_fraction_changed(self) -> None:
         """Keep the fine-aggregate grading zone in step with the IS form's
@@ -1923,15 +2872,32 @@ class ConcreteMixTab(QWidget):
         else:
             self.max_wc_label.setText("N/A")
 
+    def _on_margin_known_toggled(self) -> None:
+        """Deactivate k/s/n inputs when the margin M is known (DOE §4.4)."""
+        self._apply_mode_state()
+        if (
+            hasattr(self, "std_dev_display")
+            and hasattr(self, "margin_known_check")
+            and self.margin_known_check.isChecked()
+        ):
+            self.std_dev_display.setText("—  (Margin M known — s not used)")
+
     def _update_std_dev_display(self) -> None:
         """Update the DOE Std Deviation display to show the s actually applied.
 
-        BRE 331:1997 Figure 3: n < 20 → 8 MPa (Line A), n ≥ 20 → 4 MPa (Line B).
-        For fc ≤ 20 MPa the ramp fc*8/20 or fc*4/20 is used, but structural
-        DOE enforces fc ≥ 25 MPa so the plateau always applies. This field is
-        display-only — it shows the calculation value, nothing else.
+        BRE 331:1997 Figure 3 piecewise lines, any grade:
+        n < 20 → Line A (s = 0.4×fc for fc ≤ 20, else 8 MPa);
+        n ≥ 20 → Line B (s = 0.2×fc for fc ≤ 20, else 4 MPa).
+        This field is display-only — it shows the calculation value.
+        When the margin M is known, s is bypassed and the display reflects that.
         """
         if not hasattr(self, "std_dev_display"):
+            return
+        if (
+            hasattr(self, "margin_known_check")
+            and self.margin_known_check.isChecked()
+        ):
+            self.std_dev_display.setText("—  (Margin M known — s not used)")
             return
         try:
             n = self.n_cubes_spin.value() if hasattr(self, "n_cubes_spin") else 20
@@ -1959,6 +2925,15 @@ class ConcreteMixTab(QWidget):
         # IS-specific fields in Step 1
         self._lbl_concrete_type.setVisible(is_is)
         self.concrete_type_combo.setVisible(is_is)
+        self._lbl_placing.setVisible(is_is)
+        self.placing_combo.setVisible(is_is)
+        _pump_visible = is_is and self.placing_combo.currentData() == "pump"
+        self._lbl_pump_reduction.setVisible(_pump_visible)
+        self.pump_auto_check.parentWidget().setVisible(_pump_visible)
+        self._lbl_site_control.setVisible(is_is)
+        self.site_control_combo.setVisible(is_is)
+        self._lbl_mass.setVisible(is_is)
+        self.mass_check.setVisible(is_is)
         self._lbl_exposure.setVisible(is_is)
         self.exposure_combo.setVisible(is_is)
         self._lbl_max_wc.setVisible(is_is)
@@ -1969,6 +2944,26 @@ class ConcreteMixTab(QWidget):
         self.air_check.setVisible(is_aci)
         self._lbl_sulfate.setVisible(is_aci)
         self.sulfate_combo.setVisible(is_aci)
+        self._lbl_frost.setVisible(is_aci)
+        self.frost_combo.setVisible(is_aci)
+        self._lbl_water_exp.setVisible(is_aci)
+        self.water_exp_combo.setVisible(is_aci)
+        self._lbl_corr.setVisible(is_aci)
+        self.corr_combo.setVisible(is_aci)
+        self._lbl_prestressed.setVisible(is_aci)
+        self.prestressed_check.setVisible(is_aci)
+        if hasattr(self, "_grp_trial"):
+            self._grp_trial.setVisible(is_aci)
+        if hasattr(self, "_grp_scc"):
+            self._grp_scc.setVisible(is_is)
+        self._lbl_temp.setVisible(is_aci)
+        self.temp_spin.setVisible(is_aci)
+        self._lbl_form_width.setVisible(is_aci)
+        self.form_width_spin.setVisible(is_aci)
+        self._lbl_slab_depth.setVisible(is_aci)
+        self.slab_depth_spin.setVisible(is_aci)
+        self._lbl_bar_spacing.setVisible(is_aci)
+        self.bar_spacing_spin.setVisible(is_aci)
 
         # Production Data check is for ACI only (>=30 tests).  For DOE the
         # standard deviation is now derived from the number of test cubes n
@@ -1978,6 +2973,24 @@ class ConcreteMixTab(QWidget):
             self.prod_data_check.setVisible(True)
         else:
             self.prod_data_check.setVisible(False)
+        # ACI Table 4.7.4.3/4.7.4 test count and Example-4 paste-volume
+        # target follow the production-data visibility.
+        self._lbl_aci_tests.setVisible(is_aci)
+        self.aci_tests_spin.setVisible(is_aci)
+        self._lbl_paste_vol.setVisible(is_aci)
+        self.paste_vol_spin.setVisible(is_aci)
+
+        # 12.5 mm is an IS 10262 high-strength size only (Tables 6/7/8/10,
+        # §6.2.2) — DOE/ACI have no table column for it.
+        _idx_125 = self.nmsa_combo.findData(12.5)
+        if _idx_125 >= 0:
+            _item_125 = self.nmsa_combo.model().item(_idx_125)
+            if _item_125 is not None:
+                _item_125.setEnabled(is_is)
+            if not is_is and self.nmsa_combo.currentData() == 12.5:
+                set_combo_like = self.nmsa_combo.setCurrentIndex
+                _idx20 = self.nmsa_combo.findData(20)
+                set_combo_like(_idx20 if _idx20 >= 0 else 0)
 
         # DOE-specific fields in Step 1
         self._lbl_defective_pct.setVisible(is_doe)
@@ -1987,6 +3000,9 @@ class ConcreteMixTab(QWidget):
         self._lbl_std_dev.setVisible(is_doe)
         self.std_dev_display.setVisible(is_doe)
         self.std_dev_spin.setVisible(False)
+        self.margin_known_check.setVisible(is_doe)
+        self._lbl_margin.setVisible(is_doe)
+        self.margin_spin.setVisible(is_doe)
         self._lbl_age.setVisible(is_doe)
         self.age_combo.setVisible(is_doe)
         self._lbl_min_cement.setVisible(is_doe)
@@ -1995,26 +3011,89 @@ class ConcreteMixTab(QWidget):
         self.max_cement_spin.setVisible(is_doe)
         self._lbl_max_wc_override.setVisible(is_doe)
         self.max_wc_override_spin.setVisible(is_doe)
+        self._lbl_air_pct.setVisible(is_doe)
+        self.air_pct_spin.setVisible(is_doe)
+        self._lbl_vebe.setVisible(is_doe)
+        self.vebe_spin.setVisible(is_doe)
+        self._lbl_doe_workability.setVisible(is_doe)
+        self.doe_workability_combo.setVisible(is_doe)
+        if is_doe:
+            # Entering DOE mode: align the range selector with the
+            # current numeric inputs and refresh its Table 3 readout.
+            self._update_water_display()
         if hasattr(self, "doe_structural_label"):
             self.doe_structural_label.setVisible(True)
+            if is_doe:
+                self.doe_structural_label.setText(
+                    "ⓘ DOE Figure 3 design (BRE 331 §4.4): any characteristic "
+                    "strength grade (≥ 5 MPa). Standard deviation follows "
+                    "Line A (n < 20 results) / Line B (n ≥ 20 results) from "
+                    "the number of test cubes, exactly as charted."
+                )
+            else:
+                self.doe_structural_label.setText(
+                    "ⓘ Any grade 5–100 MPa. Durability is gated by the exposure "
+                    "selection (IS 456 Table 5 / ACI 318 Chapter 19) — e.g. severe "
+                    "exposure still requires its minimum grade."
+                )
 
-        # Strength spin: structural assumption requires characteristic strength ≥ 25 MPa for all codes
-        self.strength_spin.setMinimum(25.0)
+        # Slump range follows the active standard: BRE 331 Table 3 stops at
+        # 60–180 mm, and the DOE engine rejects slumps above 180 mm, so cap
+        # the control there in DOE mode (IS/ACI keep the 10–250 mm range).
+        # Values above the cap are clamped, never silently reclassified.
+        if is_doe:
+            self.slump_spin.set_metric_range(0.0, 180.0)
+        else:
+            self.slump_spin.set_metric_range(10.0, 250.0)
+
+        # Strength range is 5–100 MPa for every code (no structural floor);
+        # exposure minima are enforced by the engines, not the control.
+        _strength_lo = 5.0
+        self.strength_spin.set_metric_range(_strength_lo, 100.0)
         self.strength_spin.setToolTip(
-            "Characteristic compressive strength (fck / f'c / fc).\n"
-            "This app assumes structural concrete → characteristic strength ≥ 25 MPa.\n"
-            "Values below 25 MPa are not permitted for structural mix design."
+            "Characteristic compressive strength (fck / f'c / fc), 5–100 MPa.\n"
+            "Exposure selections may impose their own minimum grade/strength."
         )
-        if self.strength_spin.value() < 25.0:
-            self.strength_spin.setValue(25.0)
+        if self.strength_spin.value() < _strength_lo:
+            self.strength_spin.setValue(_strength_lo)
 
         # Fine aggregate: show FM for ACI, grading zone / CA fraction for IS, % passing 600um & Type for DOE
         self._lbl_fm.setVisible(is_aci)
         self.fm_spin.setVisible(is_aci)
+        self._lbl_mfg_sand.setVisible(is_aci)
+        self.mfg_sand_check.setVisible(is_aci)
         self._lbl_pct_passing_600um.setVisible(is_doe)
         self.pct_passing_600um_spin.setVisible(is_doe)
+        self._lbl_fig6_prop.setVisible(is_doe)
+        self.fig6_prop_label.setVisible(is_doe)
         self._lbl_fa_type.setVisible(is_doe)
         self.fa_type_combo.setVisible(is_doe)
+
+        # NMSA options follow the code: IS adds mass-concreting 80/150 mm (§9).
+        cur_nmsa = self.nmsa_combo.currentData()
+        self.nmsa_combo.blockSignals(True)
+        self.nmsa_combo.clear()
+        _nmsa_items = [("10 mm", 10), ("20 mm", 20), ("40 mm", 40)]
+        if is_is:
+            _nmsa_items += [("80 mm (mass)", 80), ("150 mm (mass)", 150)]
+        for _lbl, _val in _nmsa_items:
+            self.nmsa_combo.addItem(_lbl, _val)
+        _restored = False
+        for i in range(self.nmsa_combo.count()):
+            if self.nmsa_combo.itemData(i) == cur_nmsa:
+                self.nmsa_combo.setCurrentIndex(i)
+                _restored = True
+                break
+        if not _restored:
+            self.nmsa_combo.setCurrentIndex(
+                self.nmsa_combo.findData(20))
+        # A PSD-locked NMSA the new code cannot offer (e.g. 80 mm mass
+        # size under ACI/DOE) unlocks instead of silently changing value.
+        if not _restored and "nmsa" in self._psd_locked:
+            self._psd_locked.discard("nmsa")
+            self._psd_snapshot.pop("nmsa", None)
+            self.nmsa_combo.setEnabled(True)
+        self.nmsa_combo.blockSignals(False)
 
         self._on_nmsa_changed()
 
@@ -2024,6 +3103,12 @@ class ConcreteMixTab(QWidget):
         # - ACI: Dry-Rodded Bulk Density (ACI Table 5.3.6)
         self._lbl_ca_type.setVisible(is_doe)
         self.ca_type_combo.setVisible(is_doe)
+        self._lbl_ca_split.setVisible(is_doe)
+        self.ca_split_combo.setVisible(is_doe)
+        if is_doe:
+            self._update_ca_split_for_doe()
+        else:
+            self.ca_split_combo.setCurrentIndex(0)
         self._lbl_shape.setVisible(is_is)
         self.agg_shape_combo.setVisible(is_is)
         self._lbl_ca_bulk.setVisible(is_aci)
@@ -2108,10 +3193,13 @@ class ConcreteMixTab(QWidget):
         else:
             self.admix_type_combo.setCurrentIndex(0)
         self.admix_type_combo.blockSignals(False)
+        self._on_admix_changed()
 
         # Admixture SG visibility: used in IS & ACI absolute volume calculations, not in DOE wet density
         self._lbl_admix_sg.setVisible(is_is or is_aci)
         self.admix_sg_spin.setVisible(is_is or is_aci)
+        self._lbl_admix_water.setVisible(is_is)
+        self.admix_water_spin.setVisible(is_is)
 
         # Standard-specific SCM types
         self.scm_type_combo.blockSignals(True)
@@ -2152,6 +3240,7 @@ class ConcreteMixTab(QWidget):
         else:
             self.scm_type_combo.setCurrentIndex(0)
         self.scm_type_combo.blockSignals(False)
+        self._on_scm_type_changed()
 
         # Update exposure W/C display
         self._update_exposure_wc_display()
@@ -2230,12 +3319,24 @@ class ConcreteMixTab(QWidget):
         try:
             code = self.code_combo.currentData()
             num_test_cubes = self.n_cubes_spin.value() if code == "doe" else None
+            site_control = (
+                self.site_control_combo.currentData() if code == "is10262" else "good"
+            )
+            # Known-margin bypass (DOE §4.4): M from site records replaces k×s.
+            margin_mpa = None
+            if code == "doe" and self.margin_known_check.isChecked():
+                margin_mpa = self.margin_spin.value()
             result = calculate_target_strength(
                 code,
                 self.strength_spin.value(),
                 has_production_data=self.prod_data_check.isChecked(),
                 defective_percent=self.defective_pct_spin.value(),
                 num_test_cubes=num_test_cubes,
+                num_strength_tests=(
+                    self.aci_tests_spin.value() if code == "aci211" else None
+                ),
+                site_control=site_control,
+                margin_mpa=margin_mpa,
             )
         except Exception as e:
             QMessageBox.warning(self, "Input Error", str(e))
@@ -2272,21 +3373,51 @@ class ConcreteMixTab(QWidget):
             self.concrete_type_combo.findData("reinforced")
         )
         self.exposure_combo.setCurrentIndex(0)
+        self.placing_combo.setCurrentIndex(self.placing_combo.findData("chute"))
+        self.site_control_combo.setCurrentIndex(
+            self.site_control_combo.findData("good"))
+        self.mass_check.setChecked(False)
+        self.scc_class_combo.setCurrentIndex(0)
+        self.scc_flow_spin.setValue(0.0)
+        self.scc_lbox_spin.setValue(0.0)
+        self.scc_sr_spin.setValue(0.0)
+        self.scc_v_spin.setValue(0.0)
         self.max_wc_label.setText("—")
         self.air_check.setChecked(False)
         self.sulfate_combo.setCurrentIndex(self.sulfate_combo.findData("S0"))
+        self.frost_combo.setCurrentIndex(self.frost_combo.findData("F0"))
+        self.water_exp_combo.setCurrentIndex(self.water_exp_combo.findData("W0"))
+        self.corr_combo.setCurrentIndex(self.corr_combo.findData("C0"))
+        self.form_width_spin.setValue(0.0)
+        self.slab_depth_spin.setValue(0.0)
+        self.bar_spacing_spin.setValue(0.0)
+        self.temp_spin.setValue(22.5)
+        self.mfg_sand_check.setChecked(False)
+        self.prestressed_check.setChecked(False)
+        self.trial_density_spin.setValue(0.0)
+        self.trial_slump_spin.setValue(0.0)
+        self.trial_air_spin.setValue(0.0)
+        self.trial_strength_spin.setValue(0.0)
         self.prod_data_check.setChecked(True)
 
         self.defective_pct_spin.setValue(5.0)
         if hasattr(self, "n_cubes_spin"):
             self.n_cubes_spin.setValue(20)
         self.std_dev_spin.setValue(0.0)  # hidden, always Auto for DOE display-only
+        if hasattr(self, "margin_known_check"):
+            # Unchecking re-enables the k/s/n rows via the toggled handler.
+            self.margin_known_check.setChecked(False)
+        if hasattr(self, "margin_spin"):
+            self.margin_spin.setValue(10.0)
         if hasattr(self, "std_dev_display"):
             self._update_std_dev_display()
         self.age_combo.setCurrentIndex(self.age_combo.findData(28))
         self.min_cement_spin.setValue(0.0)
         self.max_cement_spin.setValue(0.0)
         self.max_wc_override_spin.setValue(0.00)
+        self.air_pct_spin.setValue(0.0)
+        self.vebe_spin.setValue(0.0)
+        self.ca_split_combo.setCurrentIndex(0)
 
         self.strength_spin.setValue(25.0)
         self.slump_spin.setValue(75.0)
@@ -2318,6 +3449,7 @@ class ConcreteMixTab(QWidget):
         self.admix_dosage_spin.setValue(1.0)
         self.admix_spin.setValue(0.0)
         self.admix_sg_spin.setValue(1.15)
+        self.admix_water_spin.setValue(0.0)
 
         # Trigger visibility update
         self._on_code_changed()
@@ -2374,7 +3506,10 @@ class ConcreteMixTab(QWidget):
         nmsa = self.nmsa_combo.currentData()
         if nmsa is not None and nmsa != "":
             try:
-                nmsa = int(nmsa)
+                # 12.5 mm is a valid float NMSA (IS high-strength route).
+                nmsa = float(nmsa)
+                if nmsa.is_integer():
+                    nmsa = int(nmsa)
             except (ValueError, TypeError):
                 nmsa = 20
         else:
@@ -2408,20 +3543,71 @@ class ConcreteMixTab(QWidget):
             "scm_sg": self.scm_sg_spin.value(),
             "admixture_type": self.admix_type_combo.currentData() or "",
             "admixture_dosage": self.admix_dosage_spin.value(),
-            "admixture_water_reduction": self.admix_spin.value(),
+            # "None" means a plain BRE 331 §5.3 mix: never pass a stale
+            # water-reduction value to the engine (see _on_admix_changed).
+            "admixture_water_reduction": (
+                self.admix_spin.value()
+                if (self.admix_type_combo.currentData() or "") != ""
+                else 0.0
+            ),
             "admixture_sg": self.admix_sg_spin.value(),
+            "admixture_water_kg": self.admix_water_spin.value(),
             "volume_m3": self.volume_spin.value(),
         }
 
         if code == "aci211":
             kwargs["has_production_data"] = self.prod_data_check.isChecked()
+            # Table 4.7.4.3 k-modification only applies to an established
+            # sample standard deviation (production data checked).
+            if self.prod_data_check.isChecked():
+                kwargs["num_strength_tests"] = int(self.aci_tests_spin.value())
+            _pv = self.paste_vol_spin.value()
+            kwargs["target_paste_volume_pct"] = _pv if _pv > 0 else None
             kwargs["sulfate_exposure_class"] = self.sulfate_combo.currentData()
+            kwargs["freezing_exposure_class"] = self.frost_combo.currentData()
+            kwargs["water_exposure_class"] = self.water_exp_combo.currentData()
+            kwargs["corrosion_exposure_class"] = self.corr_combo.currentData()
+            # 0.0 = dimension not supplied = NMSA check skipped for it.
+            _fw = self.form_width_spin.value()
+            kwargs["form_width_mm"] = _fw if _fw > 0 else None
+            _sd = self.slab_depth_spin.value()
+            kwargs["slab_depth_mm"] = _sd if _sd > 0 else None
+            _bs = self.bar_spacing_spin.value()
+            kwargs["bar_spacing_mm"] = _bs if _bs > 0 else None
+            kwargs["concrete_temp_c"] = self.temp_spin.value()
+            kwargs["manufactured_sand"] = self.mfg_sand_check.isChecked()
+            kwargs["prestressed"] = self.prestressed_check.isChecked()
+            _td = self.trial_density_spin.value()
+            kwargs["trial_density_kg_m3"] = _td if _td > 0 else None
+            _ts = self.trial_slump_spin.value()
+            kwargs["trial_slump_mm"] = _ts if _ts > 0 else None
+            _ta = self.trial_air_spin.value()
+            kwargs["trial_air_pct"] = _ta if _ta > 0 else None
+            _tf = self.trial_strength_spin.value()
+            kwargs["trial_strength_mpa"] = _tf if _tf > 0 else None
             kwargs["coarse_agg_bulk_density"] = self.ca_bulk_spin.value()
         elif code == "is10262":
             kwargs["aggregate_shape"] = self.agg_shape_combo.currentData()
             kwargs["ca_volume_fraction_override"] = ca_fraction
             kwargs["characteristic_strength_mpa"] = self.strength_spin.value()
             kwargs["concrete_type"] = self.concrete_type_combo.currentData()
+            kwargs["placing_method"] = self.placing_combo.currentData()
+            kwargs["pump_ca_reduction_percent"] = (
+                None
+                if self.pump_auto_check.isChecked()
+                else round(self.pump_reduction_spin.value(), 1)
+            )
+            kwargs["site_control"] = self.site_control_combo.currentData()
+            kwargs["mass_concrete"] = self.mass_check.isChecked()
+            kwargs["scc_class"] = self.scc_class_combo.currentData() or None
+            _sf = self.scc_flow_spin.value()
+            kwargs["scc_slump_flow_mm"] = _sf if _sf > 0 else None
+            _lb = self.scc_lbox_spin.value()
+            kwargs["scc_lbox_ratio"] = _lb if _lb > 0 else None
+            _sr = self.scc_sr_spin.value()
+            kwargs["scc_segregation_pct"] = _sr if _sr > 0 else None
+            _vf = self.scc_v_spin.value()
+            kwargs["scc_vfunnel_s"] = _vf if _vf > 0 else None
         elif code == "doe":
             kwargs["aggregate_shape"] = self.ca_type_combo.currentData()
             kwargs["coarse_agg_type"] = self.ca_type_combo.currentData()
@@ -2438,6 +3624,11 @@ class ConcreteMixTab(QWidget):
             # Std deviation is display-only for DOE: shows the s actually applied
             # (n<20→8 MPa Line A, n≥20→4 MPa Line B). No manual override — engine derives s from n.
             kwargs["std_deviation"] = None
+            # Known-margin bypass (BRE 331 §4.4): user M replaces k×s (Step 1.6/Step 2).
+            if self.margin_known_check.isChecked():
+                kwargs["margin_mpa"] = self.margin_spin.value()
+            else:
+                kwargs["margin_mpa"] = None
             kwargs["age_days"] = self.age_combo.currentData()
             min_cement = self.min_cement_spin.value()
             kwargs["min_cement_kg"] = min_cement if min_cement > 0.0 else None
@@ -2446,6 +3637,10 @@ class ConcreteMixTab(QWidget):
             max_wc = self.max_wc_override_spin.value()
             kwargs["w_c_ratio"] = max_wc if max_wc > 0.0 else None
             kwargs["fine_agg_pct_passing_600um"] = self.pct_passing_600um_spin.value()
+            kwargs["air_pct"] = self.air_pct_spin.value()
+            _vebe = self.vebe_spin.value()
+            kwargs["vebe_s"] = _vebe if _vebe > 0 else None
+            kwargs["ca_split"] = self.ca_split_combo.currentData() or None
 
         return kwargs
 
@@ -2796,22 +3991,95 @@ class ConcreteMixTab(QWidget):
         self.slump_spin.setValue(inp.slump_mm)
         set_combo(self.concrete_type_combo, inp.concrete_type)
         set_combo(self.exposure_combo, inp.exposure_class)
+        set_combo(self.placing_combo, getattr(inp, "placing_method", None) or "chute")
+        _pump_pct = getattr(inp, "pump_ca_reduction_percent", None)
+        self.pump_auto_check.setChecked(_pump_pct is None)
+        self.pump_reduction_spin.setValue(10.0 if _pump_pct is None else _pump_pct)
+        set_combo(self.site_control_combo, getattr(inp, "site_control", None) or "good")
+        self.mass_check.setChecked(bool(getattr(inp, "mass_concrete", False)))
+        set_combo(self.scc_class_combo, getattr(inp, "scc_class", None) or "")
+        _scc_f = getattr(inp, "scc_slump_flow_mm", None)
+        self.scc_flow_spin.setValue(0.0 if _scc_f is None else _scc_f)
+        _scc_lb = getattr(inp, "scc_lbox_ratio", None)
+        self.scc_lbox_spin.setValue(0.0 if _scc_lb is None else _scc_lb)
+        _scc_sr = getattr(inp, "scc_segregation_pct", None)
+        self.scc_sr_spin.setValue(0.0 if _scc_sr is None else _scc_sr)
+        _scc_v = getattr(inp, "scc_vfunnel_s", None)
+        self.scc_v_spin.setValue(0.0 if _scc_v is None else _scc_v)
         set_combo(self.sulfate_combo, inp.sulfate_exposure_class or "S0")
+        set_combo(self.frost_combo, getattr(inp, "freezing_exposure_class", None) or "F0")
+        set_combo(self.water_exp_combo, getattr(inp, "water_exposure_class", None) or "W0")
+        set_combo(self.corr_combo, getattr(inp, "corrosion_exposure_class", None) or "C0")
+        self.form_width_spin.setValue(getattr(inp, "form_width_mm", None) or 0.0)
+        self.slab_depth_spin.setValue(getattr(inp, "slab_depth_mm", None) or 0.0)
+        self.bar_spacing_spin.setValue(getattr(inp, "bar_spacing_mm", None) or 0.0)
+        _saved_temp = getattr(inp, "concrete_temp_c", None)
+        self.temp_spin.setValue(22.5 if _saved_temp is None else _saved_temp)
+        self.mfg_sand_check.setChecked(bool(getattr(inp, "manufactured_sand", False)))
+        self.prestressed_check.setChecked(bool(getattr(inp, "prestressed", False)))
+        _td = getattr(inp, "trial_density_kg_m3", None)
+        self.trial_density_spin.setValue(0.0 if _td is None else _td)
+        _tsl = getattr(inp, "trial_slump_mm", None)
+        self.trial_slump_spin.setValue(0.0 if _tsl is None else _tsl)
+        _ta = getattr(inp, "trial_air_pct", None)
+        self.trial_air_spin.setValue(0.0 if _ta is None else _ta)
+        _tstr = getattr(inp, "trial_strength_mpa", None)
+        self.trial_strength_spin.setValue(0.0 if _tstr is None else _tstr)
         self.air_check.setChecked(bool(inp.air_entrained))
         self.prod_data_check.setChecked(bool(inp.has_production_data))
+        _ntests = getattr(inp, "num_strength_tests", None)
+        self.aci_tests_spin.setValue(int(_ntests) if _ntests else 30)
+        _pv_saved = getattr(inp, "target_paste_volume_pct", None)
+        self.paste_vol_spin.setValue(float(_pv_saved) if _pv_saved else 0.0)
 
         # DOE fields
         self.defective_pct_spin.setValue(inp.defective_percent)
         if getattr(inp, "num_test_cubes", None):
             self.n_cubes_spin.setValue(int(inp.num_test_cubes))
+        _margin = getattr(inp, "margin_mpa", None)
+        self.margin_spin.setValue(_margin if _margin else 10.0)
+        # Set the checkbox last: checking/unchecking drives the k/s/n
+        # row states through the toggled handler.
+        self.margin_known_check.setChecked(bool(_margin))
         set_combo(self.age_combo, int(inp.age_days))
         self.min_cement_spin.setValue(inp.min_cement_kg or 0.0)
         self.max_cement_spin.setValue(inp.max_cement_kg or 0.0)
         self.max_wc_override_spin.setValue(inp.w_c_ratio or 0.0)
-
+        self.air_pct_spin.setValue(getattr(inp, "air_pct", 0.0) or 0.0)
+        _vebe_in = getattr(inp, "vebe_s", None)
+        # Restore without the live signal cascade, then reflect the
+        # governing workability basis in the slump field exactly as the
+        # live form does (Vebe set → representative slump of its class).
+        self.vebe_spin.blockSignals(True)
+        self.vebe_spin.setValue(0.0 if _vebe_in is None else _vebe_in)
+        self.vebe_spin.blockSignals(False)
+        if _vebe_in:
+            from concrete_mix.codes.tables.doe_tables import (
+                vebe_to_workability_class,
+            )
+            try:
+                _rep = WORKABILITY_CLASS_INFO[
+                    vebe_to_workability_class(_vebe_in)
+                ]["rep_slump_mm"]
+            except (KeyError, IndexError, TypeError, ValueError):
+                _rep = None
+            if _rep is not None:
+                self.slump_spin.blockSignals(True)
+                self.slump_spin.setValue(_rep)
+                self.slump_spin.blockSignals(False)
         # NMSA after the code so the CA-fraction combo is rebuilt for it
-        ca_nmsa = int(inp.coarse_aggregate.nominal_max_size_mm)
+        ca_nmsa = inp.coarse_aggregate.nominal_max_size_mm
+        if isinstance(ca_nmsa, float) and ca_nmsa.is_integer():
+            ca_nmsa = int(ca_nmsa)
         set_combo(self.nmsa_combo, ca_nmsa, fallback=1)
+
+        saved_ca_split = getattr(inp, "ca_split", None)
+        if saved_ca_split is not None:
+            set_combo(self.ca_split_combo, saved_ca_split)
+        elif inp.code == "doe":
+            self._update_ca_split_for_doe()
+        else:
+            set_combo(self.ca_split_combo, "")
 
         # Cement — the engine stores the standard's cement code
         # (e.g. "OPC_43"/"TYPE_I"); map it back to the Ghana-grade combo.
@@ -2892,8 +4160,17 @@ class ConcreteMixTab(QWidget):
         else:
             self.admix_type_combo.setCurrentIndex(0)
             self.admix_spin.setValue(0.0)
+        self.admix_water_spin.setValue(getattr(inp, "admixture_water_kg", 0.0) or 0.0)
+        self._update_scm_enabled_state()
+        self._update_admix_enabled_state()
 
         self.volume_spin.setValue(inp.volume_m3)
+
+        # Refresh derived readouts after a silent programmatic restore:
+        # UnitSpinBox.setValue blocks signals by design, so the water
+        # preview (and the DOE workability-range sync + Table 3 labels)
+        # would otherwise stay stale after a history load.
+        self._update_water_display()
 
         # Reports read the input params of the displayed result.
         self._last_input_params = self._build_kwargs()

@@ -131,9 +131,12 @@ class FineAggregate:
     shape: AggregateShape = AggregateShape.GRAVEL  # DOE method: crushed/uncrushed
 
     def __post_init__(self) -> None:
-        if not 2.2 <= self.specific_gravity <= 3.0:
+        # Upper bound 5.5 admits high-density aggregates (barite ≈ 4.2,
+        # magnetite ≈ 5.0) for ACI PRC-211.1-22 Appendix B designs; each
+        # design code warns when SG leaves its normal-weight scope.
+        if not 2.2 <= self.specific_gravity <= 5.5:
             raise ValueError(
-                f"Fine aggregate specific gravity {self.specific_gravity} outside valid range [2.2, 3.0]"
+                f"Fine aggregate specific gravity {self.specific_gravity} outside valid range [2.2, 5.5]"
             )
         if self.fineness_modulus is not None and not 1.0 <= self.fineness_modulus <= 4.0:
             raise ValueError(
@@ -153,20 +156,29 @@ class FineAggregate:
 class CoarseAggregate:
     """Coarse aggregate properties."""
     specific_gravity: float = 2.70
-    nominal_max_size_mm: int = 20
+    nominal_max_size_mm: int | float = 20
     absorption_percent: float = 0.5
     moisture_content_percent: float = 0.0
     bulk_density_kg_m3: float = 1600.0
     shape: AggregateShape = AggregateShape.GRAVEL
 
     def __post_init__(self) -> None:
-        if not 2.2 <= self.specific_gravity <= 3.2:
+        # Upper bound 5.5 admits high-density aggregates (barite ≈ 4.2,
+        # magnetite ≈ 5.0, steel punchings higher — capped here) for ACI
+        # PRC-211.1-22 Appendix B designs; each design code warns when SG
+        # leaves its normal-weight scope.
+        if not 2.2 <= self.specific_gravity <= 5.5:
             raise ValueError(
-                f"Coarse aggregate specific gravity {self.specific_gravity} outside valid range [2.2, 3.2]"
+                f"Coarse aggregate specific gravity {self.specific_gravity} outside valid range [2.2, 5.5]"
             )
-        if self.nominal_max_size_mm not in (10, 19, 20, 40):
+        # 80/150 mm are IS 10262:2019 mass-concreting sizes (§9); 12.5 mm is
+        # an IS 10262 high-strength size (Tables 6/7/8/10, §6.2.2); each
+        # design code validates its own supported subset (DOE: 10/20/40;
+        # ACI: ≤40).
+        if self.nominal_max_size_mm not in (10, 12.5, 19, 20, 40, 80, 150):
             raise ValueError(
-                f"Nominal max size {self.nominal_max_size_mm}mm not supported. Use 10, 19, 20, or 40"
+                f"Nominal max size {self.nominal_max_size_mm}mm not supported. Use 10, 12.5, 19, 20, or 40 "
+                f"(plus 80 or 150 for IS 10262 mass concrete)"
             )
 
 

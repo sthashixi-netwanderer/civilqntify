@@ -51,6 +51,10 @@ class MixDesignResult:
     admixture_type: Optional[str] = None
     admixture_dosage_percent: Optional[float] = None
     water_reduction_percent: Optional[float] = None
+    # DOE single-size coarse aggregate split (BRE 331:1997 §5.5, C5 note):
+    # per-m³ masses keyed by single size, e.g. {"10 mm": 460.0, "20 mm": 925.0}.
+    # None when a single graded stock is used (no subdivision).
+    ca_split_kg: Optional[dict[str, float]] = None
 
     @property
     def total_cementitious_kg(self) -> float:
@@ -124,4 +128,9 @@ class MixDesignResult:
             admixture_type=self.admixture_type,
             admixture_dosage_percent=self.admixture_dosage_percent,
             water_reduction_percent=self.water_reduction_percent,
+            ca_split_kg=(
+                {k: v * factor for k, v in self.ca_split_kg.items()}
+                if self.ca_split_kg is not None
+                else None
+            ),
         )

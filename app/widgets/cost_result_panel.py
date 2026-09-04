@@ -20,6 +20,7 @@ from PyQt6.QtWidgets import (
     QLabel,
     QPushButton,
     QScrollArea,
+    QSizePolicy,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -111,9 +112,14 @@ class CostResultPanel(QWidget):
             "Material", "Qty", "Unit", "Unit Price (GH\u20B5)", "Total Cost (GH\u20B5)"
         ])
         self._mat_table.setAlternatingRowColors(True)
-        self._mat_table.setFixedHeight(240)
+        # Expanding (not fixed) so the breakdown uses the space below
+        # it; _fit_table_height() grows it per result. Same fix as the
+        # mix-design calculation steps: a fixed height + trailing
+        # stretch left the table cut halfway with blank space under it.
+        self._mat_table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self._mat_table.setMinimumHeight(220)
         self._mat_table.horizontalHeader().setStretchLastSection(True)
-        outer.addWidget(self._mat_table)
+        outer.addWidget(self._mat_table, stretch=1)
 
         # ── Project Summary ──
         summary_proj_label = QLabel("Project Summary")
@@ -209,6 +215,7 @@ class CostResultPanel(QWidget):
             self._mat_table.setItem(row, 3, QTableWidgetItem(f"{unit_price:,.2f}"))
             self._mat_table.setItem(row, 4, QTableWidgetItem(f"{row_data['total']:,.2f}"))
         self._mat_table.resizeColumnsToContents()
+        self._fit_table_height()
 
         # Project summary
         self._clear_summary_rows()
@@ -254,6 +261,38 @@ class CostResultPanel(QWidget):
             if imperial:
                 price = price / 2.20462  # per kg → per lb
         return qty, unit, price
+
+    def _fit_table_height(self) -> None:
+        """Size the breakdown table to its content height.
+
+        Same fix as the mix-design calculation steps: the table sits
+        in the outer scroll area, so growing its minimum height
+        consumes the space below instead of cutting rows behind a
+        nested scrollbar. Clamped so long breakdowns still scroll.
+        """
+        count = self._mat_table.rowCount()
+        if count == 0:
+            self._mat_table.setMinimumHeight(220)
+            return
+        try:
+            row_h = max(
+                (self._mat_table.sizeHintForRow(i) or 0)
+                for i in range(count)
+            )
+        except Exception:
+            row_h = 0
+        if not row_h or row_h <= 0:
+            row_h = 30
+        try:
+            header_h = self._mat_table.horizontalHeader().sizeHint().height() or 30
+        except Exception:
+            header_h = 30
+        try:
+            frame = 2 * self._mat_table.frameWidth()
+        except Exception:
+            frame = 2
+        needed = header_h + count * row_h + frame + 6
+        self._mat_table.setMinimumHeight(max(220, min(needed, 520)))
 
     def _clear_summary_rows(self) -> None:
         """Remove all existing summary rows."""
@@ -312,6 +351,7 @@ class CostResultPanel(QWidget):
             card._value.setText("\u2014")
             card._unit.setText("")
         self._mat_table.setRowCount(0)
+        self._mat_table.setMinimumHeight(220)
         self._clear_summary_rows()
         self.btn_csv.setEnabled(False)
         self.btn_pdf.setEnabled(False)

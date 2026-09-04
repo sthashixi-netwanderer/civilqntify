@@ -226,6 +226,23 @@ class HistoryDetailDialog(QDialog):
                 table.setItem(i, 4, QTableWidgetItem(step.get("unit", "")))
                 table.setItem(i, 5, QTableWidgetItem(step.get("clause_ref", "")))
             steps_layout.addWidget(table)
+            # Size to content so all steps use the space below instead
+            # of being cut behind a small nested scroll (same fix as the
+            # mix-design calculation steps). Clamped for long lists.
+            try:
+                row_h = max(
+                    [(table.sizeHintForRow(i) or 0) for i in range(len(steps))]
+                    or [0]
+                )
+            except Exception:
+                row_h = 0
+            if not row_h or row_h <= 0:
+                row_h = 30
+            try:
+                header_h = table.horizontalHeader().sizeHint().height() or 30
+            except Exception:
+                header_h = 30
+            table.setMinimumHeight(max(200, min(header_h + len(steps) * row_h + 6, 480)))
             content_layout.addWidget(steps_group)
 
         # -- Warnings --

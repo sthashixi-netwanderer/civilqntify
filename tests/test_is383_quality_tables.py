@@ -44,7 +44,8 @@ class TestTable2Deleterious:
         assert q.TABLE2_TOTAL_DELETERIOUS_MAX["fine_mixed_sand"] == 2.00
         assert q.TABLE2_TOTAL_DELETERIOUS_MAX["fine_manufactured"] == 2.00
         assert q.TABLE2_TOTAL_DELETERIOUS_MAX["coarse_uncrushed"] == 5.00
-        assert q.TABLE2_TOTAL_DELETERIOUS_MAX["coarse_crushed"] == 5.00
+        # Table 2 col (8) — Coarse Aggregate, Crushed — total row reads 2.00.
+        assert q.TABLE2_TOTAL_DELETERIOUS_MAX["coarse_crushed"] == 2.00
         assert q.TABLE2_TOTAL_DELETERIOUS_MAX["coarse_manufactured"] == 2.00
 
     def test_mica_tiers_note3(self):

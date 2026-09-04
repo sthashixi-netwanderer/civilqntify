@@ -273,41 +273,401 @@ ACI_MAX_WC_FOR_EXPOSURE: dict[str, float] = {
     "S3": 0.40,  # Very severe sulfate exposure
 }
 
-# ACI 318 Table 26.4.3.1(b) — Required average compressive strength (f'cr)
-# when NO prior test data is available (less than 30 tests).
-# Metric: f'c < 21 MPa → +7;  21 ≤ f'c ≤ 35 → +8.5;  f'c > 35 → +10.
-ACI_NO_DATA_OVERDESIGN: dict[float, float] = {
-    # f'c (MPa) : f'cr (MPa)
-    17.0: 24.0,   # < 21 MPa: f'c + 7 MPa
-    20.0: 27.0,   # still < 21 MPa → +7 (3000 psi = 20.7 MPa breakpoint)
-    25.0: 33.5,   # 21-35 MPa: f'c + 8.5 MPa
-    28.0: 36.5,
-    30.0: 38.5,
-    35.0: 43.5,
-    40.0: 50.0,   # > 35 MPa: f'c + 10 MPa
-    50.0: 60.0,
-    60.0: 70.0,
-    70.0: 80.0,
+# ACI 301-20 Table 4.2.2.6(c) / ACI 318 Chapter 19 — freezing-and-thawing
+# exposure classes (PRC-211.1-22 Table 4.7.3b). max_wc of None means no
+# durability cap beyond strength; min_fc_mpa is the required specified
+# strength (psi values converted: 3500 → 24.1, 4500 → 31.0, 5000 → 34.5).
+# F1–F3 additionally REQUIRE air entrainment (Table 4.2.2.6(c)).
+F_CLASS_LIMITS: dict[str, dict[str, float | None]] = {
+    "F0": {"max_wc": None, "min_fc_mpa": None},  # Not exposed to freezing
+    "F1": {"max_wc": 0.55, "min_fc_mpa": 24.1},  # Exposed, no deicing salts
+    "F2": {"max_wc": 0.45, "min_fc_mpa": 31.0},  # Exposed, deicing salts / seawater
+    "F3": {"max_wc": 0.40, "min_fc_mpa": 34.5},  # Continuously wet + freezing + deicing
+}
+
+# ACI 301-20 Table 4.2.2.6(d) (PRC-211.1-22 Table 4.7.3c) — exposure to
+# water where permeability matters. max_wc of None means no durability cap
+# beyond strength; min_fc_mpa None means the 2500 psi floor, which the app's
+# structural minimum (≥ 25 MPa) already exceeds. W1/W2 additionally invoke
+# ACI 301 4.2.2.6(a) low-permeability provisions (surfaced as guidance: they
+# concern curing/testing practice, not proportioning numbers).
+W_CLASS_LIMITS: dict[str, dict[str, float | None]] = {
+    "W0": {"max_wc": None, "min_fc_mpa": None},  # Dry / protected from water
+    "W1": {"max_wc": None, "min_fc_mpa": None},  # In contact, permeability a concern
+    "W2": {"max_wc": 0.50, "min_fc_mpa": 27.6},  # Water barrier / 4000 psi
+}
+
+# ACI 301-20 Table 4.2.2.6(e) (PRC-211.1-22 Table 4.7.3d) — corrosion
+# protection of reinforcement. Chloride caps below are % water-soluble Cl⁻ by
+# mass of cementitious material for NON-prestressed concrete (the app's scope;
+# prestressed limits are stricter — 0.06% throughout — and need a
+# prestressing input the tab does not collect). Chloride content cannot be
+# computed from mix proportions, so caps are surfaced as guidance; w/c and
+# minimum strength are enforced.
+C_CLASS_LIMITS: dict[str, dict[str, float | None]] = {
+    "C0": {"max_wc": None, "min_fc_mpa": None, "max_chloride_pct": 1.00},
+    "C1": {"max_wc": None, "min_fc_mpa": None, "max_chloride_pct": 0.30},
+    "C2": {"max_wc": 0.40, "min_fc_mpa": 34.5, "max_chloride_pct": 0.15},
+}
+
+# ACI 301-20 Table 4.2.2.6(b) (PRC-211.1-22 Table 4.7.3a) — sulfate exposure.
+# min_fc_mpa converts the table's psi floors (S1: 4000 → 27.6; S2: 4500 →
+# 31.0; S3 Option 2: 5000 → 34.5). S3 offers two compliance options; the
+# engine enforces Option 2 (w/c ≤ 0.40, the tighter cap) — Option 1
+# (w/c ≤ 0.45 with Type V + pozzolan/slag) needs an explicit w/c override
+# plus trial evidence per Table 4.2.2.6(b)1. Cement-type and calcium-chloride
+# rules cannot be derived from proportions, so they are surfaced as guidance.
+S_CLASS_LIMITS: dict[str, dict[str, float | None]] = {
+    "S0": {"max_wc": None, "min_fc_mpa": None},
+    "S1": {"max_wc": 0.50, "min_fc_mpa": 27.6},
+    "S2": {"max_wc": 0.45, "min_fc_mpa": 31.0},
+    "S3": {"max_wc": 0.40, "min_fc_mpa": 34.5},
+}
+
+S_CLASS_CEMENT_GUIDANCE: dict[str, str] = {
+    "S1": "Type II (MS) cement; Type I/III acceptable only if C3A < 8% "
+          "(Table 4.7.3a). No restriction on calcium chloride admixture.",
+    "S2": "Type V or HS-designation cement; Type I/III only if C3A < 5%. "
+          "Calcium chloride admixture NOT permitted.",
+    "S3": "Type V + pozzolan/slag cement or HS + pozzolan/slag "
+          "(Option 2 applied). Calcium chloride NOT permitted. Option 1 "
+          "(w/c ≤ 0.45) needs an explicit w/c override plus trial evidence.",
+}
+
+# ACI 301-20 Table 4.2.2.6(c)1 (PRC-211.1-22 Table 4.7.3.1) — required total
+# air content (%) for freezing-and-thawing exposure, by NMSA. Field tolerance
+# is ±1.5%; at f'c ≥ 5000 psi a 1.0-point reduction is acceptable (surfaced
+# as guidance, not applied silently).
+F_CLASS_AIR_CONTENT: dict[int, dict[str, float]] = {
+    10: {"F1": 6.0, "F2": 7.5, "F3": 7.5},
+    19: {"F1": 5.0, "F2": 6.0, "F3": 6.0},  # 3/4 in. (same as 20 mm)
+    20: {"F1": 5.0, "F2": 6.0, "F3": 6.0},
+    40: {"F1": 4.5, "F2": 5.5, "F3": 5.5},
+}
+
+# ACI 301-20 Table 4.2.1.1(b) (PRC-211.1-22 Table 4.7.3.2) — maximum SCM
+# replacement (% of total cementitious mass) for Exposure Class F3.
+# "ash" covers Class F/C fly ash AND natural pozzolans (incl. metakaolin,
+# an ASTM C618 Class N pozzolan); slag cement and silica fume have their
+# own buckets. Total and ash-plus-silica combination caps also apply.
+F3_SCM_MAX_PERCENT: dict[str, float] = {
+    "ash": 25.0,            # fly ash or natural pozzolans (ASTM C618)
+    "slag": 50.0,           # slag cement (ASTM C989)
+    "silica": 10.0,         # silica fume (ASTM C1240)
+    "total": 50.0,          # all SCMs combined
+    "ash_plus_silica": 35.0,
+}
+
+# SCM type strings (concrete_mix.models.materials.SCMType values) bucketed
+# into the Table 4.7.3.2 rows above.
+F3_SCM_BUCKETS: dict[str, str] = {
+    "fly_ash": "ash",
+    "fly_ash_c": "ash",
+    "metakaolin": "ash",
+    "ggbfs": "slag",
+    "silica_fume": "silica",
 }
 
 
-def get_no_data_overdesign(specified_fc_mpa: float) -> float:
-    """Get f'cr from ACI 318 Table 26.4.3.1(b) for producers without test data.
+# ACI PRC-211.1-22 Table 5.3.3.1 — adjustments to the estimated water content
+# for conditions other than the Table 5.3.3 baseline (standard laboratory
+# 68–77 °F, 3–4 in. slump, well-shaped aggregates, natural sand FM 2.75).
+# Positive values ADD water, negative values REDUCE it; applied as a summed
+# percentage of the Table 5.3.3 estimate (Bureau of Reclamation practice).
+#
+# IMPORTANT SCOPE NOTE: slump and air-entrainment rows are NOT auto-applied
+# by the engine — Table 5.3.3 interpolation already encodes slump and the
+# air-entrained/non-air-entrained split, and the standard's own Example 1
+# uses unadjusted Table 5.3.3 water for rounded gravel. They live here for
+# explicit trial-batch refinement (§5.3.10) only.
+WATER_ADJUST_531_ROUNDED_AGG_PCT = -8.0      # rounded (vs angular) aggregate
+WATER_ADJUST_531_PER_PCT_AIR_PCT = -3.0      # per 1% increase in air content
+WATER_ADJUST_531_PER_INCH_SLUMP_PCT = 3.0    # per 1 in. slump increase
+WATER_ADJUST_531_WRA_MIN_PCT = -5.0          # conventional WRA expectation
+WATER_ADJUST_531_HRWRA_MIN_PCT = -12.0       # HRWRA expectation (§4.7.6)
+WATER_ADJUST_531_PER_10F_TEMP_PCT = 2.0      # per 10 °F concrete-temp rise
+WATER_ADJUST_531_PER_10PCT_FLYASH_PCT = -3.0  # per 10% fly-ash replacement
+WATER_ADJUST_531_PER_10PCT_SLAG_PCT = -5.0    # per 10% slag replacement
+WATER_ADJUST_531_MANUFACTURED_SAND_PCT = 5.0
+TABLE_531_BASELINE_TEMP_C = 22.5  # midpoint of 68–77 °F (20–25 °C)
 
-    Interpolates between table entries.
+
+def water_adjustment_531(
+    rounded_aggregate: bool = False,
+    air_delta_pct: float = 0.0,
+    slump_delta_in: float = 0.0,
+    temp_c: float | None = None,
+    fly_ash_pct: float = 0.0,
+    slag_pct: float = 0.0,
+    manufactured_sand: bool = False,
+) -> tuple[float, list[str]]:
+    """Sum Table 5.3.3.1 water-content adjustments (percent of base water).
+
+    Only non-baseline arguments contribute. Silica fume / metakaolin carry
+    no table rate (silica usually *increases* demand, §4.7.6) and are handled
+    as guidance warnings by the caller, not here.
+
+    Returns (total_percent, [applied rule descriptions]).
     """
-    strengths = sorted(ACI_NO_DATA_OVERDESIGN.keys())
-    if specified_fc_mpa <= strengths[0]:
-        return ACI_NO_DATA_OVERDESIGN[strengths[0]]
-    if specified_fc_mpa >= strengths[-1]:
-        return ACI_NO_DATA_OVERDESIGN[strengths[-1]]
+    total = 0.0
+    applied: list[str] = []
+    if rounded_aggregate:
+        total += WATER_ADJUST_531_ROUNDED_AGG_PCT
+        applied.append(f"rounded aggregate {WATER_ADJUST_531_ROUNDED_AGG_PCT:+.0f}%")
+    if air_delta_pct:
+        adj = WATER_ADJUST_531_PER_PCT_AIR_PCT * air_delta_pct
+        total += adj
+        if adj:
+            applied.append(f"air {air_delta_pct:+.1f}% → water {adj:+.1f}%")
+    if slump_delta_in:
+        adj = WATER_ADJUST_531_PER_INCH_SLUMP_PCT * slump_delta_in
+        total += adj
+        if adj:
+            applied.append(f"slump {slump_delta_in:+.1f} in → water {adj:+.1f}%")
+    if temp_c is not None:
+        delta_f = (temp_c - TABLE_531_BASELINE_TEMP_C) * 9.0 / 5.0
+        adj = WATER_ADJUST_531_PER_10F_TEMP_PCT * delta_f / 10.0
+        total += adj
+        if adj:
+            applied.append(f"concrete {temp_c:.1f} °C → water {adj:+.1f}%")
+    if fly_ash_pct:
+        adj = WATER_ADJUST_531_PER_10PCT_FLYASH_PCT * fly_ash_pct / 10.0
+        total += adj
+        if adj:
+            applied.append(f"fly ash {fly_ash_pct:.0f}% → water {adj:+.1f}%")
+    if slag_pct:
+        adj = WATER_ADJUST_531_PER_10PCT_SLAG_PCT * slag_pct / 10.0
+        total += adj
+        if adj:
+            applied.append(f"slag {slag_pct:.0f}% → water {adj:+.1f}%")
+    if manufactured_sand:
+        total += WATER_ADJUST_531_MANUFACTURED_SAND_PCT
+        applied.append(
+            f"manufactured sand {WATER_ADJUST_531_MANUFACTURED_SAND_PCT:+.0f}%"
+        )
+    return round(total, 2), applied
 
-    for i in range(len(strengths) - 1):
-        s_lo, s_hi = strengths[i], strengths[i + 1]
-        if s_lo <= specified_fc_mpa <= s_hi:
-            fcr_lo = ACI_NO_DATA_OVERDESIGN[s_lo]
-            fcr_hi = ACI_NO_DATA_OVERDESIGN[s_hi]
-            fraction = (specified_fc_mpa - s_lo) / (s_hi - s_lo)
-            return fcr_lo + fraction * (fcr_hi - fcr_lo)
 
-    return ACI_NO_DATA_OVERDESIGN[strengths[-1]]
+def check_nmsa_limits(
+    nmsa_mm: float,
+    form_width_mm: float | None = None,
+    slab_depth_mm: float | None = None,
+    bar_spacing_mm: float | None = None,
+) -> list[str]:
+    """Check NMSA against structural-dimension limits.
+
+    Returns a list of violation messages (empty when compliant or when no
+    dimension was supplied).
+    """
+    violations: list[str] = []
+    if form_width_mm is not None and nmsa_mm > form_width_mm / 5.0:
+        violations.append(
+            f"NMSA {nmsa_mm:g} mm exceeds 1/5 of the narrowest form dimension "
+            f"({form_width_mm:g} mm → max {form_width_mm / 5.0:g} mm) "
+            f"per ACI 318 26.4.2.1(a)(5)"
+        )
+    if slab_depth_mm is not None and nmsa_mm > slab_depth_mm / 3.0:
+        violations.append(
+            f"NMSA {nmsa_mm:g} mm exceeds 1/3 of the slab depth "
+            f"({slab_depth_mm:g} mm → max {slab_depth_mm / 3.0:g} mm) "
+            f"per ACI 318 26.4.2.1(a)(5)"
+        )
+    if bar_spacing_mm is not None and nmsa_mm > bar_spacing_mm * 0.75:
+        violations.append(
+            f"NMSA {nmsa_mm:g} mm exceeds 3/4 of the minimum clear bar spacing "
+            f"({bar_spacing_mm:g} mm → max {bar_spacing_mm * 0.75:g} mm) "
+            f"per ACI 318 26.4.2.1(a)(5)"
+        )
+    return violations
+
+
+def check_f3_scm_limits(scm_types: list[str], scm_percents: list[float]) -> list[str]:
+    """Check SCM replacements against ACI 301 Table 4.2.1.1(b) (F3).
+
+    Args:
+        scm_types: SCMType values (e.g. "fly_ash", "ggbfs", "silica_fume").
+        scm_percents: Replacement % of total cementitious mass, aligned.
+
+    Returns:
+        List of violation messages (empty when compliant). Unknown SCM
+        types are conservatively counted toward the total cap only.
+    """
+    buckets: dict[str, float] = {"ash": 0.0, "slag": 0.0, "silica": 0.0}
+    total = 0.0
+    for t, p in zip(scm_types, scm_percents):
+        total += p
+        bucket = F3_SCM_BUCKETS.get(t)
+        if bucket in buckets:
+            buckets[bucket] += p
+    violations: list[str] = []
+    if buckets["ash"] > F3_SCM_MAX_PERCENT["ash"]:
+        violations.append(
+            f"Fly ash/natural pozzolan {buckets['ash']:.1f}% exceeds the F3 "
+            f"maximum {F3_SCM_MAX_PERCENT['ash']:.0f}% (ACI 301 Table 4.2.1.1(b))"
+        )
+    if buckets["slag"] > F3_SCM_MAX_PERCENT["slag"]:
+        violations.append(
+            f"Slag cement {buckets['slag']:.1f}% exceeds the F3 "
+            f"maximum {F3_SCM_MAX_PERCENT['slag']:.0f}% (ACI 301 Table 4.2.1.1(b))"
+        )
+    if buckets["silica"] > F3_SCM_MAX_PERCENT["silica"]:
+        violations.append(
+            f"Silica fume {buckets['silica']:.1f}% exceeds the F3 "
+            f"maximum {F3_SCM_MAX_PERCENT['silica']:.0f}% (ACI 301 Table 4.2.1.1(b))"
+        )
+    if total > F3_SCM_MAX_PERCENT["total"]:
+        violations.append(
+            f"Total SCM {total:.1f}% exceeds the F3 "
+            f"maximum {F3_SCM_MAX_PERCENT['total']:.0f}% (ACI 301 Table 4.2.1.1(b))"
+        )
+    if buckets["ash"] + buckets["silica"] > F3_SCM_MAX_PERCENT["ash_plus_silica"]:
+        violations.append(
+            f"Fly ash/pozzolan + silica fume {buckets['ash'] + buckets['silica']:.1f}% "
+            f"exceeds the F3 maximum {F3_SCM_MAX_PERCENT['ash_plus_silica']:.0f}% "
+            f"(ACI 301 Table 4.2.1.1(b))"
+        )
+    return violations
+
+# ACI 318 Table 26.4.3.1(b) / PRC-211.1-22 Table 4.7.4.1 — Required average
+# compressive strength f'cr when NO data are available to establish a
+# standard deviation. Exact piecewise metric form of the psi table
+# (1 psi = 0.00689476 MPa):
+#   f'c < 3000 psi (< 20.68 MPa):   f'cr = f'c + 1000 psi  (+6.895 MPa)
+#   3000 ≤ f'c ≤ 5000 psi:          f'cr = f'c + 1200 psi  (+8.274 MPa)
+#   f'c > 5000 psi (> 34.47 MPa):   f'cr = 1.10·f'c + 700 psi
+# (PRC-211.1-22 Appendix B.6.1.3 illustrates the table path: 3500 psi
+# specified → 4700 psi required average.)
+ACI_NO_DATA_BREAK_3000PSI_MPA = 3000 * 0.00689476   # 20.68 MPa
+ACI_NO_DATA_BREAK_5000PSI_MPA = 5000 * 0.00689476   # 34.47 MPa
+ACI_NO_DATA_ADD_1000PSI_MPA = 1000 * 0.00689476     # 6.895 MPa
+ACI_NO_DATA_ADD_1200PSI_MPA = 1200 * 0.00689476     # 8.274 MPa
+ACI_NO_DATA_5000PSI_INTERCEPT_MPA = 700 * 0.00689476  # 4.826 MPa
+
+
+def get_no_data_overdesign(specified_fc_mpa: float) -> float:
+    """f'cr from ACI 318 Table 26.4.3.1(b) / PRC-211.1-22 Table 4.7.4.1.
+
+    Exact piecewise formulas (no interpolation between breakpoints —
+    each band carries its own rule, per the table).
+    """
+    fc = float(specified_fc_mpa)
+    if fc < ACI_NO_DATA_BREAK_3000PSI_MPA:
+        return round(fc + ACI_NO_DATA_ADD_1000PSI_MPA, 2)
+    if fc <= ACI_NO_DATA_BREAK_5000PSI_MPA:
+        return round(fc + ACI_NO_DATA_ADD_1200PSI_MPA, 2)
+    return round(1.10 * fc + ACI_NO_DATA_5000PSI_INTERCEPT_MPA, 2)
+
+
+# ACI PRC-211.1-22 Table 4.7.4.3 (ACI 301-20 Table 4.2.3.3(a)2) — k-factor
+# for increasing the sample standard deviation when it is calculated from
+# fewer than 30 strength tests. The table note permits linear interpolation
+# for intermediate numbers of tests.
+ACI_K_MODIFICATION_FACTORS: dict[int, float] = {
+    15: 1.16,
+    20: 1.08,
+    25: 1.03,
+    30: 1.00,
+}
+
+
+def modification_factor_k(num_tests: int) -> float:
+    """Table 4.7.4.3 k-factor for a sample standard deviation from n tests.
+
+    Args:
+        num_tests: Number of strength tests the standard deviation is
+            calculated from.
+
+    Returns:
+        k (1.00 at ≥ 30 tests; interpolated between 15 and 29).
+
+    Raises:
+        ValueError: for n < 15 — ACI 318 does not permit establishing s
+            from fewer than 15 tests; use the no-data table instead
+            (``get_no_data_overdesign`` / ``has_production_data=False``).
+    """
+    n = int(num_tests)
+    if n < 15:
+        raise ValueError(
+            f"A sample standard deviation needs at least 15 strength tests "
+            f"(ACI 301 Table 4.2.3.3(a)2 / PRC-211.1-22 Table 4.7.4.3); got "
+            f"{n}. With fewer tests use the no-data required-average table "
+            f"(Table 4.7.4.1 — has_production_data=False)."
+        )
+    if n >= 30:
+        return 1.00
+    ns = sorted(ACI_K_MODIFICATION_FACTORS)
+    for lo, hi in zip(ns, ns[1:]):
+        if lo <= n <= hi:
+            k_lo = ACI_K_MODIFICATION_FACTORS[lo]
+            k_hi = ACI_K_MODIFICATION_FACTORS[hi]
+            return k_lo + (n - lo) / (hi - lo) * (k_hi - k_lo)
+    return 1.00
+
+
+# ACI 301 Table 4.2.2.6(c) — Exposure Class F3 assigned to PLAIN concrete
+# carries its own row: max w/cm 0.45 and minimum f'c 4500 psi (31.0 MPa)
+# instead of the reinforced-concrete F3 limits (PRC-211.1-22 Table 4.7.3b,
+# last row).
+F3_PLAIN_LIMITS: dict[str, float | None] = {
+    "max_wc": 0.45,
+    "min_fc_mpa": 31.0,
+}
+
+
+def get_f_class_limits(
+    f_class: str, concrete_type: str = "reinforced"
+) -> dict[str, float | None]:
+    """F-class durability limits, honouring the F3 plain-concrete row."""
+    if f_class == "F3" and concrete_type == "plain":
+        return dict(F3_PLAIN_LIMITS)
+    return dict(F_CLASS_LIMITS[f_class])
+
+
+# PRC-211.1-22 §9.5 (Example 4) — paste volume PV is the sum of the
+# cementitious and water absolute volumes as a percentage of the concrete
+# volume. Example 4 Step 2 solves the cementitious contents that hit a
+# target PV at a fixed w/cm and SCM proportion (metric restatement of the
+# guide's Example-4 equation, which yields 288 lb cement for PV = 25 %,
+# w/cm = 0.40 and 50 % slag at RD 2.90):
+#   cement = PV_m3 × 1000 × (1 − p) / (wcm + (1 − p)/RD_c + p/RD_scm)
+# where p is the SCM fraction of total cementitious by mass.
+def paste_volume_percent(
+    cement_kg: float,
+    scm_kg: float,
+    water_kg: float,
+    cement_sg: float,
+    scm_sg: float,
+) -> float:
+    """Paste volume (%) of the 1 m³ design volume (§9.5 Step 1)."""
+    vol = (
+        cement_kg / (cement_sg * 1000.0)
+        + (scm_kg / (scm_sg * 1000.0) if scm_kg > 0 else 0.0)
+        + water_kg / 1000.0
+    )
+    return round(vol * 100.0, 1)
+
+
+def cementitious_for_target_paste_volume(
+    target_pv_percent: float,
+    wcm: float,
+    scm_fraction: float,
+    cement_sg: float,
+    scm_sg: float,
+) -> tuple[float, float, float]:
+    """(cement, scm, water) kg/m³ hitting a target paste volume (Ex. 4).
+
+    Keeps the w/cm and the SCM fraction p of total cementitious constant
+    and solves the Example-4 Step-2 equation for the cement mass; water
+    then follows as w/cm × total cementitious (Step 2 tail).
+
+    For multiple SCMs pass their replacement-weighted mean specific
+    gravity as ``scm_sg`` (single-value restatement of the guide's binary
+    formula).
+    """
+    p = float(scm_fraction)
+    pv_m3 = float(target_pv_percent) / 100.0
+    denominator = wcm + (1.0 - p) / cement_sg + p / scm_sg
+    cement = pv_m3 * 1000.0 * (1.0 - p) / denominator
+    scm = cement * p / (1.0 - p) if p < 1.0 else 0.0
+    water = wcm * (cement + scm)
+    return cement, scm, water

@@ -61,14 +61,15 @@ TABLE2_SHALE_MAX: dict[str, float | None] = {
 # SI (vi) — Total of all deleterious materials (except mica).
 # The summands are SI (i)–(v) for the columns that list them (cols 4, 7, 8)
 # and SI (i)–(ii) for the remaining columns (5, 6, 9); the numeric limits
-# are the same either way.
+# follow the same doc column map (col 8 Coarse-Crushed = 2.00, NOT the
+# col-7 uncrushed 5.00).
 TABLE2_TOTAL_DELETERIOUS_MAX: dict[str, float] = {
     "fine_uncrushed": 5.00,
     "fine_crushed_stone_sand": 2.00,
     "fine_mixed_sand": 2.00,
     "fine_manufactured": 2.00,
     "coarse_uncrushed": 5.00,
-    "coarse_crushed": 5.00,
+    "coarse_crushed": 2.00,
     "coarse_manufactured": 2.00,
 }
 

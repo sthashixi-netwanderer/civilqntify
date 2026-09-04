@@ -58,17 +58,18 @@ def _validate_is_input(inp: MixDesignInput) -> list[str]:
                 f"for '{display_name(inp.exposure_class)}' exposure per IS 456:2000 Table 5"
             )
 
-    # IS 10262 structural assumption
+    # Below the usual structural range — exposure minimums (IS 456 Table 5)
+    # are enforced by the engine; this only flags the unusual.
     fc = inp.characteristic_strength
     if fc < 25.0:
         warnings.append(
-            f"IS 10262 structural design requires characteristic strength fck ≥ 25 MPa "
-            f"(IS 456 Table 5 for reinforced structural concrete). Got fck = {fc:.1f} MPa. "
-            f"This app assumes the mix is for structural elements."
+            f"Characteristic strength fck = {fc:.1f} MPa is below the usual "
+            f"structural range — confirm the exposure-class minimum grade "
+            f"(IS 456:2000 Table 5) is met."
         )
     else:
         warnings.append(
-            f"IS 10262:2019: This app assumes structural concrete (fck = {fc:.1f} MPa ≥ 25 MPa)."
+            f"IS 10262:2019: structural concrete (fck = {fc:.1f} MPa ≥ 25 MPa)."
         )
 
     # Cement type should be IS grade
@@ -111,17 +112,18 @@ def _validate_aci_input(inp: MixDesignInput) -> list[str]:
     """ACI 211.1 specific validations."""
     warnings: list[str] = []
 
-    # ACI structural assumption
+    # Below the usual structural range — exposure minimums (ACI 318 Ch. 19)
+    # are enforced by the engine; this only flags the unusual.
     fc = inp.characteristic_strength
     if fc < 25.0:
         warnings.append(
-            f"ACI 211.1 structural design requires characteristic strength f'c ≥ 25 MPa "
-            f"(ACI 318 structural provisions). Got f'c = {fc:.1f} MPa. "
-            f"This app assumes the mix is for structural elements."
+            f"Characteristic strength f'c = {fc:.1f} MPa is below the usual "
+            f"structural range — confirm the exposure-class minimum strength "
+            f"(ACI 318 Chapter 19) is met."
         )
     else:
         warnings.append(
-            f"ACI PRC-211.1-22: This app assumes structural concrete (f'c = {fc:.1f} MPa ≥ 25 MPa)."
+            f"ACI PRC-211.1-22: structural concrete (f'c = {fc:.1f} MPa ≥ 25 MPa)."
         )
 
     # Cement type should be ACI type
@@ -174,38 +176,39 @@ def _validate_doe_input(inp: MixDesignInput) -> list[str]:
             f"NMSA {inp.nmsa} mm is not a standard DOE size — use 10, 20, or 40 mm"
         )
 
-    # DOE structural assumption — this app designs for structural elements only
-    fc = inp.characteristic_strength
-    if fc < 25.0:
-        warnings.append(
-            f"DOE structural design requires characteristic strength fc ≥ 25 MPa "
-            f"(BRE 331:1997 §4.4, Figure 3). Got fc = {fc:.1f} MPa. "
-            f"This app assumes the mix is for structural elements."
-        )
-    else:
-        warnings.append(
-            "DOE (BR 331:1997): This app assumes structural concrete "
-            f"(fc = {fc:.1f} MPa ≥ 25 MPa).  Standard deviation "
-            f"s = 8 MPa for n<20 (Line A) and s = 4 MPa for n≥20 (Line B, §4.4)."
-        )
+    # BRE 331 Figure 3 spans the full axis — any grade is designable; report
+    # the line and deviation that will actually apply.
+    from concrete_mix.codes.tables.doe_tables import get_standard_deviation
 
+    fc = inp.characteristic_strength
     n = getattr(inp, "num_test_cubes", None)
+    s_applied = get_standard_deviation(
+        fc, getattr(inp, "has_production_data", True), n=n)
+    _line = "Line A (n<20)" if (n or 0) < 20 and n is not None else (
+        "Line B (n≥20)" if n is not None else "Line A/B by result count")
+    warnings.append(
+        f"DOE (BR 331:1997) Figure 3, §4.4 — any grade (fc = {fc:.1f} MPa). "
+        f"Applied deviation s = {s_applied:.2f} MPa [{_line}: "
+        f"Line A s = 0.4×fc (fc≤20) else 8 MPa; "
+        f"Line B s = 0.2×fc (fc≤20) else 4 MPa]."
+    )
+
     if n is not None:
         if n < 20:
             warnings.append(
-                f"Number of test cubes n = {n} (<20): standard deviation s = 8 MPa "
-                f"(BRE 331 Figure 3 Line A)."
+                f"Number of test cubes n = {n} (<20): Figure 3 Line A — "
+                f"s = 0.4×fc (fc≤20) else 8 MPa."
             )
         else:
             warnings.append(
-                f"Number of test cubes n = {n} (≥20): standard deviation s = 4 MPa "
-                f"(BRE 331 Figure 3 Line B, §4.4)."
+                f"Number of test cubes n = {n} (≥20): Figure 3 Line B — "
+                f"s = 0.2×fc (fc≤20) else 4 MPa (§4.4)."
             )
     else:
         warnings.append(
-            "Number of test cubes (n) not specified — using classic Figure 3 "
-            "Line A/B (s = 8 MPa for <20 results, s = 4 MPa for ≥20). "
-            "For DOE structural designs specify n (n = number of test cubes)."
+            "Number of test cubes (n) not specified — Figure 3 line is chosen "
+            "by result count when known (Line A <20, Line B ≥20); specify n "
+            "(n = number of test cubes)."
         )
 
     if inp.fine_aggregate.pct_passing_600um is None:

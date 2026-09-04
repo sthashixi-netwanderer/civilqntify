@@ -41,6 +41,12 @@ htmlcov/
 *.swp
 *~
 
+# JS tooling (incidental, not part of the Python/Qt app)
+node_modules/
+
+# Obsidian vault metadata
+docs/.obsidian/
+
 # Temporary & Lock files
 .~lock.*
 *.bak

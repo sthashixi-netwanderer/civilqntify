@@ -433,6 +433,17 @@ class ResultPanel(QWidget):
 
         outer.addWidget(self._cards_container)
 
+        # DOE single-size coarse aggregate split (BRE 331:1997 §5.5) —
+        # BRE-style column table: sizes above, contents below.
+        self._ca_split_label = QLabel()
+        self._ca_split_label.setObjectName("section-title")
+        self._ca_split_label.setWordWrap(True)
+        self._ca_split_label.setTextFormat(Qt.TextFormat.RichText)
+        self._ca_split_label.setStyleSheet("font-size: 13px; padding: 6px;")
+        self._ca_split_label.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.MinimumExpanding)
+        self._ca_split_label.setVisible(False)
+        outer.addWidget(self._ca_split_label)
+
         # Mix ratio display
         self._mix_ratio_label = QLabel()
         self._mix_ratio_label.setObjectName("section-title")
@@ -463,7 +474,10 @@ class ResultPanel(QWidget):
         self._steps_tree.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self._steps_tree.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self._steps_tree.setMinimumWidth(0)
-        self._steps_tree.setMinimumHeight(140)
+        # Tall enough to show typical step lists without an inner
+        # scrollbar; _fit_steps_height() grows it further per result.
+        # IS 10262:2019 §9 / ACI 211.1-22 §9.3 calculation steps.
+        self._steps_tree.setMinimumHeight(260)
         # Responsive column sizing: Description & Formula stretch, others adapt
         header = self._steps_tree.header()
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
@@ -475,9 +489,12 @@ class ResultPanel(QWidget):
         # Keep Formula readable but not dominating at narrow widths
         header.resizeSection(2, 160)
         self._steps_tree.setWordWrap(True)
+        # stretch=1 lets the tree absorb viewport space; the trailing
+        # spacer stays at stretch 0 so it never steals half the space
+        # below the steps (previously addStretch(1) cut the tree halfway).
         outer.addWidget(self._steps_tree, stretch=1)
 
-        outer.addStretch(1)
+        outer.addStretch(0)
 
         self._scroll.setWidget(container)
         main.addWidget(self._scroll, 1)
@@ -761,11 +778,56 @@ class ResultPanel(QWidget):
             coarse_aggregate_kg=est["coarse_agg_kg"],
             air_volume_percent=1.0,
         )
+        # Ratio estimates never carry a single-size split.
+        self._ca_split_label.setVisible(False)
 
         # Enable export and send buttons
         self._btn_csv.setEnabled(True)
         self._btn_report.setEnabled(True)
         self._btn_quant.setEnabled(True)
+
+    def _render_ca_split(self, result: MixDesignResult, vol: float) -> None:
+        """Render the DOE single-size CA split as a BRE-style column table.
+
+        BRE 331:1997 §5.5 subdivides the coarse content only when single
+        sized 10/20/40 mm materials are combined (1:2, or 1:1.5:3). Sizes
+        read across the top with each fraction's content below — unused
+        sizes show "—", as in the standard's summary tables.
+        """
+        parts = getattr(result, "ca_split_kg", None)
+        if not parts:
+            self._ca_split_label.setVisible(False)
+            return
+
+        up = self.unit_prefs
+        mu = up.mass_unit()
+        fmt = ".0f" if not up.is_imperial() else ".1f"
+        ratio = "1 : 1.5 : 3" if "40 mm" in parts else "1 : 2"
+
+        def cell(size: str) -> str:
+            if size in parts:
+                val = up.convert_mass_kg(parts[size] * vol)
+                return f"<span style='font-size:20px; font-weight:700;'>{val:{fmt}}</span>"
+            return "<span style='font-size:20px; color:#9ca3af;'>—</span>"
+
+        dots = "<span style='color:#9ca3af;'>··········</span>"
+        self._ca_split_label.setText(
+            f"<b>Coarse Aggregate ({mu}) — Single-Size Split</b><br/>"
+            "<table width='100%' cellpadding='2'>"
+            "<tr>"
+            "<td align='center'><span style='color:#4b5563;'>10 mm</span></td>"
+            "<td align='center'><span style='color:#4b5563;'>20 mm</span></td>"
+            "<td align='center'><span style='color:#4b5563;'>40 mm</span></td>"
+            "</tr>"
+            f"<tr><td align='center'>{dots}</td><td align='center'>{dots}</td><td align='center'>{dots}</td></tr>"
+            f"<tr><td align='center'>{cell('10 mm')}</td>"
+            f"<td align='center'>{cell('20 mm')}</td>"
+            f"<td align='center'>{cell('40 mm')}</td></tr>"
+            "</table>"
+            f"<span style='font-size:11px; color:#6b7280;'>Ratio {ratio} "
+            f"(BRE 331:1997 §5.5)</span>"
+        )
+        self._ca_split_label.setVisible(True)
 
     def _refresh_display(self) -> None:
         """Re-render the current result with active unit conversions."""
@@ -815,6 +877,7 @@ class ResultPanel(QWidget):
             up.convert_mass_kg(result.fine_aggregate_kg * vol), unit=up.mass_unit())
         self._cards["coarse_agg"].set_value(
             up.convert_mass_kg(result.coarse_aggregate_kg * vol), unit=up.mass_unit())
+        self._render_ca_split(result, vol)
         self._cards["scm"].set_value(
             up.convert_mass_kg(result.scm_kg * vol), unit=up.mass_unit())
         if result.admixture_kg is not None and result.admixture_kg > 0:
@@ -887,11 +950,50 @@ class ResultPanel(QWidget):
 
         # Ensure grid is optimal for current width after new content
         self._reflow_cards()
+        # Grow the steps tree to its content so it uses the space below
+        # instead of cutting rows behind an inner scrollbar.
+        self._fit_steps_height()
 
         # Enable export buttons
         self._btn_csv.setEnabled(True)
         self._btn_report.setEnabled(True)
         self._btn_quant.setEnabled(True)
+
+    def _fit_steps_height(self) -> None:
+        """Size the calculation-steps tree to its content height.
+
+        The tree lives inside the outer scroll area, so growing its
+        minimum height lets it consume the empty space below it (one
+        shared scrollbar) instead of staying cut at a fixed height
+        with its own nested scrollbar. Clamped so very long step
+        lists still scroll.
+        """
+        count = self._steps_tree.topLevelItemCount()
+        if count == 0:
+            self._steps_tree.setMinimumHeight(260)
+            return
+        try:
+            row_h = max(
+                (self._steps_tree.sizeHintForRow(i) or 0)
+                for i in range(count)
+            )
+        except Exception:
+            row_h = 0
+        if not row_h or row_h <= 0:
+            row_h = 30
+        try:
+            header_h = self._steps_tree.header().sizeHint().height() or 30
+        except Exception:
+            header_h = 30
+        try:
+            frame = 2 * self._steps_tree.frameWidth()
+        except Exception:
+            frame = 2
+        needed = header_h + count * row_h + frame + 6
+        # Floor 260 matches the default so fitting never shrinks the
+        # tree for typical step counts (offscreen size hints understate
+        # wrapped Description/Formula rows; on screen `needed` is larger).
+        self._steps_tree.setMinimumHeight(max(260, min(needed, 560)))
 
     def on_unit_changed(self) -> None:
         """Re-display results when unit preferences change."""
@@ -926,7 +1028,9 @@ class ResultPanel(QWidget):
             card._value.setText("—")
         self._total_label.setVisible(False)
         self._mix_ratio_label.setVisible(False)
+        self._ca_split_label.setVisible(False)
         self._steps_tree.clear()
+        self._steps_tree.setMinimumHeight(260)
         self._btn_csv.setEnabled(False)
         self._btn_report.setEnabled(False)
         self._btn_quant.setEnabled(False)

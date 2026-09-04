@@ -8,6 +8,8 @@ All tables are digitized from the published standard figures and tables.
 
 from __future__ import annotations
 
+from concrete_mix.utils.statistics import defective_k_factor
+
 
 # ---------------------------------------------------------------------------
 # Table 2 — Approximate compressive strengths (N/mm²) of concrete mixes
@@ -83,10 +85,47 @@ WATER_CONTENT: dict[int, dict[str, dict[int, float]]] = {
 }
 
 
+# ---------------------------------------------------------------------------
+# Workability classes — BRE 331:1997 Table 3 columns / Figure 6 panel headers
+#
+# The standard never takes an exact slump as a design input: Table 3 and
+# every Figure 6 panel are organised by four workability ranges, with the
+# slump and Vebe time scales side by side (§1.2.2, §2.1, Table 3):
+#   class 0: Slump 0–10 mm   / Vebe >12 s
+#   class 1: Slump 10–30 mm  / Vebe 6–12 s
+#   class 2: Slump 30–60 mm  / Vebe 3–6 s
+#   class 3: Slump 60–180 mm / Vebe 0–3 s
+# The printed ranges overlap at 10/30/60 mm; endpoints belong to the lower
+# class (columns are read left to right), which is what the mappers below
+# implement. NMSA (10/20/40 mm, §1.2.5) selects the Figure 6 page; the
+# class selects the column on that page.
+# ---------------------------------------------------------------------------
+WORKABILITY_CLASS_INFO: tuple[dict, ...] = (
+    {"class": 0, "slump": "0–10 mm", "vebe": ">12 s", "rep_slump_mm": 5.0},
+    {"class": 1, "slump": "10–30 mm", "vebe": "6–12 s", "rep_slump_mm": 20.0},
+    {"class": 2, "slump": "30–60 mm", "vebe": "3–6 s", "rep_slump_mm": 45.0},
+    {"class": 3, "slump": "60–180 mm", "vebe": "0–3 s", "rep_slump_mm": 120.0},
+)
+
+
+def workability_class_label(wc_class: int) -> str:
+    """Short label for a Table 3 / Figure 6 workability class (0–3)."""
+    info = WORKABILITY_CLASS_INFO[wc_class]
+    return f"Slump {info['slump']} (Vebe {info['vebe']})"
+
+
+def figure6_panel_label(nmsa: int, wc_class: int) -> str:
+    """Identify the Figure 6 chart panel, e.g. '20 mm · Slump 10–30 mm'."""
+    nmsa_key = 10 if nmsa <= 10 else (20 if nmsa <= 20 else 40)
+    info = WORKABILITY_CLASS_INFO[wc_class]
+    return f"{nmsa_key} mm · Slump {info['slump']} / Vebe {info['vebe']}"
+
+
 def slump_to_workability_class(slump_mm: float) -> int:
     """Map slump range to workability class index for Table 3.
 
-    Classes: 0=0-10mm, 1=10-30mm, 2=30-60mm, 3=60-180mm
+    Classes: 0=0-10mm, 1=10-30mm, 2=30-60mm, 3=60-180mm.
+    Endpoints belong to the lower class (printed columns overlap).
     """
     if slump_mm <= 10:
         return 0
@@ -175,11 +214,53 @@ def vebe_to_workability_class(vebe_s: float) -> int:
         return 3
 
 
+def resolve_workability_class(
+    slump_mm: float | None,
+    vebe_s: float | None,
+) -> tuple[int, str]:
+    """Resolve the Table 3 / Figure 6 workability class from slump/Vebe.
+
+    The two scales are parallel readings of the same four classes (BRE
+    331:1997 §1.2.2, Table 3): whichever is provided selects the chart
+    column. When BOTH are provided they must land on the same class; if
+    they disagree, Vebe governs (it is the definitive measure at low
+    workability where slump cannot discriminate) and a warning string is
+    returned — a project decision, as the standard itself is silent on
+    the precedence. Callers surface the string to the user; it is ""
+    when the inputs agree or only one basis was given.
+
+    Returns:
+        (workability_class 0–3, warning or "")
+    """
+    have_slump = slump_mm is not None
+    have_vebe = vebe_s is not None
+    if not have_slump and not have_vebe:
+        raise ValueError(
+            "Either slump_mm or vebe_s must be provided to select the "
+            "Table 3 / Figure 6 workability class (BRE 331:1997 §1.2.2)"
+        )
+    cls_vebe = vebe_to_workability_class(vebe_s) if have_vebe else None
+    cls_slump = slump_to_workability_class(slump_mm) if have_slump else None
+    if cls_vebe is not None and cls_slump is not None and cls_vebe != cls_slump:
+        warning = (
+            f"Slump {slump_mm:g} mm (class {cls_slump}, "
+            f"{WORKABILITY_CLASS_INFO[cls_slump]['slump']}) and Vebe "
+            f"{vebe_s:g} s (class {cls_vebe}, Vebe "
+            f"{WORKABILITY_CLASS_INFO[cls_vebe]['vebe']}) map to different "
+            f"workability columns — Vebe governs per project policy "
+            f"(BRE 331:1997 Table 3 gives no precedence); verify the "
+            f"specified workability"
+        )
+        return cls_vebe, warning
+    return (cls_vebe if cls_vebe is not None else cls_slump), ""
+
+
 def get_free_water_content(
     nmsa: int,
     agg_type: str,
     slump_mm: float | None = None,
     vebe_s: float | None = None,
+    workability_class: int | None = None,
 ) -> float:
     """Get free-water content from Table 3.
 
@@ -188,66 +269,69 @@ def get_free_water_content(
         agg_type: "uncrushed" or "crushed"
         slump_mm: Slump in mm (provide if using slump)
         vebe_s: Vebe time in seconds (provide if using Vebe)
+        workability_class: Explicit Table 3 class 0–3, bypassing slump/Vebe
+            derivation. Used for §8 air-entrained designs, which take water
+            from one workability class lower than specified.
 
     Returns:
         Free-water content in kg/m³
     """
-    if slump_mm is not None:
+    if workability_class is not None:
+        if workability_class not in (0, 1, 2, 3):
+            raise ValueError(
+                f"Workability class {workability_class} outside [0, 3] (Table 3)"
+            )
+        wc = workability_class
+    elif slump_mm is not None:
         wc = slump_to_workability_class(slump_mm)
     elif vebe_s is not None:
         wc = vebe_to_workability_class(vebe_s)
     else:
-        raise ValueError("Either slump_mm or vebe_s must be provided")
+        raise ValueError(
+            "Either slump_mm, vebe_s or workability_class must be provided"
+        )
 
     nmsa_key = 10 if nmsa <= 10 else (20 if nmsa <= 20 else 40)
     return float(WATER_CONTENT[nmsa_key][agg_type][wc])
 
 
 # ---------------------------------------------------------------------------
-# Figure 3 — Standard deviation vs characteristic strength
+# Figure 3 — Standard deviation vs characteristic strength (any grade)
 #
-# Line A (< 20 results): piecewise linear from (0,0) to (20,8), then flat 8
-# Line B (>= 20 results): piecewise linear from (0,0) to (20,4), then flat 4
-#
-# Structural DOE assumption (this app): The mix is for structural elements,
-# therefore fc ≥ 25 MPa.  For structural designs the standard deviation is
-# taken as 8 MPa when n < 20 (Figure 3 Line A) and 4 MPa when n ≥ 20
-# (Figure 3 Line B) per BRE 331:1997 §4.4 / Figure 3.  This is invoked when
-# ``n`` is supplied (number of test cubes).  When ``n`` is None the classic
-# has_production_data Line A / Line B behaviour is preserved for
-# backwards compatibility and non-structural reference.
+# Piecewise lines (BRE 331:1997 §4.4):
+#   Line A (< 20 results): s = 0.4×fc for fc ≤ 20, else s = 8 MPa
+#   Line B (≥ 20 results): s = 0.2×fc for fc ≤ 20, else s = 4 MPa
+# Both ramps meet their plateaus continuously at fc = 20 MPa.
 # ---------------------------------------------------------------------------
 def get_standard_deviation(
     characteristic_strength: float,
     has_production_data: bool = True,
     n: int | None = None,
 ) -> float:
-    """Get standard deviation from Figure 3.
+    """Get standard deviation from Figure 3 (any characteristic strength).
 
     Args:
         characteristic_strength: fc in N/mm²
         has_production_data: True = Line B (>=20 results), False = Line A (<20)
             (ignored when ``n`` is provided).
-        n: Number of test cubes (number of results) for DOE structural mode.
-            When given, BRE 331:1997 structural assumption is applied:
-            n < 20 → s = 8 MPa (Figure 3 Line A), n ≥ 20 → s = 4 MPa
-            (Figure 3 Line B, §4.4). For fc ≤ 20 MPa the linear ramps
-            fc×8/20 (n<20) and fc×4/20 (n≥20) are retained for completeness,
-            although structural validation requires fc ≥ 25 MPa.
+        n: Number of test cubes (number of results).
+            When given, the Figure 3 rule applies directly:
+            n < 20 → Line A (s = 0.4×fc for fc ≤ 20, else 8 MPa);
+            n ≥ 20 → Line B (s = 0.2×fc for fc ≤ 20, else 4 MPa).
 
     Returns:
         Standard deviation in N/mm²
     """
     fc = characteristic_strength
     if n is not None:
-        # DOE structural mode — n<20 → 8 MPa (Line A), n≥20 → 4 MPa (Line B)
+        # Figure 3 piecewise lines — continuous at fc = 20 MPa.
         if n < 20:
             if fc <= 20:
-                return fc * 8.0 / 20.0
+                return fc * 0.4
             return 8.0
         else:
             if fc <= 20:
-                return fc * 4.0 / 20.0
+                return fc * 0.2
             return 4.0
     if has_production_data:
         # Line B: minimum s for 20+ results
@@ -428,15 +512,13 @@ def _interpolate_density(water_content: float, curve: list[tuple[float, float]])
 # Figure 6 — Proportion of fine aggregate (%)
 #
 # BRE 331:1997 charts for 3 aggregate sizes (10, 20, 40 mm) × 4 workability
-# classes.  X = free-water/cement ratio (0.3-0.8), curves for % passing the
-# 600 µm sieve (15, 40, 60, 80, 100 %).
+# classes.  X = free-water/cement ratio, curves for % passing the 600 µm
+# sieve (15, 40, 60, 80, 100 %).
 #
-# Digitized from the validated linear model
-#   prop = 40.9545 - 0.1295*nmsa + 2.5*wc_class + 9.0909*wc - 0.2591*p600
-# which reproduces the standard's worked examples:
-#   Example 1 (§7.1): 20 mm, slump 10-30, wc 0.47, 70 % passing → 27 %
-#   Example 2 (§7.2): 40 mm, slump 30-60, wc 0.50, 90 % passing → 22 %
-#   Example 3 (§7.3): 40 mm, slump 0-10,  wc 0.40, 90 % passing → 15-18 %
+# Digitized from the Figure 6 chart panels on the printed grid — every panel
+# is read at the four labelled w/c ordinates (0.2, 0.4, 0.6, 0.8) on each of
+# the five grading curves (project chart-image extraction, validated against
+# the standard's worked examples — see get_fine_aggregate_proportion).
 # Direction: a FINER sand (higher % passing 600 µm) needs a LOWER proportion
 # of fine aggregate, and the proportion increases with workability and w/c.
 #
@@ -446,106 +528,82 @@ def _interpolate_density(water_content: float, curve: list[tuple[float, float]])
 
 _FIG6_10MM: dict[int, list[tuple[float, dict[int, float]]]] = {
     0: [
-        (0.3, {15: 39, 40: 32, 60: 27, 80: 22, 100: 16}),
-        (0.4, {15: 39, 40: 33, 60: 28, 80: 23, 100: 17}),
-        (0.5, {15: 40, 40: 34, 60: 29, 80: 23, 100: 18}),
-        (0.6, {15: 41, 40: 35, 60: 30, 80: 24, 100: 19}),
-        (0.7, {15: 42, 40: 36, 60: 30, 80: 25, 100: 20}),
-        (0.8, {15: 43, 40: 37, 60: 31, 80: 26, 100: 21}),
+        (0.2, {15: 48, 40: 37, 60: 31, 80: 26, 100: 23}),
+        (0.4, {15: 54, 40: 42, 60: 35, 80: 29, 100: 25}),
+        (0.6, {15: 60, 40: 48, 60: 40, 80: 32, 100: 28}),
+        (0.8, {15: 67, 40: 54, 60: 44, 80: 36, 100: 31}),
     ],
     1: [
-        (0.3, {15: 41, 40: 35, 60: 29, 80: 24, 100: 19}),
-        (0.4, {15: 42, 40: 35, 60: 30, 80: 25, 100: 20}),
-        (0.5, {15: 43, 40: 36, 60: 31, 80: 26, 100: 21}),
-        (0.6, {15: 44, 40: 37, 60: 32, 80: 27, 100: 22}),
-        (0.7, {15: 45, 40: 38, 60: 33, 80: 28, 100: 23}),
-        (0.8, {15: 46, 40: 39, 60: 34, 80: 29, 100: 24}),
+        (0.2, {15: 50, 40: 39, 60: 33, 80: 28, 100: 24}),
+        (0.4, {15: 56, 40: 44, 60: 37, 80: 31, 100: 27}),
+        (0.6, {15: 62, 40: 49, 60: 41, 80: 34, 100: 29}),
+        (0.8, {15: 68, 40: 55, 60: 46, 80: 38, 100: 32}),
     ],
     2: [
-        (0.3, {15: 44, 40: 37, 60: 32, 80: 27, 100: 21}),
-        (0.4, {15: 44, 40: 38, 60: 33, 80: 28, 100: 22}),
-        (0.5, {15: 45, 40: 39, 60: 34, 80: 28, 100: 23}),
-        (0.6, {15: 46, 40: 40, 60: 35, 80: 29, 100: 24}),
-        (0.7, {15: 47, 40: 41, 60: 35, 80: 30, 100: 25}),
-        (0.8, {15: 48, 40: 42, 60: 36, 80: 31, 100: 26}),
+        (0.2, {15: 54, 40: 42, 60: 36, 80: 30, 100: 25}),
+        (0.4, {15: 60, 40: 47, 60: 40, 80: 33, 100: 28}),
+        (0.6, {15: 66, 40: 52, 60: 44, 80: 37, 100: 31}),
+        (0.8, {15: 72, 40: 58, 60: 48, 80: 40, 100: 34}),
     ],
     3: [
-        (0.3, {15: 46, 40: 40, 60: 34, 80: 29, 100: 24}),
-        (0.4, {15: 47, 40: 40, 60: 35, 80: 30, 100: 25}),
-        (0.5, {15: 48, 40: 41, 60: 36, 80: 31, 100: 26}),
-        (0.6, {15: 49, 40: 42, 60: 37, 80: 32, 100: 27}),
-        (0.7, {15: 50, 40: 43, 60: 38, 80: 33, 100: 28}),
-        (0.8, {15: 51, 40: 44, 60: 39, 80: 34, 100: 29}),
+        (0.2, {15: 61, 40: 49, 60: 41, 80: 34, 100: 29}),
+        (0.4, {15: 67, 40: 54, 60: 45, 80: 37, 100: 32}),
+        (0.6, {15: 74, 40: 60, 60: 50, 80: 40, 100: 35}),
+        (0.8, {15: 80, 40: 65, 60: 54, 80: 44, 100: 38}),
     ],
 }
 
 _FIG6_20MM: dict[int, list[tuple[float, dict[int, float]]]] = {
     0: [
-        (0.3, {15: 37, 40: 31, 60: 26, 80: 20, 100: 15}),
-        (0.4, {15: 38, 40: 32, 60: 26, 80: 21, 100: 16}),
-        (0.5, {15: 39, 40: 33, 60: 27, 80: 22, 100: 17}),
-        (0.6, {15: 40, 40: 33, 60: 28, 80: 23, 100: 18}),
-        (0.7, {15: 41, 40: 34, 60: 29, 80: 24, 100: 19}),
-        (0.8, {15: 42, 40: 35, 60: 30, 80: 25, 100: 20}),
+        (0.2, {15: 35, 40: 27, 60: 23, 80: 19, 100: 16}),
+        (0.4, {15: 41, 40: 32, 60: 27, 80: 23, 100: 19}),
+        (0.6, {15: 48, 40: 38, 60: 31, 80: 26, 100: 22}),
+        (0.8, {15: 54, 40: 43, 60: 36, 80: 30, 100: 25}),
     ],
     1: [
-        (0.3, {15: 40, 40: 33, 60: 28, 80: 23, 100: 18}),
-        (0.4, {15: 41, 40: 34, 60: 29, 80: 24, 100: 19}),
-        (0.5, {15: 42, 40: 35, 60: 30, 80: 25, 100: 19}),
-        (0.6, {15: 42, 40: 36, 60: 31, 80: 26, 100: 20}),
-        (0.7, {15: 43, 40: 37, 60: 32, 80: 27, 100: 21}),
-        (0.8, {15: 44, 40: 38, 60: 33, 80: 27, 100: 22}),
+        (0.2, {15: 38, 40: 29, 60: 25, 80: 20, 100: 18}),
+        (0.4, {15: 44, 40: 34, 60: 29, 80: 24, 100: 20}),
+        (0.6, {15: 50, 40: 40, 60: 33, 80: 27, 100: 23}),
+        (0.8, {15: 56, 40: 45, 60: 38, 80: 31, 100: 26}),
     ],
     2: [
-        (0.3, {15: 42, 40: 36, 60: 31, 80: 25, 100: 20}),
-        (0.4, {15: 43, 40: 37, 60: 31, 80: 26, 100: 21}),
-        (0.5, {15: 44, 40: 38, 60: 32, 80: 27, 100: 22}),
-        (0.6, {15: 45, 40: 38, 60: 33, 80: 28, 100: 23}),
-        (0.7, {15: 46, 40: 39, 60: 34, 80: 29, 100: 24}),
-        (0.8, {15: 47, 40: 40, 60: 35, 80: 30, 100: 25}),
+        (0.2, {15: 41, 40: 32, 60: 27, 80: 23, 100: 20}),
+        (0.4, {15: 47, 40: 37, 60: 31, 80: 26, 100: 23}),
+        (0.6, {15: 53, 40: 42, 60: 35, 80: 29, 100: 25}),
+        (0.8, {15: 59, 40: 47, 60: 39, 80: 32, 100: 28}),
     ],
     3: [
-        (0.3, {15: 45, 40: 38, 60: 33, 80: 28, 100: 23}),
-        (0.4, {15: 46, 40: 39, 60: 34, 80: 29, 100: 24}),
-        (0.5, {15: 47, 40: 40, 60: 35, 80: 30, 100: 24}),
-        (0.6, {15: 47, 40: 41, 60: 36, 80: 31, 100: 25}),
-        (0.7, {15: 48, 40: 42, 60: 37, 80: 32, 100: 26}),
-        (0.8, {15: 49, 40: 43, 60: 38, 80: 32, 100: 27}),
+        (0.2, {15: 48, 40: 38, 60: 31, 80: 26, 100: 23}),
+        (0.4, {15: 54, 40: 43, 60: 35, 80: 30, 100: 26}),
+        (0.6, {15: 60, 40: 48, 60: 39, 80: 33, 100: 29}),
+        (0.8, {15: 66, 40: 53, 60: 44, 80: 37, 100: 32}),
     ],
 }
 
 _FIG6_40MM: dict[int, list[tuple[float, dict[int, float]]]] = {
     0: [
-        (0.3, {15: 35, 40: 28, 60: 23, 80: 18, 100: 13}),
-        (0.4, {15: 36, 40: 29, 60: 24, 80: 19, 100: 14}),
-        (0.5, {15: 36, 40: 30, 60: 25, 80: 20, 100: 14}),
-        (0.6, {15: 37, 40: 31, 60: 26, 80: 21, 100: 15}),
-        (0.7, {15: 38, 40: 32, 60: 27, 80: 21, 100: 16}),
-        (0.8, {15: 39, 40: 33, 60: 28, 80: 22, 100: 17}),
+        (0.2, {15: 28, 40: 21, 60: 18, 80: 15, 100: 12}),
+        (0.4, {15: 34, 40: 26, 60: 22, 80: 18, 100: 15}),
+        (0.6, {15: 41, 40: 32, 60: 26, 80: 22, 100: 18}),
+        (0.8, {15: 47, 40: 38, 60: 31, 80: 26, 100: 21}),
     ],
     1: [
-        (0.3, {15: 37, 40: 31, 60: 25, 80: 20, 100: 15}),
-        (0.4, {15: 38, 40: 32, 60: 26, 80: 21, 100: 16}),
-        (0.5, {15: 39, 40: 32, 60: 27, 80: 22, 100: 17}),
-        (0.6, {15: 40, 40: 33, 60: 28, 80: 23, 100: 18}),
-        (0.7, {15: 41, 40: 34, 60: 29, 80: 24, 100: 19}),
-        (0.8, {15: 42, 40: 35, 60: 30, 80: 25, 100: 20}),
+        (0.2, {15: 30, 40: 23, 60: 19, 80: 16, 100: 14}),
+        (0.4, {15: 36, 40: 28, 60: 23, 80: 20, 100: 16}),
+        (0.6, {15: 42, 40: 33, 60: 27, 80: 23, 100: 19}),
+        (0.8, {15: 48, 40: 39, 60: 31, 80: 26, 100: 22}),
     ],
     2: [
-        (0.3, {15: 40, 40: 33, 60: 28, 80: 23, 100: 18}),
-        (0.4, {15: 41, 40: 34, 60: 29, 80: 24, 100: 19}),
-        (0.5, {15: 41, 40: 35, 60: 30, 80: 25, 100: 19}),
-        (0.6, {15: 42, 40: 36, 60: 31, 80: 26, 100: 20}),
-        (0.7, {15: 43, 40: 37, 60: 32, 80: 26, 100: 21}),
-        (0.8, {15: 44, 40: 38, 60: 33, 80: 27, 100: 22}),
+        (0.2, {15: 34, 40: 26, 60: 22, 80: 19, 100: 16}),
+        (0.4, {15: 40, 40: 31, 60: 26, 80: 22, 100: 19}),
+        (0.6, {15: 46, 40: 36, 60: 30, 80: 25, 100: 21}),
+        (0.8, {15: 52, 40: 41, 60: 34, 80: 28, 100: 24}),
     ],
     3: [
-        (0.3, {15: 42, 40: 36, 60: 30, 80: 25, 100: 20}),
-        (0.4, {15: 43, 40: 37, 60: 31, 80: 26, 100: 21}),
-        (0.5, {15: 44, 40: 37, 60: 32, 80: 27, 100: 22}),
-        (0.6, {15: 45, 40: 38, 60: 33, 80: 28, 100: 23}),
-        (0.7, {15: 46, 40: 39, 60: 34, 80: 29, 100: 24}),
-        (0.8, {15: 47, 40: 40, 60: 35, 80: 30, 100: 25}),
+        (0.2, {15: 41, 40: 32, 60: 27, 80: 23, 100: 20}),
+        (0.4, {15: 47, 40: 37, 60: 31, 80: 26, 100: 23}),
+        (0.6, {15: 53, 40: 42, 60: 35, 80: 29, 100: 25}),
+        (0.8, {15: 59, 40: 47, 60: 39, 80: 32, 100: 28}),
     ],
 }
 
@@ -560,24 +618,80 @@ def get_fine_aggregate_proportion(
     nmsa: int,
     wc_ratio: float,
     pct_passing_600um: float,
-    slump_mm: float,
+    slump_mm: float | None = None,
+    vebe_s: float | None = None,
+    workability_class: int | None = None,
 ) -> float:
     """Get proportion of fine aggregate (%) from Figure 6.
 
+    Reads the chart panel for (NMSA page × workability column) with
+    bilinear interpolation: first along the free-water/cement axis
+    between the bracketing grid columns, then along the % passing
+    600 µm axis between the bracketing grading curves (15/40/60/80/100).
+    Formally, with bracketing columns w0 ≤ w ≤ w1 (α = (w−w0)/(w1−w0))
+    and bracketing curves p0 ≤ p ≤ p1 (β = (p−p0)/(p1−p0)):
+
+        P = (1−β)·[f0 + α·(f1−f0)] + β·[g0 + α·(g1−g0)]
+
+    where f/g are the panel values on the p0/p1 curves. Inputs are
+    clamped to the chart frame (w/c 0.2–0.8, passing 15–100%) and the
+    result to 10–80%, rounded to 1 dp. Reproduces the standard's worked
+    examples: §7.1 (20 mm, class 1, 0.47, 70%) → 27.7% (standard: 27%);
+    §7.2 (40 mm, class 2, 0.50, 90%) → 21.8% (standard: 22%);
+    §7.3 (40 mm, class 0, 0.40, 90%) → 16.5% (standard: 15–18%);
+    §8.6 (20 mm, class 1, ~0.46, 50%) → 32.9% (standard: ~32%);
+    §9.4 (20 mm, class 1, ~0.36, 70%) → 25.8% (standard: ~26%).
+
     Args:
         nmsa: Nominal maximum aggregate size (10, 20, or 40 mm)
-        wc_ratio: Free-water/cement ratio
-        pct_passing_600um: Percentage of fine aggregate passing 600 µm sieve
-        slump_mm: Required slump in mm
+        wc_ratio: Free-water/cement ratio (Figure 6 x-axis; W/(C+F)
+            for pfa per §9.3.5)
+        pct_passing_600um: Percentage of fine aggregate passing 600 µm
+            sieve (Figure 6 curve family)
+        slump_mm: Required slump in mm (derives the panel column;
+            endpoints belong to the lower class)
+        vebe_s: Vebe time in seconds (derives the panel column;
+            preferred over slump when both are given)
+        workability_class: Explicit panel column 0–3, bypassing
+            slump/Vebe derivation (preferred — no boundary ambiguity).
 
     Returns:
         Proportion of fine aggregate as a percentage of total aggregate
     """
-    wc_class = slump_to_workability_class(slump_mm)
+    if workability_class is not None:
+        if workability_class not in (0, 1, 2, 3):
+            raise ValueError(
+                f"Workability class {workability_class} outside [0, 3] "
+                f"(BRE 331:1997 Table 3 / Figure 6)"
+            )
+        wc_class = workability_class
+    else:
+        wc_class, _ = resolve_workability_class(slump_mm, vebe_s)
 
-    # Linear model fitted to the standard's worked examples (100% exact match):
-    prop = 40.9545 - 0.1295 * nmsa + 2.5 * wc_class + 9.0909 * wc_ratio - 0.2591 * pct_passing_600um
-    return float(max(10.0, min(70.0, round(prop, 1))))
+    nmsa_key = 10 if nmsa <= 10 else (20 if nmsa <= 20 else 40)
+    panel = FIGURE_6[nmsa_key][wc_class]
+    w = max(0.2, min(0.8, float(wc_ratio)))
+    p = max(15.0, min(100.0, float(pct_passing_600um)))
+
+    rows = sorted(panel, key=lambda r: r[0])
+    if w <= rows[0][0]:
+        lo = hi = rows[0]
+    elif w >= rows[-1][0]:
+        lo = hi = rows[-1]
+    else:
+        lo = hi = rows[0]
+        for i in range(len(rows) - 1):
+            if rows[i][0] <= w <= rows[i + 1][0]:
+                lo, hi = rows[i], rows[i + 1]
+                break
+
+    f_lo = _interpolate_fine_pct(p, lo[1])
+    if lo[0] == hi[0]:
+        prop = f_lo
+    else:
+        alpha = (w - lo[0]) / (hi[0] - lo[0])
+        prop = f_lo + alpha * (_interpolate_fine_pct(p, hi[1]) - f_lo)
+    return float(max(10.0, min(80.0, round(prop, 1))))
 
 
 def _interpolate_fine_pct(p600: float, curve: dict[int, float]) -> float:
@@ -596,33 +710,79 @@ def _interpolate_fine_pct(p600: float, curve: dict[int, float]) -> float:
 
 
 # ---------------------------------------------------------------------------
-# Figure 3 k-value constants for target mean strength calculation
+# Table 9 Part B — reductions in free-water content (kg/m³) for Portland
+# cement/pfa concrete, by pfa proportion p (% of cement + pfa) and Table 3
+# workability class (0=0–10 mm, 1=10–30 mm, 2=30–60 mm, 3=60–180 mm).
+# (BRE 331:1997 §9.2.1; Part A repeats Table 3.)
 # ---------------------------------------------------------------------------
-K_VALUES: dict[float, float] = {
-    10.0: 1.28,   # 10% defectives
-    5.0: 1.64,    # 5% defectives (standard for BS 5328)
-    2.5: 1.96,    # 2.5% defectives
-    1.0: 2.33,    # 1% defectives
+TABLE_9B_WATER_REDUCTION: dict[int, dict[int, float]] = {
+    10: {0: 5, 1: 5, 2: 5, 3: 10},
+    20: {0: 10, 1: 10, 2: 10, 3: 15},
+    30: {0: 15, 1: 15, 2: 20, 3: 20},
+    40: {0: 20, 1: 20, 2: 25, 3: 25},
+    50: {0: 25, 1: 25, 2: 30, 3: 30},
 }
+
+# Cementing efficiency factor for pfa at 28 days (BRE 331:1997 §9.2.2):
+# strength follows the free-water/'equivalent cement' ratio W/(C + kF).
+PFA_EFFICIENCY_K = 0.30
+
+# Rough-guide water reduction for ggbs replacement (BRE 331:1997 §10.2.1).
+GGBS_WATER_REDUCTION_KG = 5.0
+
+
+def pfa_water_reduction(pfa_percent: float, workability_class: int) -> float:
+    """Water reduction (kg/m³) from Table 9 Part B, linearly interpolated
+    in p between tabulated rows; clamped to the end rows outside 10–50%."""
+    rows = sorted(TABLE_9B_WATER_REDUCTION.keys())
+    p = max(float(rows[0]), min(float(rows[-1]), float(pfa_percent)))
+    if p <= rows[0]:
+        return float(TABLE_9B_WATER_REDUCTION[rows[0]][workability_class])
+    if p >= rows[-1]:
+        return float(TABLE_9B_WATER_REDUCTION[rows[-1]][workability_class])
+    for i in range(len(rows) - 1):
+        lo, hi = rows[i], rows[i + 1]
+        if lo <= p <= hi:
+            f = (p - lo) / (hi - lo)
+            vlo = TABLE_9B_WATER_REDUCTION[lo][workability_class]
+            vhi = TABLE_9B_WATER_REDUCTION[hi][workability_class]
+            return float(vlo + f * (vhi - vlo))
+    return float(TABLE_9B_WATER_REDUCTION[rows[-1]][workability_class])
+
+
+# k-value for the target-mean-strength margin M = k × s (BRE 331 §4.4).
+# Computed dynamically from the standard-normal quantile — no lookup table
+# (defective_k_factor imported at module top).
+# ---------------------------------------------------------------------------
 
 
 def get_k_value(defective_percent: float = 5.0) -> float:
     """Get k-value for target mean strength margin calculation.
 
+    k is the standard-normal quantile at cumulative probability (1 − p)
+    for the defective proportion p (BRE 331:1997 §4.4; BS 5328 uses the 5%
+    level, k = 1.64). The standard's worked examples quote k to 2dp, so the
+    computed value is rounded to 2dp here — the single point where the
+    standard's precision applies. Use
+    :func:`concrete_mix.utils.statistics.defective_k_factor` directly for
+    the full-precision value.
+
     Args:
-        defective_percent: Permitted percentage of defectives
+        defective_percent: Permitted percentage of defectives in (0, 100).
 
     Returns:
-        k-value
+        k-value rounded to 2dp (5.0 → 1.64, 2.5 → 1.96, 1.0 → 2.33).
+
+    Raises:
+        ValueError: if the percentage is not in (0, 100).
     """
-    # Find nearest known k-value
-    known = sorted(K_VALUES.keys())
-    if defective_percent <= known[0]:
-        return K_VALUES[known[0]]
-    if defective_percent >= known[-1]:
-        return K_VALUES[known[-1]]
-    for i in range(len(known) - 1):
-        if known[i] <= defective_percent <= known[i + 1]:
-            f = (defective_percent - known[i]) / (known[i + 1] - known[i])
-            return K_VALUES[known[i]] + f * (K_VALUES[known[i + 1]] - K_VALUES[known[i]])
-    return 1.64  # 5% default
+    pct = float(defective_percent)
+    if not 0.0 < pct < 100.0:
+        raise ValueError(
+            f"Defective percentage {defective_percent!r} is not usable — "
+            f"pass a percentage in (0, 100)."
+        )
+    # Percent-only contract: sub-1% values (e.g. 0.5%) are normalized to
+    # proportions first, because defective_k_factor reads (0, 1) as a
+    # proportion by convention.
+    return round(defective_k_factor(pct / 100.0 if pct < 1.0 else pct), 2)

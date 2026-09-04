@@ -496,17 +496,27 @@ class TestCoarseGradingAndTable2:
         )
         assert _by_title(checks, "Soft fragments").status == FAIL
 
-    def test_total_deleterious_5pct_crushed(self):
+    def test_total_deleterious_2pct_crushed(self):
+        """Col (8) limit: crushed coarse total caps at 2.00 % (Table 2)."""
         inputs = IS383CoarseQualityInputs(
             source_type="crushed",
-            coal_lignite_pct=2.5, clay_lumps_pct=1.5,
-            finer_75um_pct=0.5, soft_fragments_pct=0.5,
+            coal_lignite_pct=0.8, clay_lumps_pct=0.6,
+            finer_75um_pct=0.4, soft_fragments_pct=0.2,
         )
         checks = evaluate_is383_coarse(
             _coarse_result(), get_is_coarse_band("graded", 20), inputs
         )
         total = _by_title(checks, "Total deleterious")
-        assert total.status == PASS  # 5.0 ≤ 5.00 for crushed coarse
+        assert total.status == PASS  # 2.0 ≤ 2.00 for crushed coarse
+        over = evaluate_is383_coarse(
+            _coarse_result(), get_is_coarse_band("graded", 20),
+            IS383CoarseQualityInputs(
+                source_type="crushed",
+                coal_lignite_pct=2.5, clay_lumps_pct=1.5,
+                finer_75um_pct=0.5, soft_fragments_pct=0.5,
+            ),
+        )
+        assert _by_title(over, "Total deleterious").status == FAIL  # 5.0 > 2.00
         manufactured = evaluate_is383_coarse(
             _coarse_result(), get_is_coarse_band("graded", 20),
             IS383CoarseQualityInputs(

@@ -113,9 +113,16 @@ class CostEstimationTab(QWidget):
         input_scroll = QScrollArea()
         input_scroll.setWidgetResizable(True)
         input_scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        input_scroll.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        )
         input_scroll.setMinimumWidth(360)
         input_scroll.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
         input_widget = QWidget()
+        input_widget.setMinimumWidth(0)
+        input_widget.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred
+        )
         self._form = QVBoxLayout(input_widget)
         self._form.setContentsMargins(16, 16, 12, 16)
         self._form.setSpacing(8)
@@ -140,8 +147,10 @@ class CostEstimationTab(QWidget):
         splitter.addWidget(self._result_panel)
 
         splitter.setSizes([460, 740])
-        splitter.setStretchFactor(0, 0)
-        splitter.setStretchFactor(1, 1)
+        # Both panes share window-resize growth so the sidebar visibly
+        # responds; the handle itself stays freely draggable at all times.
+        splitter.setStretchFactor(0, 1)
+        splitter.setStretchFactor(1, 2)
         splitter.setCollapsible(0, False)
         splitter.setCollapsible(1, False)
         splitter.setHandleWidth(6)
@@ -149,6 +158,18 @@ class CostEstimationTab(QWidget):
         # Wire export buttons
         self._result_panel.btn_csv.clicked.connect(self._export_csv)
         self._result_panel.btn_pdf.clicked.connect(self._show_preview)
+
+        # Responsive reflow: wrap long label+field rows so the form minimum
+        # drops to max(label, field) instead of their sum — the sidebar
+        # then tracks the splitter handle smoothly at any width, including
+        # mid-edit when typed spin text grows the field hint.
+        for _form_layout in self.findChildren(QFormLayout):
+            _form_layout.setRowWrapPolicy(
+                QFormLayout.RowWrapPolicy.WrapLongRows
+            )
+            _form_layout.setFieldGrowthPolicy(
+                QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow
+            )
 
     def _build_form(self) -> None:
         # ── Status Banner ──
@@ -494,13 +515,29 @@ class CostEstimationTab(QWidget):
 
         self._proj_name = QLineEdit()
         self._proj_name.setPlaceholderText("e.g., Terminal 3 Expansion")
+        self._proj_name.setMinimumWidth(0)
+        self._proj_name.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+        )
         self._proj_location = QLineEdit()
         self._proj_location.setPlaceholderText("e.g., Accra")
+        self._proj_location.setMinimumWidth(0)
+        self._proj_location.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+        )
         self._proj_client = QLineEdit()
         self._proj_client.setPlaceholderText("e.g., GAA")
+        self._proj_client.setMinimumWidth(0)
+        self._proj_client.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+        )
         self._proj_date = QDateEdit()
         self._proj_date.setDate(date.today())
         self._proj_date.setCalendarPopup(True)
+        self._proj_date.setMinimumWidth(0)
+        self._proj_date.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+        )
 
         proj_form.addRow(
             self._label_with_info(
@@ -547,6 +584,10 @@ class CostEstimationTab(QWidget):
         action_bar.setContentsMargins(16, 6, 12, 14)
         self.calc_btn = QPushButton("  Estimate Project Cost")
         self.calc_btn.setMinimumHeight(44)
+        self.calc_btn.setMinimumWidth(0)
+        self.calc_btn.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+        )
         self.calc_btn.clicked.connect(self._on_estimate)
         action_bar.addWidget(self.calc_btn)
         self._action_bar = action_bar
@@ -582,6 +623,10 @@ class CostEstimationTab(QWidget):
         layout.addStretch()
         container = QWidget()
         container.setLayout(layout)
+        container.setMinimumWidth(0)
+        container.setSizePolicy(
+            QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum
+        )
         return container
 
     def _spin(
@@ -604,6 +649,9 @@ class CostEstimationTab(QWidget):
         if suffix:
             sb.setSuffix(suffix)
         sb.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        # Typed digits/suffixes grow a spin's hint mid-edit; 0 keeps the
+        # field shrinkable so the splitter never freezes while keying input.
+        sb.setMinimumWidth(0)
         return sb
 
     def on_unit_changed(self) -> None:

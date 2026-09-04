@@ -1,3 +1,21 @@
+# CivilQntify v1.0.9 Release Notes
+
+## 🚀 What's New in v1.0.9
+
+### 🖥️ Sidebar Resize Fix — Inputs Track the Splitter
+
+- **Responsive input forms**: All sidebar forms (Mix Design, PSD sieve analysis, Material Quantification, Cost Estimation) now use wrapping form rows — fields stack below their labels when the pane narrows instead of clipping behind a horizontal scrollbar. The splitter handle tracks smoothly at any width, including mid-edit while typing (typed digits/suffixes no longer grow the form minimum and freeze the handle).
+- **Shrinkable inputs**: Combo boxes, spin boxes, buttons, tables and labels across every sidebar got zero-minimum + expanding size policies, so nothing wedges the pane wider than the sidebar floor.
+- **Decluttered option rows**: Redundant label + checkbox pairings (Mass concrete, Air entrainment, Prestressing, Manufactured sand) are now bare checkboxes with the detail in tooltips; long checkbox/group titles trimmed with standard-section citations preserved (`§5.7`, `§7.3`, `§11.2`).
+- **Balanced splitter**: Window-resize growth is now shared between sidebar and results (1:2) instead of leaving the sidebar frozen.
+
+### 📦 Platform & Testing
+
+- **Version**: `1.0.9` (`app/version.py`)
+- **Test Suite**: 728 automated unit and integration tests passing.
+
+---
+
 # CivilQntify v1.0.8 Release Notes
 
 ## 🚀 What's New in v1.0.8

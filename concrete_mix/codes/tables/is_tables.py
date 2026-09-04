@@ -4,16 +4,24 @@ All values in metric (SI) units.
 Source: IS 10262:2019 — Guidelines for concrete mix design proportioning.
 Bureau of Indian Standards.
 
-IS 10262:2019 Figure 1 — Relationship between free water-cement ratio
-and 28-day compressive strength of concrete.
-The curves are modeled using a quadratic polynomial:
-    f(x) = 178.985x² - 271.219x + 115.809
-where x = free water-cement ratio and f(x) = compressive strength (MPa).
+IS 10262:2019 Figure 1 — Relationship between free water-cement ratio and
+28-day compressive strength of concrete.
 
-Curve restraints (compressive strength limits):
-    Curve 1 (OPC 33): 33 ≤ strength < 43 MPa
-    Curve 2 (OPC 43): 43 ≤ strength < 53 MPa
-    Curve 3 (OPC 53): strength ≥ 53 MPa
+The three printed curves (cement strength classes 33/43/53 N/mm²) are
+modelled with a single base quadratic for the OPC 43 (Curve 2) reference
+condition plus a linear offset per MPa of cement-strength-class difference:
+
+    f(x) = 183.0·x² − 287.4·x + 128.0        (Curve 2 / OPC 43, base)
+    wc_offset = (cement_strength − 43) × 0.004   (stronger cement → higher
+                                                  allowable w/c at the same
+                                                  target strength)
+
+The base quadratic is fitted to the standard's own worked examples —
+Annex A/B: 48.25 MPa → 0.36; Annex E: 38.25 MPa → 0.43; Annex F:
+20.77 MPa → 0.61 — which it reproduces exactly. The offset is a project
+calibration of the Fig. 1 curve spacing (≈ ±0.04 per cement class), not a
+value printed in the standard; Fig. 1 Note 2 sends PPC/PSC to Curve 2 when
+no 28-day cement strength data exist.
 """
 
 from __future__ import annotations
@@ -247,8 +255,9 @@ GRADING_ZONE_LIMITS: dict[str, dict[float, tuple[float, float]]] = {
 def strength_from_wc_ratio(wc_ratio: float) -> float:
     """Compute compressive strength from w/c ratio using IS 10262:2019 Figure 1.
 
-    Uses the polynomial equation:
-        f(x) = 178.985x² - 271.219x + 115.809
+    Uses the module polynomial (IS10262_CURVE_A/B/C), fitted to the
+    standard's Annex A/B/E/F worked examples:
+        f(x) = 183.0x² - 287.4x + 128.0
 
     Args:
         wc_ratio: Free water-cement ratio (x)
@@ -401,6 +410,177 @@ def interpolate_water_content(
     return base_water * (1.0 + pct_change / 100.0)
 
 
+# ---------------------------------------------------------------------------
+# IS 10262:2019 Section 3 — high-strength concrete (M65 and above)
+# ---------------------------------------------------------------------------
+
+# Table 7: maximum water content (kg/m³) for 50 mm slump, angular aggregate.
+# 12.5 mm is tabulated alongside 10/20 mm for the high-strength route
+# (§6.2.2 prefers 10–12.5 mm aggregate for grades M80 and above).
+HS_WATER_CONTENT: dict[int | float, float] = {
+    10: 200,
+    12.5: 195,
+    20: 186,
+}
+
+# Table 8: recommended w/cm for HRWRA + silica-fume high-strength concrete
+# (28-day cement ≥ 53 MPa), by target strength and NMSA.
+HS_WCM_TABLE: dict[float, dict[int | float, float]] = {
+    70.0: {10: 0.36, 12.5: 0.35, 20: 0.33},
+    75.0: {10: 0.34, 12.5: 0.33, 20: 0.31},
+    80.0: {10: 0.32, 12.5: 0.31, 20: 0.29},
+    85.0: {10: 0.30, 12.5: 0.29, 20: 0.27},
+    90.0: {10: 0.28, 12.5: 0.27, 20: 0.26},
+    100.0: {10: 0.26, 12.5: 0.25, 20: 0.24},
+}
+
+# Table 10: CA volume per unit total-aggregate volume at w/cm = 0.30.
+# Note: no Zone IV column — Zone IV has no Table 10 value.
+HS_CA_VOLUME_FRACTION: dict[int | float, dict[str, float]] = {
+    10: {"I": 0.52, "II": 0.54, "III": 0.56},
+    12.5: {"I": 0.54, "II": 0.56, "III": 0.58},
+    20: {"I": 0.64, "II": 0.66, "III": 0.68},
+}
+
+# Table 9: recommended mineral-admixture dosages (% of total cementitious).
+HS_MINERAL_DOSAGE: dict[str, tuple[float, float]] = {
+    "fly_ash": (15.0, 30.0),
+    "ggbfs": (25.0, 50.0),
+    "metakaolin": (5.0, 15.0),
+    "silica_fume": (5.0, 10.0),
+}
+
+# Table 6: entrapped air for high-strength (non-air-entrained) concrete.
+HS_AIR_CONTENT: dict[int | float, float] = {
+    10: 1.0,
+    12.5: 0.8,
+    20: 0.5,
+}
+
+
+def hs_water_content(nmsa: int | float, slump_mm: float) -> float:
+    """Table 7 water (50 mm slump base) with the §6.2.4 slump rule.
+
+    Same ±3% per 25 mm rule as Cl. 5.3. 10/12.5/20 mm NMSA are tabulated
+    (§6.2.2: high-strength aggregate is generally restricted to 20 mm).
+    """
+    if nmsa not in HS_WATER_CONTENT:
+        raise ValueError(
+            f"NMSA {nmsa} mm has no Table 7 water content — high-strength "
+            f"concrete is restricted to 10/12.5/20 mm aggregate (§6.2.2)"
+        )
+    base = HS_WATER_CONTENT[nmsa]
+    return base * (1.0 + 3.0 * (slump_mm - 50.0) / 25.0 / 100.0)
+
+
+def hs_wcm_ratio(target_strength_mpa: float, nmsa: int | float) -> float:
+    """Table 8 w/cm by linear interpolation in target strength.
+
+    Below the 70 MPa row the row value is used; above 100 MPa the 100 MPa
+    row is used (caller must warn — beyond the tabulated range).
+    """
+    if nmsa not in (10, 12.5, 20):
+        raise ValueError(
+            f"NMSA {nmsa} mm has no Table 8 w/cm column (§6.2.5)"
+        )
+    targets = sorted(HS_WCM_TABLE.keys())
+    if target_strength_mpa <= targets[0]:
+        return HS_WCM_TABLE[targets[0]][nmsa]
+    if target_strength_mpa >= targets[-1]:
+        return HS_WCM_TABLE[targets[-1]][nmsa]
+    for i in range(len(targets) - 1):
+        lo, hi = targets[i], targets[i + 1]
+        if lo <= target_strength_mpa <= hi:
+            vlo = HS_WCM_TABLE[lo][nmsa]
+            vhi = HS_WCM_TABLE[hi][nmsa]
+            return vlo + (target_strength_mpa - lo) / (hi - lo) * (vhi - vlo)
+    return HS_WCM_TABLE[targets[-1]][nmsa]
+
+
+def hs_ca_volume_fraction(nmsa: int | float, grading_zone: str) -> float:
+    """Table 10 CA fraction at w/cm = 0.30 (no Zone IV entry)."""
+    if nmsa not in HS_CA_VOLUME_FRACTION:
+        raise ValueError(
+            f"NMSA {nmsa} mm has no Table 10 coarse-aggregate volume (§6.2.7)"
+        )
+    zone_volumes = HS_CA_VOLUME_FRACTION[nmsa]
+    if grading_zone not in zone_volumes:
+        raise ValueError(
+            f"Grading Zone {grading_zone} has no Table 10 value — use Zone "
+            f"I/II (coarser sand preferred, §6.1.3) or Zone III"
+        )
+    return zone_volumes[grading_zone]
+
+
+# ---------------------------------------------------------------------------
+# IS 10262:2019 Section 5 — mass concrete
+# ---------------------------------------------------------------------------
+
+# Table 12: water content (kg/m³) for 50 mm slump, angular aggregate.
+MASS_WATER_CONTENT: dict[int, float] = {
+    40: 165,
+    80: 145,
+    150: 125,
+}
+
+# §9.4 rounded-gravel reductions (kg/m³) by NMSA. Specified for rounded
+# gravel only — other shapes keep the angular-table value.
+MASS_ROUNDED_REDUCTION_KG: dict[int, float] = {
+    40: 20.0,
+    80: 15.0,
+    150: 10.0,
+}
+
+# Table 11: entrapped air for mass concrete.
+MASS_AIR_CONTENT: dict[int, float] = {
+    40: 0.8,
+    80: 0.3,
+    150: 0.2,
+}
+
+# Table 13: CA volume per unit total aggregate at w-c ratio 0.50.
+MASS_CA_VOLUME_FRACTION: dict[int, dict[str, float]] = {
+    40: {"I": 0.69, "II": 0.71, "III": 0.72, "IV": 0.73},
+    80: {"I": 0.72, "II": 0.73, "III": 0.74, "IV": 0.75},
+    150: {"I": 0.77, "II": 0.78, "III": 0.79, "IV": 0.80},
+}
+
+# Table 15: suggested total mortar absolute volume (m³ per m³ concrete) for
+# placeability of large-aggregate mixes, by NMSA and aggregate shape.
+MASS_MORTAR_VOLUME: dict[tuple[int, str], tuple[float, float]] = {
+    (150, "crushed"): (0.38, 0.40),
+    (150, "rounded"): (0.36, 0.38),
+    (80, "crushed"): (0.43, 0.45),
+    (80, "rounded"): (0.42, 0.44),
+}
+
+
+def mass_water_content(nmsa: int, slump_mm: float, rounded_gravel: bool = False) -> float:
+    """Table 12 water with the §9.4 slump rule and rounded-gravel cut."""
+    if nmsa not in MASS_WATER_CONTENT:
+        raise ValueError(f"NMSA {nmsa} mm has no Table 12 water content (§9.4)")
+    water = MASS_WATER_CONTENT[nmsa] * (1.0 + 3.0 * (slump_mm - 50.0) / 25.0 / 100.0)
+    if rounded_gravel:
+        water -= MASS_ROUNDED_REDUCTION_KG[nmsa]
+    return water
+
+
+def mass_ca_volume_fraction(nmsa: int, grading_zone: str) -> float:
+    """Table 13 CA fraction at water-cement ratio 0.50.
+
+    Table 13 tabulates every zone I–IV, so an unknown zone is rejected
+    instead of silently defaulting (see get_ca_volume_fraction).
+    """
+    if nmsa not in MASS_CA_VOLUME_FRACTION:
+        raise ValueError(f"NMSA {nmsa} mm has no Table 13 volume (§9.7)")
+    if grading_zone not in MASS_CA_VOLUME_FRACTION[nmsa]:
+        raise ValueError(
+            f"Grading zone '{grading_zone}' not in IS 10262 Table 13 — "
+            f"use one of {sorted(MASS_CA_VOLUME_FRACTION[nmsa])}"
+        )
+    return MASS_CA_VOLUME_FRACTION[nmsa][grading_zone]
+
+
 # IS 10262:2019 Table 1 — X values for target strength calculation
 # f'ck = fck + X (whichever is higher between this and fck + 1.65*S)
 X_VALUES: dict[str, float] = {
@@ -463,8 +643,11 @@ def calculate_target_strength(
     f'ck = fck + 1.65 × S   (if higher)
     f'ck = fck + X           (if higher)
 
-    Both formulae are evaluated; the higher value is selected, as in the
-    standard's Annex A worked example (M40 → 48.25 N/mm², kept unrounded).
+    Both formulae are evaluated; the higher value is selected, then rounded
+    UP to the next whole MPa (app policy — conservative; Annex A M40
+    48.25 → 49). IS 10262:2019 itself states no rounding rule, so rounding
+    up never under-designs; the exact intermediates are shown in the
+    description and the ceiled value chains into the Figure 1 w/c lookup.
 
     Returns (target_strength, description_string).
     """
@@ -477,9 +660,11 @@ def calculate_target_strength(
     ftm_sigma = fck + 1.65 * std_dev
     ftm_x = fck + x_val
 
-    # Keep exact values (Annex A: 48.25 stays 48.25); round only for display
+    # Exact values to 2 dp, higher governs, then UP to whole MPa
+    # (IS 10262:2019 Cl. 4.2; 1e-9 guards float noise at exact integers).
     ftm_sigma_r = round(ftm_sigma, 2)
     ftm_x_r = round(ftm_x, 2)
+    ftm = math.ceil(max(ftm_sigma_r, ftm_x_r) - 1e-9)
 
     sigma_desc = f"f'ck = {fck} + 1.65 × {std_dev} = {ftm_sigma_r:.2f} MPa"
     x_desc = f"f'ck = {fck} + {x_val} = {ftm_x_r:.2f} MPa"
@@ -488,31 +673,34 @@ def calculate_target_strength(
         desc = (
             f"Formula 1: {sigma_desc}\n"
             f"Formula 2: {x_desc}\n"
-            f"→ Higher value = Formula 1 (1.65×S) = {ftm_sigma_r:.2f} MPa"
+            f"→ Higher value = Formula 1 (1.65×S) = {ftm_sigma_r:.2f} → {ftm:.0f} MPa (rounded up)"
         )
-        return ftm_sigma_r, desc
+        return ftm, desc
     else:
         desc = (
             f"Formula 1: {sigma_desc}\n"
             f"Formula 2: {x_desc}\n"
-            f"→ Higher value = Formula 2 (X factor) = {ftm_x_r:.2f} MPa"
+            f"→ Higher value = Formula 2 (X factor) = {ftm_x_r:.2f} → {ftm:.0f} MPa (rounded up)"
         )
-        return ftm_x_r, desc
+        return ftm, desc
 
 
-def adjust_ca_volume_for_wcr(ca_fraction: float, wcr: float) -> float:
+def adjust_ca_volume_for_wcr(
+    ca_fraction: float, wcr: float, base_wcr: float = 0.50
+) -> float:
     """Adjust coarse aggregate volume fraction for W/C ratio.
 
-    IS 10262:2019 Clause 5.5.1:
-    Base at W/C = 0.50. Increase 0.01 for every 0.05 decrease in W/C,
-    decrease 0.01 for every 0.05 increase in W/C.
+    IS 10262:2019 Clause 5.5.1 (§9.7 identical for mass concrete):
+    Base at W/C = `base_wcr` (0.50 for Tables 5/13, 0.30 for Table 10).
+    Increase 0.01 for every 0.05 decrease in W/C, decrease 0.01 for every
+    0.05 increase in W/C.
 
     The adjustment is applied proportionally, exactly as in the standard's
     own Annex A worked example: for W/C = 0.36 (0.14 below 0.50) the coarse
     aggregate fraction 0.62 is increased by 0.028 (not a rounded 0.03),
     giving 0.648.
     """
-    delta = (0.50 - wcr) / 0.05
+    delta = (base_wcr - wcr) / 0.05
     adjusted = ca_fraction + delta * 0.01
     # Clamp to reasonable range
     return round(max(0.30, min(0.85, adjusted)), 3)
@@ -521,8 +709,9 @@ def adjust_ca_volume_for_wcr(ca_fraction: float, wcr: float) -> float:
 def interpolate_w_c_ratio(target_strength_mpa: float, cement_type_str: str) -> float:
     """Compute W/C ratio from IS 10262:2019 Figure 1 using polynomial equation.
 
-    Uses the quadratic polynomial f(x) = 178.985x² - 271.219x + 115.809
-    to compute the w/c ratio for a given target strength and cement type.
+    Inverts the module polynomial (IS10262_CURVE_A/B/C) for the base
+    OPC 43 curve, then applies the cement-grade offset — see
+    wc_ratio_from_strength for the full derivation.
 
     The curve restraints ensure the strength is within the valid range
     for the selected cement type:
@@ -538,14 +727,21 @@ def interpolate_w_c_ratio(target_strength_mpa: float, cement_type_str: str) -> f
 
 
 def get_ca_volume_fraction(nmsa: int, grading_zone: str) -> float:
-    """Get coarse aggregate volume fraction from IS 10262 Table 7.
+    """Get coarse aggregate volume fraction from IS 10262 Table 5.
 
-    Returns volume of CA per unit volume of total aggregate.
+    Returns volume of CA per unit volume of total aggregate. Table 5
+    tabulates every zone I–IV, so an unknown zone is a caller error and is
+    rejected instead of silently defaulting (a wrong zone shifts every
+    aggregate mass).
     """
     if nmsa not in CA_VOLUME_FRACTION:
         raise ValueError(f"NMSA {nmsa}mm not in IS CA volume table")
-    zone = grading_zone if grading_zone in CA_VOLUME_FRACTION[nmsa] else "II"
-    return CA_VOLUME_FRACTION[nmsa][zone]
+    if grading_zone not in CA_VOLUME_FRACTION[nmsa]:
+        raise ValueError(
+            f"Grading zone '{grading_zone}' not in IS 10262 Table 5 — "
+            f"use one of {sorted(CA_VOLUME_FRACTION[nmsa])}"
+        )
+    return CA_VOLUME_FRACTION[nmsa][grading_zone]
 
 
 def get_exposure_limits(
@@ -570,12 +766,116 @@ def get_exposure_limits(
     return IS456_EXPOSURE_LIMITS[concrete_type][exposure_class]
 
 
+def required_min_fck_mpa(exposure_class: str, concrete_type: str = "reinforced") -> float | None:
+    """Minimum characteristic strength (MPa) for an exposure class.
+
+    IS 456:2000 Table 5 specifies a minimum grade of concrete per exposure
+    class (e.g. M30 for severe/reinforced). Returns None when the table
+    specifies no minimum grade (plain concrete, mild exposure).
+
+    Args:
+        exposure_class: "mild", "moderate", "severe", "very_severe", or "extreme"
+        concrete_type: "plain" or "reinforced" (default: "reinforced")
+
+    Returns:
+        Minimum fck in MPa, or None if the table states no minimum.
+    """
+    limits = get_exposure_limits(exposure_class, concrete_type)
+    min_grade = str(limits.get("min_grade", "")).strip().upper()
+    if not min_grade.startswith("M"):
+        return None
+    try:
+        return float(min_grade[1:])
+    except ValueError:
+        return None
+
+
+# IS 456:2000 Clause 8.2.4.2 — cement content (not including mineral
+# admixtures, per IS 10262:2019 Annex A-1(j)) should preferably not exceed
+# 450 kg/m³.
+IS456_MAX_CEMENT_KG_M3 = 450.0
+
+# IS 456:2000 Table 6 — adjustments to the Table 5 minimum cement contents
+# for nominal maximum aggregate sizes other than 20 mm (kg/m³):
+#   10 mm: +40   20 mm: 0   40 mm: −30
+# IS 10262:2019 Annex F-7 applies the 40 mm (largest tabulated) correction,
+# −30 kg/m³, to the 80 and 150 mm mass-concreting sizes as well
+# ("considering the maximum (40 mm) msa correction in Table 6 of IS 456,
+# the value in Table 5 of IS 456 has been adjusted": 240 − 30 = 210).
+IS456_TABLE6_MIN_CEMENT_ADJUSTMENT: dict[int | float, float] = {
+    10: 40.0,
+    20: 0.0,
+    40: -30.0,
+    80: -30.0,   # Annex F-7 — 40 mm (maximum) correction applied
+    150: -30.0,  # Annex F-7 — 40 mm (maximum) correction applied
+}
+
+
+def table6_min_cement_adjustment(nmsa: int | float) -> float:
+    """IS 456 Table 6 adjustment to the Table 5 minimum cement content.
+
+    Returns 0.0 for sizes without a Table 6 row (e.g. the 12.5 mm
+    high-strength size).
+    """
+    return IS456_TABLE6_MIN_CEMENT_ADJUSTMENT.get(nmsa, 0.0)
+
+
 def get_std_dev(grade: str) -> float:
     """Get standard deviation for a given concrete grade."""
     if grade in STANDARD_DEVIATION:
         return STANDARD_DEVIATION[grade]
     # Default for grades not in table
     return 5.0
+
+
+def site_assumed_std_dev(grade: str, site_control: str = "good") -> float:
+    """Assumed deviation for first-instance proportioning (Table 2 + Note 1).
+
+    Table 2 values assume good site control (proper cement storage, weigh
+    batching, controlled water, regular material/grading/moisture checks).
+    For fair control the table values are increased by 1 N/mm².
+    """
+    if site_control not in ("good", "fair"):
+        raise ValueError(
+            f"Site control '{site_control}' not valid. Use 'good' or 'fair'"
+        )
+    return get_std_dev(grade) + (1.0 if site_control == "fair" else 0.0)
+
+
+def std_from_samples(results: list[float]) -> float:
+    """Sample standard deviation from strength results (Cl. 4.2.1.2.1).
+
+    An acceptable record needs at least 30 test results; the mix must be
+    re-proportioned (and the deviation re-checked monthly) once site data
+    exists (Cl. 4.2.1.1, 4.2.1.3).
+    """
+    if len(results) < 30:
+        raise ValueError(
+            f"Standard deviation needs at least 30 test results "
+            f"(IS 10262:2019 Cl. 4.2.1.1); got {len(results)}"
+        )
+    import statistics
+
+    return float(statistics.stdev(results))
+
+
+def pooled_std_dev(
+    s1: float, n1: int, s2: float, n2: int
+) -> float:
+    """Pooled deviation for two groups of the same grade (Cl. 4.2.1.2.2).
+
+    Each group needs at least 10 results and the groups combined at least 30.
+    """
+    if n1 < 10 or n2 < 10 or n1 + n2 < 30:
+        raise ValueError(
+            f"Two-group deviation needs n1,n2 ≥ 10 and n1+n2 ≥ 30 "
+            f"(got {n1}, {n2})"
+        )
+    import math
+
+    return float(
+        math.sqrt(((n1 - 1) * s1**2 + (n2 - 1) * s2**2) / (n1 + n2 - 2))
+    )
 
 
 # ── IS 10262:2019 Annex G / ACI / BS Admixture water reduction ranges ──

@@ -7,6 +7,9 @@ python-docx>=1.1.0
 # installed at build time or the frozen app crashes on launch.
 fpdf2>=2.7.0
 requests>=2.28.0
+# scipy provides scipy.stats.norm.ppf (probit) for the BRE 331 / BS 5328
+# defective-rate 'k' factor (concrete_mix.utils.statistics).
+scipy>=1.10.0
 
 # Optional Dependencies
 gspread>=5.10.0

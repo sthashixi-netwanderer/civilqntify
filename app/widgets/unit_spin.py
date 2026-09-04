@@ -20,7 +20,7 @@ from __future__ import annotations
 
 from typing import Callable
 
-from PyQt6.QtWidgets import QDoubleSpinBox
+from PyQt6.QtWidgets import QDoubleSpinBox, QSizePolicy
 
 from app.unit_preferences import UnitPreferences, get_unit_prefs
 
@@ -165,6 +165,12 @@ class UnitSpinBox(QDoubleSpinBox):
         self._prefix = prefix
         self._syncing = False
         super().__init__(parent)
+        # Sidebar fields must track the splitter at any width: Expanding
+        # fills the field column when space allows, while minimumWidth 0
+        # keeps typed text/suffixes from growing the form minimum and
+        # freezing the handle mid-edit.
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.setMinimumWidth(0)
         self._prefs = get_unit_prefs()
         self._apply_unit_scales()
         self.valueChanged.connect(self._on_display_edited)
@@ -184,6 +190,18 @@ class UnitSpinBox(QDoubleSpinBox):
 
     def set_metric_value(self, v: float) -> None:
         self.setValue(v)
+
+    def set_metric_range(self, lo: float, hi: float) -> None:
+        """Restrict the accepted metric range (e.g. per-standard limits).
+
+        The current value is clamped into the new range and the display
+        range is re-applied. Use for standard-specific caps such as the
+        DOE Table 3 slump ceiling of 180 mm (BRE 331:1997).
+        """
+        self._lo_metric = float(lo)
+        self._hi_metric = float(hi)
+        self._metric = min(max(self._metric, self._lo_metric), self._hi_metric)
+        self._apply_unit_scales()
 
     # ── Display API (what the user sees/types) ──────────────────────
 

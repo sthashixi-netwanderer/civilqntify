@@ -1,0 +1,12 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=CivilQntify
+Comment=Concrete mix design, grading analysis and material quantification
+Exec=@PYTHON@ @APPDIR@/main.py
+Icon=civilqntify
+Terminal=false
+Categories=Science;Engineering;
+Keywords=concrete;mix design;civil engineering;quantity;
+StartupWMClass=CivilQntify
+StartupNotify=true
