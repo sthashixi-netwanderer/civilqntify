@@ -355,6 +355,15 @@ def serialize_doe_trial_payload(payload: dict) -> str:
     return json.dumps(payload, default=str)
 
 
+def serialize_aci_trial_payload(payload: dict) -> str:
+    """Serialize an ACI (PRC-211.1-22 §5.3.9–5.3.10) trial payload to JSON.
+
+    Same plain-dict convention as the DOE trial payloads (measurements,
+    Table 5.3.9.1 schedule, §5.3.10 adjustments).
+    """
+    return json.dumps(payload, default=str)
+
+
 def deserialize_psd_result(data: dict) -> Any:
     """Deserialize a dict back to PSDResult."""
     from concrete_mix.engine.psd import PSDResult

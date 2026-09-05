@@ -40,6 +40,7 @@ _TAB_TYPE_LABELS = {
     "cost_estimation": "Cost Estimation",
     "psd": "PSD Analysis",
     "doe_trial": "DOE Trial Mix",
+    "aci_trial": "ACI Trial Mix",
 }
 
 _TAB_TYPE_ICONS = {
@@ -48,6 +49,7 @@ _TAB_TYPE_ICONS = {
     "cost_estimation": "\U0001f4b0",
     "psd": "\U0001f52c",
     "doe_trial": "\U0001f9ea",
+    "aci_trial": "\U0001f9ea",
 }
 
 
@@ -92,6 +94,7 @@ class HistoryTab(QWidget):
         self._type_combo.addItem("\U0001f4b0 Cost Estimation", "cost_estimation")
         self._type_combo.addItem("\U0001f52c PSD Analysis", "psd")
         self._type_combo.addItem("\U0001f9ea DOE Trial Mix", "doe_trial")
+        self._type_combo.addItem("\U0001f9ea ACI Trial Mix", "aci_trial")
         self._type_combo.currentIndexChanged.connect(self._on_filter_changed)
         filter_row.addWidget(self._type_combo)
 
@@ -285,6 +288,15 @@ class HistoryTab(QWidget):
             if fig7.get("D") is not None:
                 return f"w/c {fig7.get('B')}→{fig7.get('D')}, C={fig7.get('C')} MPa [{verdict or 'n/a'}]"
             return "DOE trial record"
+        elif tt == "aci_trial":
+            nt = result.get("next_trial_per_m3") or {}
+            y = result.get("yield") or {}
+            ry = y.get("relative_yield")
+            if nt.get("water"):
+                ry_txt = f", Ry={ry}" if ry is not None else ""
+                return (f"next water {nt.get('water')} kg/m³{ry_txt}, "
+                        f"w/cm {result.get('next_trial_w_cm') or '—'}")
+            return "ACI trial record"
         return ""
 
     # ------------------------------------------------------------------
@@ -339,6 +351,9 @@ class HistoryTab(QWidget):
             self.load_psd.emit(calc_id)
         elif tt == "doe_trial":
             # Trial records are view-only: show the structured detail.
+            dlg = HistoryDetailDialog(rec, parent=self)
+            dlg.exec()
+        elif tt == "aci_trial":
             dlg = HistoryDetailDialog(rec, parent=self)
             dlg.exec()
         else:

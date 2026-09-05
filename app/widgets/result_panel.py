@@ -408,6 +408,44 @@ class ResultPanel(QWidget):
 
         outer.addWidget(self._doe_trial_frame)
 
+        # ACI PRC-211.1-22 Trial Batching Prompt (ACI results only, hidden by default)
+        self._aci_trial_frame = QFrame()
+        self._aci_trial_frame.setObjectName("result-card")
+        self._aci_trial_frame.setStyleSheet(
+            "background-color: #f8fafc; border: 1px solid #cbd5e1; border-radius: 6px; padding: 4px;"
+        )
+        self._aci_trial_frame.setVisible(False)
+        self._aci_trial_frame.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.MinimumExpanding)
+        aci_trial_layout = QVBoxLayout(self._aci_trial_frame)
+        aci_trial_layout.setContentsMargins(10, 8, 10, 8)
+        aci_trial_layout.setSpacing(6)
+
+        aci_trial_title = QLabel("ACI PRC-211.1-22 — Trial Batching")
+        aci_trial_title.setWordWrap(True)
+        aci_trial_title.setMinimumWidth(0)
+        aci_trial_title.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.MinimumExpanding)
+        aci_trial_title.setStyleSheet(
+            "font-size: 11px; font-weight: 700; text-transform: uppercase; "
+            "letter-spacing: 0.05em; color: #1e3a8a;"
+        )
+        aci_trial_layout.addWidget(aci_trial_title)
+
+        self._aci_trial_lbl = QLabel()
+        self._aci_trial_lbl.setWordWrap(True)
+        self._aci_trial_lbl.setMinimumWidth(0)
+        self._aci_trial_lbl.setStyleSheet("font-size: 12px; color: #334155; line-height: 1.35;")
+        self._aci_trial_lbl.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.MinimumExpanding)
+        aci_trial_layout.addWidget(self._aci_trial_lbl)
+
+        self._btn_view_aci_trials = QPushButton("🧪 Open Trial Batching Workbook (§5.3.9–5.3.10)")
+        self._btn_view_aci_trials.setObjectName("secondary")
+        self._btn_view_aci_trials.setStyleSheet("font-size: 12px; font-weight: 600; padding: 6px 10px;")
+        self._btn_view_aci_trials.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self._btn_view_aci_trials.clicked.connect(self._on_view_aci_trials)
+        aci_trial_layout.addWidget(self._btn_view_aci_trials)
+
+        outer.addWidget(self._aci_trial_frame)
+
         # Strength estimation from mix ratio (hidden by default)
         self._strength_est_frame = QFrame()
         self._strength_est_frame.setObjectName("result-card")
@@ -926,6 +964,28 @@ class ResultPanel(QWidget):
         else:
             self._doe_trial_frame.setVisible(False)
 
+        # ACI PRC-211.1-22 Trial Batching Prompt (ACI only)
+        is_aci_code = "aci" in result.code_used.lower() or "211" in result.code_used.lower()
+        if is_aci_code:
+            wc = result.w_c_ratio
+            aci_html = (
+                "<b>Trial Batching (ACI PRC-211.1-22 Ch. 8, §5.3.9–5.3.10):</b><br/>"
+                "Trial batches demonstrate that the proportions produce the required "
+                "properties; iterate until everything is within tolerance (§4.1).<br/>"
+                f"• <b>Batch</b> (§5.3.9): Table 5.3.9.1 batch weights with the "
+                f"(1+MC%)/(1+A%) moisture adjustment at w/cm {wc:.2f} — water to batch = "
+                "mixing water minus the free water on the aggregates.<br/>"
+                "• <b>Test</b>: slump, density/yield, air per ASTM C143/C138/C173/C231; "
+                "prepare per ASTM C192.<br/>"
+                "• <b>Adjust</b> (§5.3.10): re-estimate the mixing water (net water ÷ "
+                "yield ± 10 lb/yd³ per inch of slump), correct air, apply the cement "
+                "efficiency for strength, and recalculate the next-trial proportions."
+            )
+            self._aci_trial_lbl.setText(aci_html)
+            self._aci_trial_frame.setVisible(True)
+        else:
+            self._aci_trial_frame.setVisible(False)
+
         # Update header to show volume
         vol_display = up.convert_volume_m3(vol)
         self._cards_label.setText(f"Material Quantities (for {vol_display:.3f} {up.volume_unit()})")
@@ -1085,6 +1145,18 @@ class ResultPanel(QWidget):
         )
         dlg.exec()
 
+    def _on_view_aci_trials(self) -> None:
+        """Open the ACI PRC-211.1-22 Trial Batching workbook dialog."""
+        if self._result is None:
+            return
+        from app.widgets.aci_trial_mixes_dialog import ACITrialMixesDialog
+
+        inp = getattr(self._result, "_input", None)
+        dlg = ACITrialMixesDialog(
+            self._result, inp=inp, design_calc_id=self._design_calc_id, parent=self,
+        )
+        dlg.exec()
+
     def _on_send_to_quant(self) -> None:
         """Emit signal to transfer mix design data to quantification tab."""
         if self._result is not None:
@@ -1097,6 +1169,7 @@ class ResultPanel(QWidget):
         self._strength_est_frame.setVisible(False)
         self._is_trial_frame.setVisible(False)
         self._doe_trial_frame.setVisible(False)
+        self._aci_trial_frame.setVisible(False)
         self._warning_banner.setVisible(False)
         for card in self._cards.values():
             card.set_value(0)

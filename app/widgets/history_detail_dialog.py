@@ -32,6 +32,7 @@ _TAB_LABELS = {
     "cost_estimation": "Cost Estimation",
     "psd": "PSD Analysis (Sieve Analysis)",
     "doe_trial": "DOE Trial Mix (BRE 331:1997 §6)",
+    "aci_trial": "ACI Trial Mix (PRC-211.1-22 §5.3.9–5.3.10)",
 }
 
 
@@ -186,6 +187,31 @@ class HistoryDetailDialog(QDialog):
                     )
                     result_grid.addWidget(val_lbl, row, 1)
                     row += 1
+        elif tt == "aci_trial":
+            y = result_data.get("yield") or {}
+            fw = result_data.get("free_water") or {}
+            adj = result_data.get("adjustments") or {}
+            a1 = adj.get("1_water") or {}
+            nt = result_data.get("next_trial_per_m3") or {}
+            for key, label in (
+                (fw.get("net_water_kg_m3"), "Net mixing water of trial (kg/m³)"),
+                (y.get("relative_yield"), "Relative yield (ASTM C138)"),
+                (y.get("gravimetric_air_pct"), "Gravimetric air (%)"),
+                (a1.get("re_estimated_water_kg_m3"), "Adjustment 1 — re-estimated water (kg/m³)"),
+                (result_data.get("next_trial_w_cm"), "Next-trial w/cm"),
+                (nt.get("water"), "Next trial — water (kg/m³)"),
+                (nt.get("cement"), "Next trial — cement (kg/m³)"),
+                (nt.get("fine_agg_ssd"), "Next trial — fine aggregate SSD (kg/m³)"),
+                (nt.get("coarse_agg_ssd"), "Next trial — coarse aggregate SSD (kg/m³)"),
+            ):
+                if key not in (None, ""):
+                    result_grid.addWidget(QLabel(f"{label}:"), row, 0)
+                    val_lbl = QLabel(str(key))
+                    val_lbl.setTextInteractionFlags(
+                        Qt.TextInteractionFlag.TextSelectableByMouse
+                    )
+                    result_grid.addWidget(val_lbl, row, 1)
+                    row += 1
         else:
             display_fields = list(result_data.items())
 
@@ -216,6 +242,11 @@ class HistoryDetailDialog(QDialog):
         if tt == "doe_trial":
             # Nested blocks rendered above or too noisy as raw dicts.
             skip_keys += ("figure7", "verdict", "workability", "density")
+        if tt == "aci_trial":
+            skip_keys += (
+                "free_water", "yield", "adjustments",
+                "next_trial_per_m3", "next_trial_w_cm", "schedule",
+            )
         for key, value in sorted(result_data.items()):
             if key in shown_keys or key in skip_keys:
                 continue
@@ -291,11 +322,11 @@ class HistoryDetailDialog(QDialog):
         # -- Close button --
         btn_row = QHBoxLayout()
         self._load_btn = QPushButton("Load into Tab")
-        if tt == "doe_trial":
+        if tt in ("doe_trial", "aci_trial"):
             # Trial records are view-only — there is no tab to reload.
             self._load_btn.setVisible(False)
             self._load_btn.setToolTip(
-                "DOE trial records are viewed here; load the parent mix "
+                "Trial records are viewed here; load the parent mix "
                 "design record to reopen the trial workbook."
             )
         else:

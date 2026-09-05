@@ -22,6 +22,7 @@ from history.serializers import (
     now_iso,
     serialize_bill,
     serialize_cost_data,
+    serialize_aci_trial_payload,
     serialize_doe_trial_payload,
     serialize_mix_input,
     serialize_mix_result,
@@ -202,6 +203,32 @@ class HistoryDB:
             ("doe_trial", now, now, name,
              serialize_doe_trial_payload(trial_input),
              serialize_doe_trial_payload(trial_result), parent_id),
+        )
+        self._conn.commit()
+        return cur.lastrowid  # type: ignore[return-value]
+
+    def save_aci_trial(
+        self,
+        trial_input: dict,
+        trial_result: dict,
+        *,
+        name: str = "",
+        parent_id: int | None = None,
+    ) -> int:
+        """Save an ACI PRC-211.1-22 trial-batching record. Returns the ID.
+
+        Both payloads are plain JSON-serialisable dicts (measurements,
+        Table 5.3.9.1 schedule, §5.3.10 adjustments). *parent_id* links
+        the trial to the mix-design record it was derived from.
+        """
+        now = now_iso()
+        cur = self._conn.execute(
+            """INSERT INTO calculations
+               (tab_type, created_at, updated_at, name, input_json, result_json, parent_id)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            ("aci_trial", now, now, name,
+             serialize_aci_trial_payload(trial_input),
+             serialize_aci_trial_payload(trial_result), parent_id),
         )
         self._conn.commit()
         return cur.lastrowid  # type: ignore[return-value]
@@ -421,7 +448,8 @@ class HistoryDB:
         """Get summary statistics."""
         total = self.count_calculations()
         by_type = {}
-        for tt in ("mix_design", "quantification", "cost_estimation", "psd", "doe_trial"):
+        for tt in ("mix_design", "quantification", "cost_estimation", "psd",
+                   "doe_trial", "aci_trial"):
             by_type[tt] = self.count_calculations(tt)
 
         row = self._conn.execute(
