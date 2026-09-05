@@ -39,6 +39,7 @@ _TAB_TYPE_LABELS = {
     "quantification": "Quantification",
     "cost_estimation": "Cost Estimation",
     "psd": "PSD Analysis",
+    "doe_trial": "DOE Trial Mix",
 }
 
 _TAB_TYPE_ICONS = {
@@ -46,6 +47,7 @@ _TAB_TYPE_ICONS = {
     "quantification": "\U0001f4cf",
     "cost_estimation": "\U0001f4b0",
     "psd": "\U0001f52c",
+    "doe_trial": "\U0001f9ea",
 }
 
 
@@ -89,6 +91,7 @@ class HistoryTab(QWidget):
         self._type_combo.addItem("\U0001f4cf Quantification", "quantification")
         self._type_combo.addItem("\U0001f4b0 Cost Estimation", "cost_estimation")
         self._type_combo.addItem("\U0001f52c PSD Analysis", "psd")
+        self._type_combo.addItem("\U0001f9ea DOE Trial Mix", "doe_trial")
         self._type_combo.currentIndexChanged.connect(self._on_filter_changed)
         filter_row.addWidget(self._type_combo)
 
@@ -276,6 +279,12 @@ class HistoryTab(QWidget):
             if fm is not None:
                 key += f", FM={fm}"
             return key
+        elif tt == "doe_trial":
+            fig7 = result.get("figure7") or {}
+            verdict = (result.get("verdict") or {}).get("decision", "")
+            if fig7.get("D") is not None:
+                return f"w/c {fig7.get('B')}→{fig7.get('D')}, C={fig7.get('C')} MPa [{verdict or 'n/a'}]"
+            return "DOE trial record"
         return ""
 
     # ------------------------------------------------------------------
@@ -328,6 +337,10 @@ class HistoryTab(QWidget):
             self.load_cost_estimation.emit(calc_id)
         elif tt == "psd":
             self.load_psd.emit(calc_id)
+        elif tt == "doe_trial":
+            # Trial records are view-only: show the structured detail.
+            dlg = HistoryDetailDialog(rec, parent=self)
+            dlg.exec()
         else:
             QMessageBox.information(
                 self, "Info", f"Cannot load record of type '{tt}'"

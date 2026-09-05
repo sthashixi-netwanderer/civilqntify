@@ -290,6 +290,9 @@ class ResultPanel(QWidget):
         super().__init__(parent)
         self._result: MixDesignResult | None = None
         self._strength_estimate: dict | None = None
+        # History id of the design record currently displayed, set by the
+        # Concrete tab so DOE trial records can chain to their parent.
+        self._design_calc_id: int | None = None
         self.unit_prefs: UnitPreferences = get_unit_prefs()
         self._build_ui()
         self.unit_prefs.changed.connect(self.on_unit_changed)
@@ -366,6 +369,44 @@ class ResultPanel(QWidget):
         trial_layout.addWidget(self._btn_view_trials)
 
         outer.addWidget(self._is_trial_frame)
+
+        # BRE 331:1997 §6 Trial Mixes Prompt (DOE results only, hidden by default)
+        self._doe_trial_frame = QFrame()
+        self._doe_trial_frame.setObjectName("result-card")
+        self._doe_trial_frame.setStyleSheet(
+            "background-color: #f8fafc; border: 1px solid #cbd5e1; border-radius: 6px; padding: 4px;"
+        )
+        self._doe_trial_frame.setVisible(False)
+        self._doe_trial_frame.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.MinimumExpanding)
+        doe_trial_layout = QVBoxLayout(self._doe_trial_frame)
+        doe_trial_layout.setContentsMargins(10, 8, 10, 8)
+        doe_trial_layout.setSpacing(6)
+
+        doe_trial_title = QLabel("BRE 331:1997 §6 — Trial Mixes")
+        doe_trial_title.setWordWrap(True)
+        doe_trial_title.setMinimumWidth(0)
+        doe_trial_title.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.MinimumExpanding)
+        doe_trial_title.setStyleSheet(
+            "font-size: 11px; font-weight: 700; text-transform: uppercase; "
+            "letter-spacing: 0.05em; color: #1e3a8a;"
+        )
+        doe_trial_layout.addWidget(doe_trial_title)
+
+        self._doe_trial_lbl = QLabel()
+        self._doe_trial_lbl.setWordWrap(True)
+        self._doe_trial_lbl.setMinimumWidth(0)
+        self._doe_trial_lbl.setStyleSheet("font-size: 12px; color: #334155; line-height: 1.35;")
+        self._doe_trial_lbl.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.MinimumExpanding)
+        doe_trial_layout.addWidget(self._doe_trial_lbl)
+
+        self._btn_view_doe_trials = QPushButton("🧪 Open Trial Mixes Workbook (§6)")
+        self._btn_view_doe_trials.setObjectName("secondary")
+        self._btn_view_doe_trials.setStyleSheet("font-size: 12px; font-weight: 600; padding: 6px 10px;")
+        self._btn_view_doe_trials.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self._btn_view_doe_trials.clicked.connect(self._on_view_doe_trials)
+        doe_trial_layout.addWidget(self._btn_view_doe_trials)
+
+        outer.addWidget(self._doe_trial_frame)
 
         # Strength estimation from mix ratio (hidden by default)
         self._strength_est_frame = QFrame()
@@ -864,6 +905,27 @@ class ResultPanel(QWidget):
         else:
             self._is_trial_frame.setVisible(False)
 
+        # BRE 331:1997 §6 Trial Mixes Prompt (DOE only)
+        is_doe_code = "doe" in result.code_used.lower() or "bre" in result.code_used.lower()
+        if is_doe_code:
+            wc = result.w_c_ratio
+            doe_html = (
+                "<b>Trial Mixes (BRE 331:1997 §6):</b><br/>"
+                "The trial mix checks that the selected materials behave as the design assumes — "
+                "its feedback is an essential part of the design process (§6).<br/>"
+                f"• <b>Batch</b>: scale the design quantities to the trial volume (typically 0.05 m³, "
+                f"six 150 mm cubes + slump/Vebe/density tests) at w/c {wc:.2f}, with optional w/c "
+                "variant batches at the same water content.<br/>"
+                "• <b>Test</b> (§6.2): slump/Vebe, fresh density, cubes per BS 1881 Parts 102/104/107/108/116.<br/>"
+                "• <b>Adjust</b> (§6.3): water by Table 3 workability, unit proportions by the "
+                "measured/assumed density ratio, and the w/c via the Figure 7 strength adjustment — "
+                "then use the proportions, modify slightly, or re-trial."
+            )
+            self._doe_trial_lbl.setText(doe_html)
+            self._doe_trial_frame.setVisible(True)
+        else:
+            self._doe_trial_frame.setVisible(False)
+
         # Update header to show volume
         vol_display = up.convert_volume_m3(vol)
         self._cards_label.setText(f"Material Quantities (for {vol_display:.3f} {up.volume_unit()})")
@@ -1011,6 +1073,18 @@ class ResultPanel(QWidget):
         dlg = ISTrialMixesDialog(self._result, inp=inp, parent=self)
         dlg.exec()
 
+    def _on_view_doe_trials(self) -> None:
+        """Open the BRE 331:1997 §6 Trial Mixes workbook dialog."""
+        if self._result is None:
+            return
+        from app.widgets.doe_trial_mixes_dialog import DOETrialMixesDialog
+
+        inp = getattr(self._result, "_input", None)
+        dlg = DOETrialMixesDialog(
+            self._result, inp=inp, design_calc_id=self._design_calc_id, parent=self,
+        )
+        dlg.exec()
+
     def _on_send_to_quant(self) -> None:
         """Emit signal to transfer mix design data to quantification tab."""
         if self._result is not None:
@@ -1022,6 +1096,7 @@ class ResultPanel(QWidget):
         self._strength_estimate = None
         self._strength_est_frame.setVisible(False)
         self._is_trial_frame.setVisible(False)
+        self._doe_trial_frame.setVisible(False)
         self._warning_banner.setVisible(False)
         for card in self._cards.values():
             card.set_value(0)

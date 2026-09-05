@@ -31,6 +31,7 @@ _TAB_LABELS = {
     "quantification": "Material Quantification",
     "cost_estimation": "Cost Estimation",
     "psd": "PSD Analysis (Sieve Analysis)",
+    "doe_trial": "DOE Trial Mix (BRE 331:1997 §6)",
 }
 
 
@@ -161,6 +162,30 @@ class HistoryDetailDialog(QDialog):
                 ("uniformity_coefficient", "Uniformity Coefficient Cu"),
                 ("coefficient_of_curvature", "Coefficient of Curvature Cc"),
             ]
+        elif tt == "doe_trial":
+            fig7 = result_data.get("figure7") or {}
+            verdict = result_data.get("verdict") or {}
+            display_fields = [
+                ("revised_wc", "Revised W/C (D)"),
+            ]
+            # The Figure 7 chain and verdict are nested dicts; render them
+            # as explicit rows ahead of the generic fallback.
+            for key, label in (
+                (fig7.get("A"), "Figure 7 A — reference strength (MPa)"),
+                (fig7.get("B"), "Figure 7 B — designed w/c"),
+                (fig7.get("B_prime"), "Figure 7 B′ — actual trial w/c"),
+                (fig7.get("C"), "Figure 7 C — measured strength (MPa)"),
+                (fig7.get("D"), "Figure 7 D — new w/c estimate"),
+                (verdict.get("text"), "Verdict"),
+            ):
+                if key not in (None, ""):
+                    result_grid.addWidget(QLabel(f"{label}:"), row, 0)
+                    val_lbl = QLabel(str(key))
+                    val_lbl.setTextInteractionFlags(
+                        Qt.TextInteractionFlag.TextSelectableByMouse
+                    )
+                    result_grid.addWidget(val_lbl, row, 1)
+                    row += 1
         else:
             display_fields = list(result_data.items())
 
@@ -188,6 +213,9 @@ class HistoryDetailDialog(QDialog):
                 "sieve_sizes", "mass_retained", "percent_retained",
                 "cumulative_percent_retained", "percent_passing", "conforms",
             )
+        if tt == "doe_trial":
+            # Nested blocks rendered above or too noisy as raw dicts.
+            skip_keys += ("figure7", "verdict", "workability", "density")
         for key, value in sorted(result_data.items()):
             if key in shown_keys or key in skip_keys:
                 continue
@@ -263,10 +291,18 @@ class HistoryDetailDialog(QDialog):
         # -- Close button --
         btn_row = QHBoxLayout()
         self._load_btn = QPushButton("Load into Tab")
-        self._load_btn.setToolTip(
-            "Fill the tab this record came from with its saved entries "
-            "and open that tab."
-        )
+        if tt == "doe_trial":
+            # Trial records are view-only — there is no tab to reload.
+            self._load_btn.setVisible(False)
+            self._load_btn.setToolTip(
+                "DOE trial records are viewed here; load the parent mix "
+                "design record to reopen the trial workbook."
+            )
+        else:
+            self._load_btn.setToolTip(
+                "Fill the tab this record came from with its saved entries "
+                "and open that tab."
+            )
         self._load_btn.clicked.connect(
             lambda: self.load_requested.emit(int(self._rec["id"]))
         )

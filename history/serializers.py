@@ -345,6 +345,16 @@ def serialize_psd_result(result: Any) -> str:
     return json.dumps(asdict(result), default=str)
 
 
+def serialize_doe_trial_payload(payload: dict) -> str:
+    """Serialize a DOE (BRE 331 §6) trial-mix input/result dict to JSON.
+
+    Both payloads are plain JSON-serialisable dicts assembled by the
+    DOE trial mixes dialog (measurements, batch schedule, §6.3
+    evaluation); floats and None values pass through directly.
+    """
+    return json.dumps(payload, default=str)
+
+
 def deserialize_psd_result(data: dict) -> Any:
     """Deserialize a dict back to PSDResult."""
     from concrete_mix.engine.psd import PSDResult

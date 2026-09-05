@@ -3943,7 +3943,11 @@ class ConcreteMixTab(QWidget):
                     else ("ACI 211" if inp.code == "aci211" else "DOE")
                 )
                 name = f"Mix {code_name} - {result.target_mean_strength_mpa:.1f} MPa"
-                self._history_db.save_mix_design(inp, result, name=name)
+                calc_id = self._history_db.save_mix_design(inp, result, name=name)
+                # Remember the record so derived records (e.g. BRE 331 §6
+                # trial mixes) can chain to it via parent_id.
+                self._last_design_calc_id = calc_id
+                self._result_panel._design_calc_id = calc_id
         except Exception:
             pass  # Don't break the UI for history failures
 
@@ -3974,6 +3978,7 @@ class ConcreteMixTab(QWidget):
             self.apply_mix_input(inp)
         self._last_result = result
         self._result_panel.display_result(result)
+        self._result_panel._design_calc_id = calc_id
         self._update_result_view()
 
     def apply_mix_input(self, inp) -> None:
