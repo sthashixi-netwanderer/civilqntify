@@ -127,7 +127,7 @@ class ConcreteMixTab(QWidget):
         self._psd_idx = self._left_tabs.addTab(self._psd_tab, "PSD")
         self._left_tabs.setTabToolTip(self._psd_idx, "Particle Size Distribution")
 
-        # Tab 2: Mix Design (main form)
+        # Tab 2: Concrete Mix Design (main form)
         input_scroll = QScrollArea()
         input_scroll.setWidgetResizable(True)
         input_scroll.setFrameShape(QScrollArea.Shape.NoFrame)
@@ -157,7 +157,7 @@ class ConcreteMixTab(QWidget):
         page_layout.setSpacing(0)
         page_layout.addWidget(input_scroll, 1)
         page_layout.addLayout(self._action_bar)
-        self._mixdesign_idx = self._left_tabs.addTab(mix_page, "Mix Design")
+        self._mixdesign_idx = self._left_tabs.addTab(mix_page, "Concrete Mix Design")
 
         splitter.addWidget(self._left_tabs)
 

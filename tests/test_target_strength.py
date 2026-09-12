@@ -156,7 +156,7 @@ def test_mix_design_tab_contains_mode_dropdown_and_no_target_subtab(qt_app):
 
     # PSD runs FIRST — its derived parameters feed the mix-design form.
     assert tab._left_tabs.tabText(0) == "PSD"
-    assert tab._left_tabs.tabText(1) == "Mix Design"
+    assert tab._left_tabs.tabText(1) == "Concrete Mix Design"
     assert tab._left_tabs.count() == 2
     assert tab._left_tabs.currentIndex() == 0  # PSD is the default view
     assert tab._result_stack.currentWidget() is tab._psd_result_panel
