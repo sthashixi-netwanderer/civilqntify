@@ -1,3 +1,30 @@
+# CivilQntify v1.0.10 Release Notes
+
+## 🚀 What's New in v1.0.10
+
+### 🧪 DOE Trial Mixes Workbook — BRE 331:1997 §6
+
+- **Interactive trial-mix feedback**: Batch schedule scaled to a trial volume (§6.1, 0.05 m³ reference; reproduces the §7.1 example chain), with optional ±w/c variant batches at constant water and BS 1881 Part 125 moisture-condition batching.
+- **§6.3 evaluation loop**: Table 3 workability guidance, measured/assumed density correction of unit proportions, and the Figure 7 A/B/B′/C/D w/c adjustment, ending in a minor-adjustment / second-trial verdict with recomputed C3/C4/C5 production or second-trial proportions.
+- **Workbook dialog**: Schedule table, feedback inputs, §6.2 BS 1881 checklist, CSV/clipboard export, and Save Trial Record — chained to the design record via `parent_id` (`doe_trial` history type with filter, summary and detail view).
+
+### 🧪 ACI Trial Batching Workbook — ACI PRC-211.1-22
+
+- **Table 5.3.9.1 batch weight summary**: SSD-to-batch conversion, free water, water to batch with totals preserved; Appendix A.5 trial series at constant water.
+- **§5.3.10 evaluation loop**: Free-water reversal (§9.2.9.1), relative yield + gravimetric air (ASTM C138), Adjustments 1–3 (water re-estimate, air correction, cement efficiency for strength) and §5.3.10.4 next-trial proportions.
+- **Workbook dialog** mirroring the DOE flow, plus a §5.3.9 trial prompt frame on ACI result panels and `aci_trial` history records chained via `parent_id`.
+
+### 🏷️ UI Polish
+
+- **Tab rename**: The "Mix Design" tab is now "Concrete Mix Design" to distinguish it from the PSD tab.
+
+### 📦 Platform & Testing
+
+- **Version**: `1.0.10` (`app/version.py`)
+- **Test Suite**: 773 automated unit and integration tests passing.
+
+---
+
 # CivilQntify v1.0.9 Release Notes
 
 ## 🚀 What's New in v1.0.9
