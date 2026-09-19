@@ -439,8 +439,11 @@ class IS10262MixDesign(MixDesignCode):
             )
 
         # Preliminary-trial cementitious increase for high mineral dosages:
-        # ordinary Cl. 5.4.1/Annex B (any SCM ≥ 20%, e.g. 431 × 1.10 = 474 at
-        # 30% fly ash); mass §9.6.1 (fly ash ≥ 20% or GGBS ≥ 30%);
+        # ordinary Cl. 5.4.1/Annex B (FLY ASH ≥ 20%: Cl. 5.4.1 triggers
+        # "particularly if fly ash is 20 percent or more", e.g. 431 × 1.10
+        # = 474 at 30% fly ash — while Annex C (40% GGBS, no fly ash)
+        # applies NO increase: 431 split straight into 172 + 259);
+        # mass §9.6.1 (fly ash ≥ 20% or GGBS ≥ 30%);
         # high-strength §6.2.5/Annex D-7 (§6.2.5: "In case other cementitious
         # materials such as fly ash, ggbs are also used, the cementitious
         # material content shall be suitably increased" — the D-7 worked
@@ -448,7 +451,8 @@ class IS10262MixDesign(MixDesignCode):
         # §6.2.5 names only fly ash and ggbs).
         _bump_due = False
         _bump_ref = ""
-        if not is_hs and not is_mass and scm_replacement >= 20.0:
+        if (not is_hs and not is_mass
+                and _scm_pct("fly_ash", "fly_ash_c") >= 20.0):
             _bump_due, _bump_ref = True, "IS 10262:2019 Clause 5.4.1, Annex B"
         elif is_mass and (_scm_pct("fly_ash", "fly_ash_c") >= 20.0
                           or _scm_pct("ggbfs") >= 30.0):
@@ -533,6 +537,30 @@ class IS10262MixDesign(MixDesignCode):
                 "IS 456:2000 Tables 5–6" + (" / IS 10262:2019 Annex F-7"
                                             if nmsa in (80, 150) else ""),
             ))
+
+        # As-batched water-cementitious ratio: the 4.05 preliminary-trial
+        # increase and/or the 4.06 durability-minimum raise cementitious at
+        # constant water, so the batched ratio drops below the Step-3
+        # selection. The worked examples report the recomputed ratio on the
+        # trial sheet — Annex B-10 (155/474 = 0.327), Annex D-9.1 (141/535
+        # = 0.264) — never the pre-increase selection.
+        _wc_batched = water_kg / cementitious_total
+        if abs(_wc_batched - wc) > 0.0005:
+            steps.append(
+                self._make_step(
+                    4.07,
+                    "As-batched water-cementitious ratio",
+                    f"Water / raised cementitious = {water_kg:.1f} / "
+                    f"{cementitious_total:.1f}",
+                    {"water": water_kg,
+                     "cementitious": cementitious_total,
+                     "wc_selected": wc},
+                    _wc_batched,
+                    "",
+                    "IS 10262:2019 Annex B-10 / D-9.1",
+                )
+            )
+            wc = _wc_batched
 
         # IS 456:2000 Clause 8.2.4.2 — cement content (not including mineral
         # admixtures such as fly ash, per IS 10262:2019 Annex A-1(j)) should

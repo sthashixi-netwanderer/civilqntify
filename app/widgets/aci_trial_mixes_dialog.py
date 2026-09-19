@@ -276,9 +276,9 @@ class ACITrialMixesDialog(QDialog):
         from concrete_mix.codes.aci_trial import TEST_CHECKLIST
         self._checklist_boxes: list[QCheckBox] = []
         for test, standard in TEST_CHECKLIST:
-            chk = QCheckBox(f"<b>{test}</b> — {standard}")
+            chk = QCheckBox(f"{test} — {standard}")  # QCheckBox is plain-text: no rich-text tags
             chk.setChecked(True)
-            chk.setStyleSheet("font-size: 12px; color: #1e293b;")
+            chk.setStyleSheet("QCheckBox { font-size: 12px; color: #1e293b; }")
             layout.addWidget(chk)
             self._checklist_boxes.append(chk)
 

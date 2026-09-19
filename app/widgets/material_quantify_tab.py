@@ -199,6 +199,9 @@ class MaterialQuantifyTab(QWidget):
         self._result_panel.btn_csv.clicked.connect(self._export_csv)
         self._result_panel.btn_report.clicked.connect(self._show_preview)
 
+        # Code-dependent help starts in sync with the default code.
+        self._update_code_info()
+
         # Responsive reflow: wrap long label+field rows so the form minimum
         # drops to max(label, field) instead of their sum — the splitter
         # then tracks the handle smoothly at any width, including mid-edit
@@ -482,6 +485,7 @@ class MaterialQuantifyTab(QWidget):
             default="manual",
         )
         self._code_combo.currentIndexChanged.connect(self._on_input_changed)
+        self._code_combo.currentIndexChanged.connect(self._update_code_info)
         info_form.addRow(
             self._label_with_info(
                 "Code Standard",
@@ -496,17 +500,19 @@ class MaterialQuantifyTab(QWidget):
 
         self._strength_spin = UnitSpinBox("strength", 25.0, 10.0, 100.0, 5.0, 1)
         self._strength_spin.valueChanged.connect(self._on_input_changed)
+        self._strength_label = self._label_with_info(
+            "Target Strength",
+            "Target average compressive strength at 28 days.\n\n"
+            "IS 10262 Clause 7.1:\n"
+            "  f'ck = max(fck + 1.65·S,  fck + X)\n"
+            "  S = standard deviation (Table 2: 3.5–6.0 MPa)\n"
+            "  X = grade factor (Table 1: 5.0–8.0 MPa)\n\n"
+            "This is NOT the characteristic strength — it's higher to account for\n"
+            "variability. E.g., M30 → f'ck = 38.25 → 39 MPa (rounded up).",
+        )
+        self._strength_info_btn = self._strength_label.findChild(InfoButton)
         info_form.addRow(
-            self._label_with_info(
-                "Target Strength",
-                "Target average compressive strength at 28 days.\n\n"
-                "IS 10262 Clause 7.1:\n"
-                "  f'ck = max(fck + 1.65·S,  fck + X)\n"
-                "  S = standard deviation (Table 2: 3.5–6.0 MPa)\n"
-                "  X = grade factor (Table 1: 5.0–8.0 MPa)\n\n"
-                "This is NOT the characteristic strength — it's higher to account for\n"
-                "variability. E.g., M30 → f'ck = 38.25 → 39 MPa (rounded up).",
-            ),
+            self._strength_label,
             self._strength_spin,
         )
 
@@ -1285,6 +1291,42 @@ class MaterialQuantifyTab(QWidget):
         self._on_input_changed()
 
     # ── Mode Switching ───────────────────────────────────────────────
+
+    # Target-strength help follows the selected code standard (per AGENTS.md:
+    # IS 10262 Cl. 7.1 / ACI 211.1 §5.3.2 use different overdesign rules).
+    _STRENGTH_INFO = {
+        "is10262": (
+            "Target average compressive strength at 28 days.\n\n"
+            "IS 10262 Clause 7.1:\n"
+            "  f'ck = max(fck + 1.65·S,  fck + X)\n"
+            "  S = standard deviation (Table 2: 3.5–6.0 MPa)\n"
+            "  X = grade factor (Table 1: 5.0–8.0 MPa)\n\n"
+            "This is NOT the characteristic strength — it's higher to account for\n"
+            "variability. E.g., M30 → f'ck = 38.25 → 39 MPa (rounded up)."
+        ),
+        "aci211": (
+            "Target average compressive strength at 28 days.\n\n"
+            "ACI 211.1 §5.3.2 (overdesign above f'c):\n"
+            "  f'cr = f'c + 1.2·s  (no production data, <30 tests)\n"
+            "  f'cr = f'c + 2.33·s − 500 psi  (≥30 tests)\n"
+            "  s = standard deviation (Table 5.3.2.2)\n\n"
+            "E.g., f'c = 4000 psi, s = 500 psi → f'cr = 4600 psi."
+        ),
+        "manual": (
+            "Target average compressive strength at 28 days.\n\n"
+            "Manual mode: values were entered directly, so no code "
+            "overdesign formula applies. Treat this as the required "
+            "average strength behind the entered proportions."
+        ),
+    }
+
+    def _update_code_info(self) -> None:
+        """Rewrite code-dependent 'i' texts for the selected standard."""
+        btn = getattr(self, "_strength_info_btn", None)
+        if btn is None:
+            return
+        code = self._code_combo.currentData()
+        btn.set_text(self._STRENGTH_INFO.get(code, self._STRENGTH_INFO["manual"]))
 
     def _on_mode_changed(self) -> None:
         mode = self.mode_combo.currentData()

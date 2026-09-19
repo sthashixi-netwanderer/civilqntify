@@ -227,7 +227,9 @@ def test_result_panel_shows_ca_split_columns(fresh_prefs):
     html = panel._ca_split_label.text()
     # Column order: sizes above, contents below; unused 40 mm dashed.
     assert html.index("10 mm") < html.index("20 mm") < html.index("40 mm")
-    assert "445" in html and "890" in html
+    # CA total 1325 kg/m³ at the assumed Item 4.1 RD (mean of the default
+    # FA 2.65 / CA 2.70 SSD SGs) splits 1:2 into 440 + 885 kg/m³ (§5.5).
+    assert "440" in html and "885" in html
     assert "1 : 2" in html
 
     plain = DOEMixDesign().design(

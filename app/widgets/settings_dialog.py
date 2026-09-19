@@ -90,7 +90,7 @@ class SettingsDialog(QDialog):
 
         # Toolbar visibility toggle for the Weather button
         self._show_weather_check = QCheckBox("Show weather button in toolbar")
-        self._show_weather_check.setStyleSheet("font-size: 13px; padding: 2px 0;")
+        self._show_weather_check.setStyleSheet("QCheckBox { font-size: 13px; padding: 2px 0; }")
         api_layout.addWidget(self._show_weather_check)
 
         spacer = QLabel()

@@ -54,6 +54,7 @@ _DOWN_ARROW_DISABLED = _get_resource_path("down_arrow_disabled.svg")
 _UP_ARROW = _get_resource_path("up_arrow.svg")
 _UP_ARROW_ACTIVE = _get_resource_path("up_arrow_active.svg")
 _UP_ARROW_DISABLED = _get_resource_path("up_arrow_disabled.svg")
+_CHECK_MARK = _get_resource_path("checkmark.svg")
 
 _STYLESHEET_RAW = """
 /* ── Colors Reference (from Stitch design system) ──
@@ -257,7 +258,9 @@ QCheckBox {
     spacing: 8px;
     font-size: 13px;
 }
-
+QCheckBox:disabled {
+    color: #94a3b8;
+}
 QCheckBox::indicator {
     width: 18px;
     height: 18px;
@@ -265,14 +268,32 @@ QCheckBox::indicator {
     border: 1px solid #c4c5d5;
     background: #ffffff;
 }
-
 QCheckBox::indicator:hover {
     border-color: #3b82f6;
 }
-
+QCheckBox::indicator:disabled {
+    background: #f1f5f9;
+    border-color: #cbd5e1;
+}
 QCheckBox::indicator:checked {
     background: #1e40af;
     border-color: #1e40af;
+    image: url(__CHECK_MARK_PATH__);
+}
+QCheckBox::indicator:checked:hover {
+    background: #1e40af;
+    border-color: #3b82f6;
+    image: url(__CHECK_MARK_PATH__);
+}
+QCheckBox::indicator:checked:disabled {
+    background: #94a3b8;
+    border-color: #94a3b8;
+    image: url(__CHECK_MARK_PATH__);
+}
+QCheckBox::indicator:indeterminate {
+    background: #1e40af;
+    border-color: #1e40af;
+    image: url(__CHECK_MARK_PATH__);
 }
 
 /* ── Buttons ── */
@@ -592,11 +613,11 @@ QPushButton#settings-btn:pressed {
     background-color: #dbeafe;
 }
 """
-
 STYLESHEET = (_STYLESHEET_RAW
     .replace("__DOWN_ARROW_PATH__", _DOWN_ARROW)
     .replace("__DOWN_ARROW_DISABLED_PATH__", _DOWN_ARROW_DISABLED)
     .replace("__UP_ARROW_PATH__", _UP_ARROW)
     .replace("__UP_ARROW_ACTIVE_PATH__", _UP_ARROW_ACTIVE)
     .replace("__UP_ARROW_DISABLED_PATH__", _UP_ARROW_DISABLED)
+    .replace("__CHECK_MARK_PATH__", _CHECK_MARK)
 )

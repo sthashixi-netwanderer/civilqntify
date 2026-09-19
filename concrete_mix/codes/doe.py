@@ -68,19 +68,19 @@ class DOEMixDesign(MixDesignCode):
         """Stage 1: f_m = f_c + M  (Calculation C2).
 
         The margin M = k × s.  If fewer than 20 results are available, use
-        Line A of Figure 3; otherwise Line B.  For structural DOE mixes
-        (fc ≥ 25 MPa) the app assumes construction for structural elements
-        (BRE 331:1997 §4.4, Figure 3) and uses s = 8 MPa for n < 20
-        (Line A) and s = 4 MPa for n ≥ 20 (Line B).  When
-        ``n`` / ``num_test_cubes`` is supplied, that structural rule is
-        applied (n < 20 → 8 MPa, n ≥ 20 → 4 MPa).
+        Line A of Figure 3; otherwise Line B (BRE 331:1997 §4.4, Figure 3):
+        s = 8 MPa for n < 20 (Line A) and s = 4 MPa for n ≥ 20 (Line B).
+        When ``n`` / ``num_test_cubes`` is supplied, that Figure 3 rule is
+        applied (n < 20 → 8 MPa, n ≥ 20 → 4 MPa).  No use assumption is
+        made — any grade in [5, 100] MPa is designable.
         """
         if std_dev is None:
             n = kwargs.get("n", kwargs.get("num_test_cubes", kwargs.get("number_of_results")))
             if n is None:
                 n = kwargs.get("n_test_cubes")
             has_data = kwargs.get("has_production_data", True)
-            # ``get_standard_deviation`` interprets n→structural: n<20→8 MPa, n≥20→4 MPa
+            # ``get_standard_deviation`` applies the Figure 3 n-rule:
+            # n<20 → Line A (8 MPa plateau), n≥20 → Line B (4 MPa plateau).
             std_dev = get_standard_deviation(target_strength_mpa, has_data, n=n)
 
         defective_pct = kwargs.get("defective_percent", 5.0)
@@ -711,18 +711,36 @@ class DOEMixDesign(MixDesignCode):
         # STAGE 4 — Wet density and total aggregate (Figure 5, C4)
         # ==================================================================
 
-        agg_sg = inp.coarse_aggregate.specific_gravity
-        _fig5_density = get_wet_density(water, agg_sg)
+        # BRE 331:1997 §5.4 / Item 4.1: Figure 5 reads the relative density
+        # of the COMBINED aggregate (SSD, "known/assumed") — not the coarse
+        # fraction alone. A tested Item 4.1 value wins; otherwise the
+        # unweighted mean of the fine/coarse SSD specific gravities is
+        # assumed (project policy: Stage 4 precedes the Stage 5 split, so
+        # the fine/coarse mass ratio is still unknown and no weighting is
+        # defensible; BRE's own fallback is a single assumed value —
+        # 2.6 uncrushed / 2.7 crushed).
+        fa_sg = inp.fine_aggregate.specific_gravity
+        ca_sg = inp.coarse_aggregate.specific_gravity
+        _rd_known = getattr(inp, "aggregate_relative_density_ssd", None)
+        if _rd_known is not None and _rd_known > 0:
+            agg_rd = float(_rd_known)
+            rd_basis = "known (Item 4.1 test value)"
+        else:
+            agg_rd = (fa_sg + ca_sg) / 2.0
+            rd_basis = "assumed (mean of FA/CA SSD SG)"
+        _fig5_density = get_wet_density(water, agg_rd)
         # Item 4.2: the wet density of fully compacted concrete is
         # "expressed to the nearest 5 kg" (§4.3) — the standard's examples
         # read 2400 / 2325 / 2375 kg/m³ off the 5-kg chart grid.
         wet_density = float(_round_to_5(_fig5_density))
         steps.append(self._make_step(
             number=9,
-            description="Estimated wet density (Figure 5)",
-            formula=f"Figure 5: water={water:.0f}, SG={agg_sg:.2f}"
+            description=f"Estimated wet density (Figure 5) — RD {rd_basis}",
+            formula=f"Figure 5: water={water:.0f}, RD(combined SSD)={agg_rd:.2f}"
                     f" = {_fig5_density:.0f} → {wet_density:.0f} kg/m³ (nearest 5 kg)",
-            inputs={"water": water, "agg_sg": agg_sg,
+            inputs={"water": water, "agg_rd": agg_rd, "rd_basis": rd_basis,
+                    "fa_sg": fa_sg, "ca_sg": ca_sg,
+                    "item41_known": _rd_known,
                     "figure5_read": _fig5_density},
             result=wet_density,
             unit="kg/m³",
@@ -732,16 +750,16 @@ class DOEMixDesign(MixDesignCode):
         # §8.3: air-entrained density = Figure 5 value minus 10·a·RDA,
         # then expressed to the nearest 5 kg like any Item 4.2 density.
         if air_pct > 0:
-            _air_deduction = 10.0 * air_pct * agg_sg
+            _air_deduction = 10.0 * air_pct * agg_rd
             _density_before_round = wet_density - _air_deduction
             wet_density = float(_round_to_5(_density_before_round))
             steps.append(self._make_step(
                 number=9.1,
                 description="Wet density (air-entrained)",
-                formula=f"{wet_density + _air_deduction:.0f} − 10 × {air_pct:.1f} × {agg_sg:.2f}"
+                formula=f"{wet_density + _air_deduction:.0f} − 10 × {air_pct:.1f} × {agg_rd:.2f}"
                         f" = {_density_before_round:.1f} → {wet_density:.0f} kg/m³ (nearest 5 kg)",
                 inputs={"figure5_density": wet_density + _air_deduction,
-                        "air_pct": air_pct, "agg_sg": agg_sg,
+                        "air_pct": air_pct, "agg_rd": agg_rd,
                         "deduction": _air_deduction},
                 result=wet_density,
                 unit="kg/m³",

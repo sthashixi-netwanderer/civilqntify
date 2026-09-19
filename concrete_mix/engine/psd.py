@@ -62,7 +62,23 @@ ASTM_COARSE_SIEVES: list[float] = [
     0.300,
 ]
 
+# BS 882:1992 Tables 3/4 plus 75 µm for BS 812-103.1 §7.2.2.1.
+# 75 µm is a measurement sieve, NOT a Table 3/4 grading requirement.
+BS_FINE_SIEVES: list[float] = [
+    10.0, 5.0, 2.36, 1.18, 0.600, 0.300, 0.150, 0.075
+]
+BS_COARSE_SIEVES: list[float] = [
+    50.0, 37.5, 20.0, 14.0, 10.0, 5.0, 2.36, 0.075
+]
+# Optional full BS 812-103.1 Table 1 stack; exact BS, not nearby IS/ASTM.
+BS812_EXTENDED_SIEVES: list[float] = [
+    75.0, 63.0, 50.0, 37.5, 28.0, 20.0, 14.0, 10.0, 6.30, 5.0,
+    3.35, 2.36, 1.70, 1.18, 0.850, 0.600, 0.425, 0.300, 0.212,
+    0.150, 0.075,
+]
+
 STANDARD_SIEVES_BY_CODE: dict[str, dict[str, list[float]]] = {
+    "bs882": {"fine": BS_FINE_SIEVES, "coarse": BS_COARSE_SIEVES},
     "is383": {
         "fine": IS_FINE_SIEVES,
         "coarse": IS_COARSE_SIEVES,

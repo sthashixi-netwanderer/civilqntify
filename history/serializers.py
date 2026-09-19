@@ -62,6 +62,9 @@ def serialize_mix_input(inp: Any) -> str:
         "std_deviation": getattr(inp, "std_deviation", None),
         "margin_mpa": getattr(inp, "margin_mpa", None),
         "num_test_cubes": getattr(inp, "num_test_cubes", None),
+        "aggregate_relative_density_ssd": getattr(
+            inp, "aggregate_relative_density_ssd", None
+        ),
     }
     return json.dumps(d, default=str)
 
@@ -168,6 +171,9 @@ def deserialize_mix_input(data: dict) -> Any:
         std_deviation=data.get("std_deviation"),
         margin_mpa=data.get("margin_mpa"),
         num_test_cubes=data.get("num_test_cubes"),
+        aggregate_relative_density_ssd=data.get(
+            "aggregate_relative_density_ssd", None
+        ),
     )
 
 

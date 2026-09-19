@@ -69,7 +69,7 @@ def calculate_target_strength(
     code = code.lower()
     fck = float(characteristic_strength_mpa)
 
-    # No app-imposed structural floor for any code: DOE Figure 3 spans the
+    # No app-imposed minimum grade for any code: DOE Figure 3 spans the
     # full axis, and IS/ACI durability is gated by exposure minima, not by
     # an input floor. 5 MPa is a sanity floor for all three.
     if not math.isfinite(fck) or not 5.0 <= fck <= 100.0:

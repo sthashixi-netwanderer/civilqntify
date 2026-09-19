@@ -276,25 +276,27 @@ ACI_MAX_WC_FOR_EXPOSURE: dict[str, float] = {
 # ACI 301-20 Table 4.2.2.6(c) / ACI 318 Chapter 19 — freezing-and-thawing
 # exposure classes (PRC-211.1-22 Table 4.7.3b). max_wc of None means no
 # durability cap beyond strength; min_fc_mpa is the required specified
-# strength (psi values converted: 3500 → 24.1, 4500 → 31.0, 5000 → 34.5).
+# strength (exact psi conversions, 1 psi = 0.00689476 MPa: 3500 → 24.13,
+# 4500 → 31.03, 5000 → 34.47 — 1 dp rounding would reject the standard's
+# own §9.3 Example 2 input of 5000 psi (34.47 MPa) under F3).
 # F1–F3 additionally REQUIRE air entrainment (Table 4.2.2.6(c)).
 F_CLASS_LIMITS: dict[str, dict[str, float | None]] = {
     "F0": {"max_wc": None, "min_fc_mpa": None},  # Not exposed to freezing
-    "F1": {"max_wc": 0.55, "min_fc_mpa": 24.1},  # Exposed, no deicing salts
-    "F2": {"max_wc": 0.45, "min_fc_mpa": 31.0},  # Exposed, deicing salts / seawater
-    "F3": {"max_wc": 0.40, "min_fc_mpa": 34.5},  # Continuously wet + freezing + deicing
+    "F1": {"max_wc": 0.55, "min_fc_mpa": 24.13},  # Exposed, no deicing salts
+    "F2": {"max_wc": 0.45, "min_fc_mpa": 31.03},  # Exposed, deicing salts / seawater
+    "F3": {"max_wc": 0.40, "min_fc_mpa": 34.47},  # Continuously wet + freezing + deicing
 }
 
 # ACI 301-20 Table 4.2.2.6(d) (PRC-211.1-22 Table 4.7.3c) — exposure to
 # water where permeability matters. max_wc of None means no durability cap
-# beyond strength; min_fc_mpa None means the 2500 psi floor, which the app's
-# structural minimum (≥ 25 MPa) already exceeds. W1/W2 additionally invoke
+# beyond strength; min_fc_mpa None means the 2500 psi floor from the table
+# itself. W1/W2 additionally invoke
 # ACI 301 4.2.2.6(a) low-permeability provisions (surfaced as guidance: they
 # concern curing/testing practice, not proportioning numbers).
 W_CLASS_LIMITS: dict[str, dict[str, float | None]] = {
     "W0": {"max_wc": None, "min_fc_mpa": None},  # Dry / protected from water
     "W1": {"max_wc": None, "min_fc_mpa": None},  # In contact, permeability a concern
-    "W2": {"max_wc": 0.50, "min_fc_mpa": 27.6},  # Water barrier / 4000 psi
+    "W2": {"max_wc": 0.50, "min_fc_mpa": 27.58},  # Water barrier / 4000 psi (27.58 MPa exact)
 }
 
 # ACI 301-20 Table 4.2.2.6(e) (PRC-211.1-22 Table 4.7.3d) — corrosion
@@ -307,21 +309,21 @@ W_CLASS_LIMITS: dict[str, dict[str, float | None]] = {
 C_CLASS_LIMITS: dict[str, dict[str, float | None]] = {
     "C0": {"max_wc": None, "min_fc_mpa": None, "max_chloride_pct": 1.00},
     "C1": {"max_wc": None, "min_fc_mpa": None, "max_chloride_pct": 0.30},
-    "C2": {"max_wc": 0.40, "min_fc_mpa": 34.5, "max_chloride_pct": 0.15},
+    "C2": {"max_wc": 0.40, "min_fc_mpa": 34.47, "max_chloride_pct": 0.15},
 }
 
 # ACI 301-20 Table 4.2.2.6(b) (PRC-211.1-22 Table 4.7.3a) — sulfate exposure.
-# min_fc_mpa converts the table's psi floors (S1: 4000 → 27.6; S2: 4500 →
-# 31.0; S3 Option 2: 5000 → 34.5). S3 offers two compliance options; the
+# min_fc_mpa converts the table's psi floors exactly (S1: 4000 → 27.58;
+# S2: 4500 → 31.03; S3 Option 2: 5000 → 34.47). S3 offers two compliance options; the
 # engine enforces Option 2 (w/c ≤ 0.40, the tighter cap) — Option 1
 # (w/c ≤ 0.45 with Type V + pozzolan/slag) needs an explicit w/c override
 # plus trial evidence per Table 4.2.2.6(b)1. Cement-type and calcium-chloride
 # rules cannot be derived from proportions, so they are surfaced as guidance.
 S_CLASS_LIMITS: dict[str, dict[str, float | None]] = {
     "S0": {"max_wc": None, "min_fc_mpa": None},
-    "S1": {"max_wc": 0.50, "min_fc_mpa": 27.6},
-    "S2": {"max_wc": 0.45, "min_fc_mpa": 31.0},
-    "S3": {"max_wc": 0.40, "min_fc_mpa": 34.5},
+    "S1": {"max_wc": 0.50, "min_fc_mpa": 27.58},
+    "S2": {"max_wc": 0.45, "min_fc_mpa": 31.03},
+    "S3": {"max_wc": 0.40, "min_fc_mpa": 34.47},
 }
 
 S_CLASS_CEMENT_GUIDANCE: dict[str, str] = {
@@ -605,12 +607,12 @@ def modification_factor_k(num_tests: int) -> float:
 
 
 # ACI 301 Table 4.2.2.6(c) — Exposure Class F3 assigned to PLAIN concrete
-# carries its own row: max w/cm 0.45 and minimum f'c 4500 psi (31.0 MPa)
+# carries its own row: max w/cm 0.45 and minimum f'c 4500 psi (31.03 MPa exact)
 # instead of the reinforced-concrete F3 limits (PRC-211.1-22 Table 4.7.3b,
 # last row).
 F3_PLAIN_LIMITS: dict[str, float | None] = {
     "max_wc": 0.45,
-    "min_fc_mpa": 31.0,
+    "min_fc_mpa": 31.03,
 }
 
 

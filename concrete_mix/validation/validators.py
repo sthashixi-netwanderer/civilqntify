@@ -58,18 +58,14 @@ def _validate_is_input(inp: MixDesignInput) -> list[str]:
                 f"for '{display_name(inp.exposure_class)}' exposure per IS 456:2000 Table 5"
             )
 
-    # Below the usual structural range — exposure minimums (IS 456 Table 5)
-    # are enforced by the engine; this only flags the unusual.
+    # Below 25 MPa — exposure minimums (IS 456 Table 5) are enforced by
+    # the engine; this only flags the unusual.
     fc = inp.characteristic_strength
     if fc < 25.0:
         warnings.append(
-            f"Characteristic strength fck = {fc:.1f} MPa is below the usual "
-            f"structural range — confirm the exposure-class minimum grade "
+            f"Characteristic strength fck = {fc:.1f} MPa is below 25 MPa — "
+            f"confirm the exposure-class minimum grade "
             f"(IS 456:2000 Table 5) is met."
-        )
-    else:
-        warnings.append(
-            f"IS 10262:2019: structural concrete (fck = {fc:.1f} MPa ≥ 25 MPa)."
         )
 
     # Cement type should be IS grade
@@ -112,18 +108,14 @@ def _validate_aci_input(inp: MixDesignInput) -> list[str]:
     """ACI 211.1 specific validations."""
     warnings: list[str] = []
 
-    # Below the usual structural range — exposure minimums (ACI 318 Ch. 19)
-    # are enforced by the engine; this only flags the unusual.
+    # Below 25 MPa — exposure minimums (ACI 318 Ch. 19) are enforced by
+    # the engine; this only flags the unusual.
     fc = inp.characteristic_strength
     if fc < 25.0:
         warnings.append(
-            f"Characteristic strength f'c = {fc:.1f} MPa is below the usual "
-            f"structural range — confirm the exposure-class minimum strength "
+            f"Characteristic strength f'c = {fc:.1f} MPa is below 25 MPa — "
+            f"confirm the exposure-class minimum strength "
             f"(ACI 318 Chapter 19) is met."
-        )
-    else:
-        warnings.append(
-            f"ACI PRC-211.1-22: structural concrete (f'c = {fc:.1f} MPa ≥ 25 MPa)."
         )
 
     # Cement type should be ACI type

@@ -24,6 +24,17 @@ from concrete_mix.engine.psd_link import (
 )
 
 
+def test_bs882_link_uses_whole_actual_p600_only():
+    result = compute_psd([0, 50, 50, 100, 394, 206, 100],
+                         [10, 5, 2.36, 1.18, .6, .3, .15], 100)
+    link = derive_mix_design_params(result, standard="bs882")
+    assert link.pct_passing_600um == 41
+    assert link.grading_zone is None
+    assert link.fineness_modulus is None
+    missing = compute_psd([100, 200, 300], [5, 1.18, .3], 400)
+    assert derive_mix_design_params(missing, standard="bs882").pct_passing_600um is None
+
+
 # ---------------------------------------------------------------------------
 # Textbook fine-aggregate sample (mirrors TestComputePSD)
 # ---------------------------------------------------------------------------

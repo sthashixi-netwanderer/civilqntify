@@ -28,10 +28,9 @@ Built for civil engineers, concrete technology specialists, and quantity surveyo
   - **Staircases**
 - Wastage factor adjustments and volume transfer directly into cost estimation.
 
-### 4. Cost Estimation & Live Pricing Sync
-- Calculates material item cost breakdowns and total budget requirements.
-- Integration with shared **Google Sheets Live Price Sheet Service** (`gspread`) to automatically fetch real-time local supplier prices.
-- Editable local price overrides and currency formatting.
+### 4. Cost Estimation (Manual Price Entry)
+- Material quantities flow in from the quantification bill or are typed directly into the Material Quantities group.
+- Manual material price entry in GH₵ (cement per bag, sand and gravel per m³, water, admixture) plus labour, transport, overheads, profit and contingency.
 
 ### 5. Live Weather Integration
 - Real-time weather monitoring for construction sites via WeatherAPI.
@@ -49,7 +48,6 @@ Built for civil engineers, concrete technology specialists, and quantity surveyo
 civilqntify/
 ├── app/                        # PyQt6 GUI Application
 │   ├── main.py                 # PyQt6 GUI entry point
-│   ├── pricing/                # Google Sheets live pricing integration
 │   ├── resources/              # App icons, SVG assets, and styling resources
 │   ├── styles.py               # Dark/Light modern theme stylesheet tokens
 │   ├── unit_preferences.py     # Metric / Imperial unit management

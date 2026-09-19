@@ -286,6 +286,19 @@ class ResultPanel(QWidget):
 
     send_to_quantification = pyqtSignal(object)  # MixDesignResult
 
+    # Trial-card framing: inactive cards stay hidden; the card matching
+    # the result's design standard gets an accent border + "active"
+    # marker so it is unmistakable which protocol applies
+    # (IS 10262:2019 Cl. 5.8 / BRE 331:1997 §6 / ACI PRC-211.1-22 Ch. 8).
+    _TRIAL_FRAME_BASE_STYLE = (
+        "background-color: #f8fafc; border: 1px solid #cbd5e1; "
+        "border-radius: 6px; padding: 4px;"
+    )
+    _TRIAL_FRAME_ACTIVE_STYLE = (
+        "background-color: #eff6ff; border: 2px solid #1d4ed8; "
+        "border-radius: 6px; padding: 4px;"
+    )
+
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self._result: MixDesignResult | None = None
@@ -353,6 +366,10 @@ class ResultPanel(QWidget):
             "letter-spacing: 0.05em; color: #1e3a8a;"
         )
         trial_layout.addWidget(trial_title)
+        # Base title kept so the active-standard highlight can be
+        # applied/restored without losing the clause reference.
+        self._is_trial_title = trial_title
+        self._is_trial_title_base = "IS 10262:2019 Clause 5.8 — Trial Mixes Protocol"
 
         self._is_trial_lbl = QLabel()
         self._is_trial_lbl.setWordWrap(True)
@@ -391,6 +408,8 @@ class ResultPanel(QWidget):
             "letter-spacing: 0.05em; color: #1e3a8a;"
         )
         doe_trial_layout.addWidget(doe_trial_title)
+        self._doe_trial_title = doe_trial_title
+        self._doe_trial_title_base = "BRE 331:1997 §6 — Trial Mixes"
 
         self._doe_trial_lbl = QLabel()
         self._doe_trial_lbl.setWordWrap(True)
@@ -429,6 +448,8 @@ class ResultPanel(QWidget):
             "letter-spacing: 0.05em; color: #1e3a8a;"
         )
         aci_trial_layout.addWidget(aci_trial_title)
+        self._aci_trial_title = aci_trial_title
+        self._aci_trial_title_base = "ACI PRC-211.1-22 — Trial Batching"
 
         self._aci_trial_lbl = QLabel()
         self._aci_trial_lbl.setWordWrap(True)
@@ -784,6 +805,13 @@ class ResultPanel(QWidget):
         method = est["method"]
 
         self._strength_est_frame.setVisible(True)
+        # Strength estimates carry no trial protocol: hide all trial cards
+        # so a stale card from a previous full result cannot linger under
+        # the wrong standard.
+        self._is_trial_frame.setVisible(False)
+        self._doe_trial_frame.setVisible(False)
+        self._aci_trial_frame.setVisible(False)
+        self._highlight_trial_frames(None)
         if method == "is10262":
             html = (
                 f"<b>f<sub>ck</sub>:</b> {fck:.1f} {su}<br/>"
@@ -986,6 +1014,20 @@ class ResultPanel(QWidget):
         else:
             self._aci_trial_frame.setVisible(False)
 
+        # Highlight the card matching this result's design standard so it
+        # is unmistakable which trial protocol applies (the other cards
+        # stay hidden; the accent + ACTIVE marker disambiguate the visible
+        # one, including in accessibility trees that still list hidden
+        # frames). Refs: IS 10262:2019 Cl. 5.8, BRE 331:1997 §6, ACI Ch. 8.
+        if is_is_code:
+            self._highlight_trial_frames("is")
+        elif is_doe_code:
+            self._highlight_trial_frames("doe")
+        elif is_aci_code:
+            self._highlight_trial_frames("aci")
+        else:
+            self._highlight_trial_frames(None)
+
         # Update header to show volume
         vol_display = up.convert_volume_m3(vol)
         self._cards_label.setText(f"Material Quantities (for {vol_display:.3f} {up.volume_unit()})")
@@ -1081,6 +1123,30 @@ class ResultPanel(QWidget):
         self._btn_report.setEnabled(True)
         self._btn_quant.setEnabled(True)
 
+    def _highlight_trial_frames(self, active: str | None) -> None:
+        """Highlight the trial card of the active design standard.
+
+        Only ``active`` (one of "is"/"doe"/"aci"/None) keeps the accent
+        frame and an "ACTIVE" title marker; the others are restored
+        to the base style. Visibility itself is handled by the caller
+        (full results show exactly one card; estimates/clears hide all).
+        """
+        frames = {
+            "is": (self._is_trial_frame, self._is_trial_title,
+                   self._is_trial_title_base),
+            "doe": (self._doe_trial_frame, self._doe_trial_title,
+                    self._doe_trial_title_base),
+            "aci": (self._aci_trial_frame, self._aci_trial_title,
+                    self._aci_trial_title_base),
+        }
+        for key, (frame, title, base) in frames.items():
+            if key == active:
+                frame.setStyleSheet(self._TRIAL_FRAME_ACTIVE_STYLE)
+                title.setText(f"ACTIVE - {base}")
+            else:
+                frame.setStyleSheet(self._TRIAL_FRAME_BASE_STYLE)
+                title.setText(base)
+
     def _fit_steps_height(self) -> None:
         """Size the calculation-steps tree to its content height.
 
@@ -1170,6 +1236,7 @@ class ResultPanel(QWidget):
         self._is_trial_frame.setVisible(False)
         self._doe_trial_frame.setVisible(False)
         self._aci_trial_frame.setVisible(False)
+        self._highlight_trial_frames(None)
         self._warning_banner.setVisible(False)
         for card in self._cards.values():
             card.set_value(0)

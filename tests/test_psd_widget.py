@@ -33,6 +33,16 @@ def _stub_compliance_dialog(monkeypatch):
         "._show_astm_compliance_dialog",
         lambda self, checks: None,
     )
+    # Auto-accept the "Use in Mix Design" transfer confirmation (Cancel is
+    # covered explicitly by test_transfer_confirmation_modal).
+    import app.widgets.psd_widget as psdmod
+    from PyQt6.QtWidgets import QMessageBox
+
+    monkeypatch.setattr(
+        psdmod.QMessageBox,
+        "question",
+        staticmethod(lambda *a, **k: QMessageBox.StandardButton.Ok),
+    )
 
 
 def _fill_and_plot(tab, masses, pan):
@@ -42,6 +52,175 @@ def _fill_and_plot(tab, masses, pan):
         tab.table.item(i, 1).setText(str(m))
     tab.table.item(len(sieves), 1).setText(str(pan))
     tab._on_compute_plot()
+
+
+def test_bs882_linear_plot_reporting_and_dirty_guard(qt):
+    from app.widgets.psd_widget import ParticleSizeDistributionTab
+
+    tab = ParticleSizeDistributionTab()
+    idx = tab.standard_combo.findData("bs882")
+    assert idx >= 0
+    tab.standard_combo.setCurrentIndex(idx)
+    assert tab._current_sieves() == [10, 5, 2.36, 1.18, .6, .3, .15]
+    assert tab.band_combo.count() == 4
+    tab.bs_quality.m1_spin.setValue(1000)
+    _fill_and_plot(tab, [0, 50, 50, 100, 394, 206, 100], 100)
+    panel = tab._result_panel
+    ax = tab._fig.axes[0]
+    assert ax.get_xscale() == "linear"
+    assert ax.get_ylim() == (0, 100)
+    line = next(x for x in ax.lines if x.get_label() == "Your gradation")
+    assert list(line.get_xdata()) == sorted(tab._current_sieves())
+    assert tab.table.item(4, 4).text() == "41"
+    payloads = []
+    panel.apply_to_mix_design.connect(payloads.append)
+    panel._on_apply_to_mix()
+    assert payloads[-1]["pct_passing_600um"] == 41
+    assert payloads[-1]["grading_zone"] is None
+    assert not tab._quality_group.isVisible()
+    assert tab._bs_checks
+    tab.table.item(1, 1).setText("55")
+    assert not panel._btn_apply.isEnabled()
+    assert not panel._btn_csv.isEnabled()
+    assert not panel._btn_img.isEnabled()
+
+
+def test_bs882_coarse_reference_handoff(qt):
+    from app.widgets.psd_widget import ParticleSizeDistributionTab
+
+    tab = ParticleSizeDistributionTab()
+    assert tab.standard_combo.findData("bs882") >= 0
+    tab.standard_combo.setCurrentIndex(tab.standard_combo.findData("bs882"))
+    tab.agg_combo.setCurrentIndex(1)
+    assert tab.band_combo.count() == 8
+    assert tab._current_sieves() == [50, 37.5, 20, 14, 10, 5, 2.36]
+    tab.bs_quality.m1_spin.setValue(1000)
+    _fill_and_plot(tab, [0, 0, 50, 350, 150, 400, 30], 20)
+    for size in (14, 5):
+        tab.band_combo.setCurrentIndex(next(i for i in range(tab.band_combo.count()) if tab.band_combo.itemData(i) == ("bs882", "coarse", "single", size)))
+        assert not tab._result_panel._btn_apply.isEnabled()
+    tab.band_combo.setCurrentIndex(1)  # graded 20 mm
+    assert tab._result_panel._btn_apply.isEnabled()
+
+
+def test_bs882_washed_history_csv_and_quality(qt, monkeypatch, tmp_path):
+    import csv
+    import json
+    from app.widgets.psd_widget import ParticleSizeDistributionTab
+    from history.serializers import serialize_psd_result
+
+    tab = ParticleSizeDistributionTab()
+    tab.standard_combo.setCurrentIndex(2)
+    tab.bs_quality.method_combo.setCurrentIndex(1)
+    tab.bs_quality.m1_spin.setValue(1000)
+    tab.bs_quality.m2_spin.setValue(970)
+    tab.bs_quality.sample_edit.setText("BS sample A")
+    tab.bs_quality.source_combo.setCurrentIndex(
+        tab.bs_quality.source_combo.findData("uncrushed_gravel")
+    )
+    _fill_and_plot(tab, [0, 50, 50, 100, 390, 210, 100, 50], 20)
+    assert tab._last_result.total_mass == 1000
+    assert tab._last_result.pan_mass == 50
+    fines = next(c for c in tab._bs_checks if "Table 6" in c.clause)
+    assert fines.status == "pass"  # 3% washing, not 5% combined pan
+    data = tab._gather_history_input()
+    data["sieves"].reverse()
+    data["masses"].reverse()
+    record = {"tab_type": "psd", "input_json": json.dumps(data),
+              "result_json": serialize_psd_result(tab._last_result)}
+    class DB:
+        def get_calculation(self, calc_id):
+            return record
+    restored = ParticleSizeDistributionTab()
+    restored._history_db = DB()
+    restored.load_from_history(1)
+    assert restored.bs_quality.sample_edit.text() == "BS sample A"
+    assert float(restored.table.item(4, 1).text()) == 390
+    assert restored.table.item(4, 4).text() == "41"
+    path = tmp_path / "bs.csv"
+    monkeypatch.setattr("app.widgets.psd_widget.QFileDialog.getSaveFileName",
+                        lambda *a: (str(path), "CSV (*.csv)"))
+    restored._result_panel._on_export_csv()
+    rows = list(csv.reader(path.open()))
+    assert ["Standard", "BS 882:1992"] in rows
+    assert ["method", "washed"] in rows
+    assert ["Sieve Size (mm)", "Mass Retained (g)", "% Retained",
+            "Cumulative % Retained", "% Passing",
+            "Standard % Passing"] in rows
+    row_06 = next(r for r in rows if r[0] == "0.6")
+    assert row_06[4] == "41"
+    assert len(row_06) == 6
+    restored.bs_quality.method_combo.setCurrentIndex(0)
+    assert not restored._result_panel._btn_csv.isEnabled()
+    assert restored._last_result is None
+    assert float(restored.table.item(4, 1).text()) == 390
+
+
+def test_bs882_missing_material_is_not_assessed(qt):
+    from app.widgets.psd_widget import ParticleSizeDistributionTab
+
+    tab = ParticleSizeDistributionTab()
+    tab.standard_combo.setCurrentIndex(2)
+    tab.agg_combo.setCurrentIndex(1)
+    assert tab.bs_quality.source_combo.currentData() == "unknown"
+    tab.bs_quality.method_combo.setCurrentIndex(1)
+    tab.bs_quality.m1_spin.setValue(1000)
+    tab.bs_quality.m2_spin.setValue(990)
+    tab.bs_quality.fi_spin.setValue(20)
+    _fill_and_plot(tab, [0, 0, 50, 350, 150, 400, 30, 0], 10)
+    quality = [c for c in tab._bs_checks
+               if "Table 6" in c.clause or c.clause == "4.2"]
+    assert len(quality) == 2
+    assert all(c.status == "not_evaluated" for c in quality)
+    tab.bs_quality.source_combo.setCurrentIndex(1)
+    tab.bs_quality.restore({})
+    assert tab.bs_quality.source_combo.currentData() == "unknown"
+
+
+def test_bs882_history_precision_and_invalid_mass_cells(qt):
+    import json
+    from app.widgets.psd_widget import ParticleSizeDistributionTab
+    from history.serializers import serialize_psd_result
+
+    tab = ParticleSizeDistributionTab()
+    tab.standard_combo.setCurrentIndex(2)
+    tab.bs_quality.m1_spin.setValue(25000)
+    _fill_and_plot(tab, [0, 12345.67, 0, 0, 0, 0, 0], 12654.33)
+    data = tab._gather_history_input()
+    record = {"tab_type": "psd", "input_json": json.dumps(data),
+              "result_json": serialize_psd_result(tab._last_result)}
+
+    class DB:
+        def get_calculation(self, calc_id):
+            return record
+
+    restored = ParticleSizeDistributionTab()
+    restored._history_db = DB()
+    restored.load_from_history(1)
+    assert float(restored.table.item(1, 1).text()) == 12345.67
+    assert float(restored.table.item(7, 1).text()) == 12654.33
+    assert restored._last_result.total_mass == 25000
+    restored.bs_quality.m1_spin.setValue(26000)
+    assert restored._last_result is None
+    for row in range(8):
+        for col in (2, 3, 4):
+            assert restored.table.item(row, col).text() == "—"
+    assert restored.table.item(8, 1).text() == "—"
+    data["bs882"]["original_dry_mass"] = 26000
+    record["input_json"] = json.dumps(data)
+    restored.load_from_history(1)
+    assert restored._last_result is None
+    assert not restored._result_panel._btn_csv.isEnabled()
+
+
+def test_bs882_apply_switches_to_doe(qt, monkeypatch):
+    from app.widgets.concrete_tab import ConcreteMixTab
+    monkeypatch.setattr("app.widgets.concrete_tab.QMessageBox.information", lambda *a: None)
+    tab = ConcreteMixTab()
+    tab._on_psd_apply({"band_standard": "bs882", "aggregate_kind": "fine",
+                       "pct_passing_600um": 41, "all_conform": True})
+    assert tab.code_combo.currentData() == "doe"
+    assert tab.pct_passing_600um_spin.value() == 41
 
 
 def _plot_texts(tab):
@@ -262,11 +441,14 @@ def test_coarse_plot_uses_a_smooth_shaded_astm_section(qt):
     assert "ASTM C33/C33M Table 2" in ax.get_title()
 
 
-def test_user_gradation_curve_is_smoothed_through_measured_points(qt):
-    """The user's gradation must render as one smooth curve, not polyline
-    segments: densely sampled between sieves, passing exactly through every
-    measured %passing, within 0–100 % and never extended past the measured
-    sieve range."""
+def test_user_gradation_curve_is_straight_with_d_markers_on_curve(qt):
+    """The user's gradation renders as straight log-linear chords between
+    measured points (ASTM D6913) — one vertex per sieve, within 0–100 %
+    and never extended past the measured sieve range — so the D10/D30/D60
+    markers computed by the same log-linear interpolation sit exactly on
+    the drawn line."""
+    import math
+
     from app.widgets.psd_widget import ParticleSizeDistributionTab
 
     tab = ParticleSizeDistributionTab()
@@ -279,16 +461,33 @@ def test_user_gradation_curve_is_smoothed_through_measured_points(qt):
     x, y = (list(v) for v in gradation.get_data())
 
     result = tab._last_result
-    # Densely sampled between sieves, not one vertex per sieve
-    assert len(x) > 2 * len(result.sieve_sizes)
-    # Not extended past the measured sieve range
+    # One vertex per sieve, in ascending order, spanning exactly the stack
+    assert len(x) == len(result.sieve_sizes)
+    assert x == pytest.approx(sorted(result.sieve_sizes))
     assert min(x) == pytest.approx(min(result.sieve_sizes))
     assert max(x) == pytest.approx(max(result.sieve_sizes))
     assert all(0.0 <= value <= 100.0 for value in y)
-    # Curve passes exactly through every measured point
+    # Line passes exactly through every measured point
     for size, passing in zip(result.sieve_sizes, result.percent_passing):
         index = x.index(size)
         assert y[index] == pytest.approx(passing)
+    # Each D marker lies on its log-linear chord of the drawn line
+    pts = sorted(zip(result.sieve_sizes, result.percent_passing))
+    for d_val, target in (
+        (result.d10, 10.0), (result.d30, 30.0), (result.d60, 60.0),
+    ):
+        assert d_val is not None
+        for i in range(1, len(pts)):
+            (s0, p0), (s1, p1) = pts[i - 1], pts[i]
+            if min(p0, p1) <= target <= max(p0, p1) and p0 != p1:
+                frac = (target - p0) / (p1 - p0)
+                expected = math.exp(
+                    math.log(s0) + frac * (math.log(s1) - math.log(s0))
+                )
+                assert d_val == pytest.approx(expected)
+                break
+        else:
+            pytest.fail(f"D target {target}% not bracketed by measured sieves")
 
 
 def test_characteristic_d_diameters_plotted_on_graph(qt):
@@ -661,3 +860,99 @@ def test_astm_c33_fields_have_info_buttons(qt):
     assert any("95 %" in t and "7.2.3" in t for t in texts)    # C 87 escape
     assert any("1120 kg/m³" in t for t in texts)               # slag unit weight
     assert any("2.40" in t for t in texts)                     # light chert
+
+
+def test_gradation_canvas_forwards_wheel_to_panel_scroll(qt):
+    """Mouse-wheel over the gradation plot must scroll the result panel.
+
+    The matplotlib canvas used to consume wheel events (its scroll-zoom
+    has no toolbar here and does nothing visible), stranding the panel
+    whenever the cursor sat over the curve. The canvas now re-targets
+    wheel events at the enclosing scroll area's viewport.
+    """
+    from PyQt6.QtCore import QPoint, QPointF, Qt
+    from PyQt6.QtGui import QWheelEvent
+    from PyQt6.QtWidgets import QApplication, QScrollArea
+
+    from app.widgets.psd_widget import ParticleSizeDistributionTab
+
+    tab = ParticleSizeDistributionTab()
+    _fill_and_plot(tab, [0, 25, 100, 150, 120, 75, 25], pan=5)
+    panel = tab._result_panel
+    panel.resize(400, 250)
+    panel.show()
+    qt.processEvents()
+
+    bar = panel.findChild(QScrollArea).verticalScrollBar()
+    assert bar.maximum() > 0  # content taller than the viewport
+    assert bar.value() == 0
+
+    center = panel._canvas.rect().center()
+
+    def roll(delta_y):
+        event = QWheelEvent(
+            QPointF(center), QPointF(center),
+            QPoint(0, 0), QPoint(0, delta_y),
+            Qt.MouseButton.NoButton, Qt.KeyboardModifier.NoModifier,
+            Qt.ScrollPhase.NoScrollPhase, False,
+        )
+        QApplication.sendEvent(panel._canvas, event)
+        qt.processEvents()
+        return event
+
+    down = roll(-240)
+    assert down.isAccepted()
+    assert bar.value() > 0
+    roll(240)
+    assert bar.value() == 0
+
+
+def test_transfer_confirmation_modal(qt, monkeypatch):
+    """'Use in Mix Design' first shows every value about to be transferred
+    and only emits on accept — Cancel must leave the mix form untouched."""
+    from PyQt6.QtWidgets import QMessageBox
+
+    from app.widgets.psd_widget import ParticleSizeDistributionTab
+
+    monkeypatch.setattr(
+        "app.widgets.psd_widget.ParticleSizeDistributionTab"
+        "._show_astm_compliance_dialog",
+        lambda self, checks: None,
+    )
+
+    shown: list[str] = []
+    verdict = {"v": QMessageBox.StandardButton.Cancel}
+
+    def fake_question(parent, title, text, *a, **k):
+        shown.append(f"{title}\n{text}")
+        return verdict["v"]
+
+    import app.widgets.psd_widget as psdmod
+
+    monkeypatch.setattr(
+        psdmod.QMessageBox,
+        "question",
+        staticmethod(fake_question),
+    )
+
+    tab = ParticleSizeDistributionTab()
+    # IS Zone II sand: zone + %p600 transfer, no FM (IS 383 has none).
+    _fill_and_plot(tab, [0, 5, 45, 210, 60, 70, 105], pan=5)
+    payloads: list[dict] = []
+    tab._result_panel.apply_to_mix_design.connect(payloads.append)
+
+    # Cancel → nothing emitted.
+    tab._result_panel._btn_apply.click()
+    assert len(shown) == 1
+    assert "Zone II" in shown[0]
+    assert "600 µm" in shown[0]
+    assert "IS 10262:2019" in shown[0]
+    assert payloads == []
+
+    # Accept → payload emitted with the shown values.
+    verdict["v"] = QMessageBox.StandardButton.Ok
+    tab._result_panel._btn_apply.click()
+    assert len(shown) == 2
+    assert len(payloads) == 1
+    assert payloads[0]["grading_zone"] == "II"
+    assert payloads[0]["pct_passing_600um"] == pytest.approx(36.0)

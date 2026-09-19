@@ -126,6 +126,16 @@ class MixDesignInput:
     None) uses s unmodified. Fewer than 15 is not permitted with s — leave
     None and set has_production_data=False for the no-data table.
     """
+    apply_rounded_aggregate_reduction: bool = False
+    """Apply the Table 5.3.3.1 −8% rounded-aggregate water cut (ACI only).
+
+    ACI PRC-211.1-22 Table 5.3.3.1 lists −8% mixing water for rounded
+    coarse aggregate. The guide's own examples are split — §9.2 Example 1
+    keeps tabulated water for rounded aggregate while §9.3 Example 2
+    applies the −8% (22 lb of its 280 → 227 lb ledger) — so the engine
+    defaults to the tabulated value (Example-1 parity) and applies the cut
+    only when this flag is set. False (default) preserves legacy behavior.
+    """
     target_paste_volume_pct: float | None = None
     """Target paste volume as % of concrete volume (ACI only, optional).
 
@@ -221,17 +231,22 @@ class MixDesignInput:
     age_days: int = 28
     min_cement_kg: float | None = None
     max_cement_kg: float | None = None
-    std_deviation: float | None = None  # DOE: user-provided standard deviation (MPa)
+    std_deviation: float | None = None  # Sample standard deviation (MPa): DOE Figure 3 override; ACI Tables 4.7.4.3-4.7.4.4 sample s (e.g. §9.3 Example 2: 300 psi = 2.07 MPa)
     margin_mpa: float | None = None  # DOE: user-specified margin (MPa), overrides k×s calculation
     num_test_cubes: int | None = None  # DOE: number of test cubes (n) for std-dev determination
     # BRE 331 Figure 3: n<20 → Line A (s = 0.4×fc for fc≤20, else 8 MPa);
     # n≥20 → Line B (s = 0.2×fc for fc≤20, else 4 MPa).
+    aggregate_relative_density_ssd: float | None = None
+    # DOE only: combined aggregate relative density at SSD (BRE 331 Item 4.1,
+    # "known/assumed") feeding Figure 5. None (default) assumes the unweighted
+    # mean of the fine/coarse SSD specific gravities. Ignored by ACI/IS.
 
     def __post_init__(self) -> None:
-        # No app-imposed structural floor: any grade in [5, 100] MPa is
-        # accepted for every code (DOE Figure 3 spans the full axis; IS/ACI
-        # proportion normally, with IS 456 Table 5 and ACI 318 Chapter 19
-        # exposure minima enforced downstream as the real durability gates).
+        # No app-imposed minimum grade: any characteristic strength in
+        # [5, 100] MPa is accepted for every code (DOE Figure 3 spans the
+        # full axis; IS/ACI proportion normally, with IS 456 Table 5 and
+        # ACI 318 Chapter 19 exposure minima enforced downstream as the
+        # real durability gates).
         # 5 MPa is a sanity floor (below that is soil-cement territory).
         fc_eff = (
             self.characteristic_strength_mpa
@@ -388,6 +403,16 @@ class MixDesignInput:
             raise ValueError("Standard deviation must be non-negative")
         if self.defective_percent is not None and not 0.5 <= self.defective_percent <= 15.0:
             raise ValueError("Defective percent must be between 0.5 and 15%")
+        if (
+            self.code == "doe"
+            and self.aggregate_relative_density_ssd is not None
+            and not 2.0 <= self.aggregate_relative_density_ssd <= 3.5
+        ):
+            raise ValueError(
+                f"DOE Item 4.1 relative density (SSD) "
+                f"{self.aggregate_relative_density_ssd} outside valid range [2.0, 3.5] "
+                f"(BRE 331:1997 Figure 5 spans 2.4–2.9)"
+            )
 
     @property
     def nmsa(self) -> int | float:

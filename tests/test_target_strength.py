@@ -127,8 +127,8 @@ def test_exposure_gates_still_guard_low_grades():
         IS10262MixDesign().design(MixDesignInput(
             code="is10262", target_strength_mpa=20.0, slump_mm=75.0,
             exposure_class="severe", concrete_type="reinforced"))
-    # ACI M20 under F2 violates the 31.0 MPa minimum (Table 4.7.3b).
-    with pytest.raises(ValueError, match="minimum 31.0 MPa"):
+    # ACI M20 under F2 violates the 31.03 MPa minimum (Table 4.7.3b).
+    with pytest.raises(ValueError, match="minimum 31.03 MPa"):
         ACI211MixDesign().design(MixDesignInput(
             code="aci211", target_strength_mpa=20.0, slump_mm=75.0,
             air_entrained=True, freezing_exposure_class="F2"))

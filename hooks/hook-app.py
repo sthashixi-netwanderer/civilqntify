@@ -18,6 +18,4 @@ hiddenimports += [
     "app.widgets.history_tab",
     "app.widgets.psd_widget",
     "app.widgets.weather_widget",
-    "app.pricing.price_sheet_service",
-    "app.pricing.price_sheet_worker",
 ]

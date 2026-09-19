@@ -276,13 +276,19 @@ def _generate_pdf_via_fpdf(result: MixDesignResult, input_params: dict[str, Any]
     pdf.alias_nb_pages()
     pdf.add_page()
     pdf.section_title("1. Executive Summary")
-    code_label = "ACI PRC-211.1-22 (American)" if "ACI" in result.code_used else "IS 10262:2019 (Indian)"
+    if "ACI" in result.code_used:
+        code_label = "ACI PRC-211.1-22 (American)"
+    elif "doe" in result.code_used.lower():
+        code_label = "DOE BRE 331:1997 (British)"
+    else:
+        code_label = "IS 10262:2019 (Indian)"
     pdf.body_text(f"This report presents a concrete mix design performed in accordance with {code_label}. The design targets a characteristic compressive strength of {result.target_mean_strength_mpa:.1f} MPa with a water-cement ratio of {result.w_c_ratio:.3f}.")
     if result.volume_m3 != 1.0:
         pdf.body_text(f"The total volume requested is {result.volume_m3:.1f} m\u00b3. All quantities below are shown per cubic metre and as total batch amounts.")
     pdf.section_title("2. Input Parameters")
     if input_params:
         is_aci = input_params.get("code") == "aci211"
+        is_doe = input_params.get("code") == "doe"
         pdf.subsection_title("Design Standard")
         pdf.key_value_row("Code", code_label)
         pdf.subsection_title("Mix Parameters")
@@ -296,16 +302,31 @@ def _generate_pdf_via_fpdf(result: MixDesignResult, input_params: dict[str, Any]
         pdf.key_value_row("Specific Gravity", f"{input_params.get('fine_agg_sg', '?')}")
         if is_aci:
             pdf.key_value_row("Fineness Modulus", f"{input_params.get('fine_agg_fm', '?')}")
+        elif is_doe:
+            pdf.key_value_row("% Passing 600 µm", f"{input_params.get('fine_agg_pct_passing_600um', '?')}%")
         else:
             zone = input_params.get("fine_agg_grading_zone") or "II"
             pdf.key_value_row("Grading Zone", f"Zone {zone}")
         pdf.subsection_title("Coarse Aggregate")
         pdf.key_value_row("Specific Gravity", f"{input_params.get('coarse_agg_sg', '?')}")
+        if is_doe:
+            _rd = input_params.get("aggregate_relative_density_ssd")
+            pdf.key_value_row(
+                "Rel. Density, combined SSD (Item 4.1)",
+                f"{_rd:.2f} (known)" if _rd else "Auto (mean of FA/CA SG)",
+            )
         if is_aci:
             pdf.subsection_title("ACI-Specific Options")
             pdf.key_value_row("Air-Entrained", "Yes" if input_params.get("air_entrained") else "No")
             pdf.key_value_row("Sulfate Exposure Class", str(input_params.get("sulfate_exposure_class", "S0")))
             pdf.key_value_row("Production Data", "\u226530 tests" if input_params.get("has_production_data", True) else "No data (<30 tests)")
+        elif is_doe:
+            pdf.subsection_title("DOE-Specific Options (BRE 331)")
+            pdf.key_value_row("Defective Percent", f"{input_params.get('defective_percent', 5.0)}%")
+            _n = input_params.get("num_test_cubes", input_params.get("n_cubes", "—"))
+            pdf.key_value_row("Test Cubes (n, Figure 3)", f"{_n}")
+            pdf.key_value_row("Test Age", f"{input_params.get('age_days', 28)} days")
+            pdf.key_value_row("Entrained Air (§8)", f"{input_params.get('air_pct', 0.0)}%")
         else:
             pdf.subsection_title("IS-Specific Options")
             exposure = input_params.get("exposure_class")
@@ -388,6 +409,7 @@ def _generate_pdf_via_fpdf(result: MixDesignResult, input_params: dict[str, Any]
     pdf.add_page()
     pdf.section_title("6. Engineering Context & Glossary")
     is_aci_report = "ACI" in result.code_used
+    is_doe_report = "doe" in result.code_used.lower()
     if is_aci_report:
         pdf.subsection_title("Target Mean Strength (f'cr)")
         pdf.body_text("The target mean strength f'cr is the average compressive strength that the concrete batch must achieve to ensure that the specified f'c is met with acceptable statistical confidence. Per ACI 318, f'cr is calculated using the larger of two formulas:\n  \u2022  f'cr = f'c + 1.34 \u00d7 s\n  \u2022  f'cr = f'c + 2.33 \u00d7 s \u2212 3.45 MPa\nwhere s is the standard deviation from prior test data. When no data exists, ACI 318 Table 26.4.3.1(b) provides conservative overdesign values.")
@@ -397,6 +419,15 @@ def _generate_pdf_via_fpdf(result: MixDesignResult, input_params: dict[str, Any]
         pdf.body_text("Air-entrained concrete contains tiny, uniformly distributed air bubbles (typically 2\u20138%) that improve freeze\u2013thaw durability. The air content target depends on NMSA and exposure severity (ACI 211.1 Table 6.3.3). Air-entrained mixes use less water and have different W/C ratio tables.")
         pdf.subsection_title("Sulfate Exposure Classes")
         pdf.body_text("ACI 318 defines sulfate exposure classes (S0\u2013S3) based on soil and groundwater sulfate concentrations. Higher classes impose stricter W/C limits:\n  \u2022  S0: No exposure \u2014 no limit\n  \u2022  S1: Moderate \u2014 W/C \u2264 0.50\n  \u2022  S2: Severe \u2014 W/C \u2264 0.45\n  \u2022  S3: Very severe \u2014 W/C \u2264 0.40\nThese limits override the strength-based W/C ratio when more restrictive.")
+    elif is_doe_report:
+        pdf.subsection_title("Target Mean Strength (fm, Figure 3)")
+        pdf.body_text("The target mean strength fm = fc + M with margin M = k \u00d7 s (BRE 331:1997 \u00a74.4). The multiplier k follows the allowed defective percentage (5% \u2192 1.64); s follows Figure 3 by test-cube count n (Line A n<20 / Line B n\u226520).")
+        pdf.subsection_title("Free-Water/Cement Ratio (Figure 4)")
+        pdf.body_text("The free-W/C ratio is read from Figure 4 curves at the target mean strength, anchored by the Table 2 reference strength at W/C = 0.5 for the cement class and aggregate type (crushed/uncrushed).")
+        pdf.subsection_title("Free-Water Content (Table 3)")
+        pdf.body_text("Free-water content follows Table 3 by NMSA (10/20/40 mm), aggregate type and workability class (slump or Vebe). Mixed fine/coarse types use W = 2/3 Wf + 1/3 Wc.")
+        pdf.subsection_title("Wet Density & Aggregates (Figures 5–6)")
+        pdf.body_text("Stage 4 estimates the wet density of fully compacted concrete from Figure 5 using the free-water content and the combined aggregate relative density at SSD (Item 4.1, known/assumed); total aggregate = D \u2212 C \u2212 W (C4). Stage 5 splits fines/coarse via Figure 6 at the % passing 600 \u00b5m.")
     else:
         pdf.subsection_title("Target Mean Strength (ftm)")
         pdf.body_text("The target mean strength ftm is calculated as:\n  ftm = fck + 1.65 \u00d7 s\nwhere fck is the characteristic compressive strength and s is the assumed standard deviation from IS 10262:2019 Table 1. This ensures that at least 95% of test results exceed fck.")
@@ -406,7 +437,12 @@ def _generate_pdf_via_fpdf(result: MixDesignResult, input_params: dict[str, Any]
         pdf.body_text("IS 456:2000 Table 5 defines exposure conditions that govern durability:\n  \u2022  Mild: Min 220 kg/m\u00b3 cement, W/C \u2264 0.60\n  \u2022  Moderate: Min 240 kg/m\u00b3 cement, W/C \u2264 0.60, grade M20\n  \u2022  Severe: Min 250 kg/m\u00b3 cement, W/C \u2264 0.50, grade M25\n  \u2022  Very Severe: Min 260 kg/m\u00b3 cement, W/C \u2264 0.45, grade M30\n  \u2022  Extreme: Min 280 kg/m\u00b3 cement, W/C \u2264 0.40, grade M35\nThese limits ensure adequate durability for the intended service environment.")
         pdf.subsection_title("Grading Zones")
         pdf.body_text("Fine aggregate (sand) is classified into Grading Zones I\u2013IV based on particle size distribution per IS 383. Zone II is the reference; coarser sand (Zone I) requires slightly less water, while finer sand (Zone III/IV) requires more. The water content is adjusted by \u22123% for Zone I and +3%/+6% for Zone III/IV.")
-    pdf.subsection_title("Trial Batches (IS 10262:2019 Clause 5.8)")
+    if is_doe_report:
+        pdf.subsection_title("Trial Batches (BRE 331 \u00a76)")
+    elif not is_aci_report:
+        pdf.subsection_title("Trial Batches (IS 10262:2019 Clause 5.8)")
+    else:
+        pdf.subsection_title("Trial Batches (ACI 211.1 \u00a75.3.10)")
     if "IS" in result.code_used or "10262" in result.code_used:
         wc = result.w_c_ratio
         pdf.body_text(
@@ -416,12 +452,18 @@ def _generate_pdf_via_fpdf(result: MixDesignResult, input_params: dict[str, Any]
             f"  \u2022  Trial Mixes 3 & 4: Same water content as Trial 2 with W/C varied by \u00b110% ({wc*0.9:.2f} & {wc*1.1:.2f}) to establish the compressive strength vs. W/C relationship.\n"
             f"  \u2022  Clause 5.8.1 Reporting: Mix design report shall document testing period, structural details, material test data/brands, trial records, and recommended final proportions."
         )
+    elif is_doe_report:
+        pdf.body_text("BRE 331:1997 \u00a76 trial batch (0.05 m\u00b3 reference): cast six 150 mm cubes plus slump/Vebe and density tests. Check the Figure 3 margin, Figure 4 W/C and Figure 5 density against measured strength, workability and yield, then adjust water, cement or fines proportion before adoption.")
     else:
         pdf.body_text("This mix design is a theoretical starting point. Before use in construction, the designer must prepare and test trial batches to verify that target strength and workability are achieved.")
     pdf.subsection_title("Moisture Correction")
     pdf.body_text("The aggregate quantities in this report are in saturated surface-dry (SSD) condition. In practice, the actual water added must be adjusted for the moisture content and absorption of the aggregates. If the aggregates are wetter than SSD, reduce the mixing water; if drier, increase it.")
-    pdf.subsection_title("Volume Method")
-    pdf.body_text("This design uses the absolute volume method. The volume of each ingredient (cement, water, air, aggregates) is calculated from its mass and specific gravity, and the total is verified to equal 1.0 m\u00b3. Any discrepancy is absorbed by adjusting the fine aggregate quantity.")
+    if is_doe_report:
+        pdf.subsection_title("Density Method (BRE 331 Stage 4)")
+        pdf.body_text("This DOE design uses the wet-density method: the Figure 5 wet density of fully compacted concrete (from free-water content and combined aggregate relative density at SSD, Item 4.1) minus cement and water gives the total aggregate content (C4). No absolute-volume summation is used.")
+    else:
+        pdf.subsection_title("Volume Method")
+        pdf.body_text("This design uses the absolute volume method. The volume of each ingredient (cement, water, air, aggregates) is calculated from its mass and specific gravity, and the total is verified to equal 1.0 m\u00b3. Any discrepancy is absorbed by adjusting the fine aggregate quantity.")
     if result.cost_per_m3 is not None or result.carbon_kg_co2_per_m3 is not None:
         pdf.check_page_space(40)
         pdf.section_title("7. Cost & Carbon Estimates")
@@ -458,10 +500,11 @@ def generate_latex_source(
     with pdflatex/xelatex/lualatex. Uses booktabs for tables and xcolor for
     engineering styling.
     """
-    code_label = "ACI PRC-211.1-22 (American)" if "ACI" in result.code_used else "IS~10262:2019 (Indian)"
+    code_label = "ACI PRC-211.1-22 (American)" if "ACI" in result.code_used else ("DOE BRE 331:1997 (British)" if "doe" in result.code_used.lower() else "IS~10262:2019 (Indian)")
     code_short = _sanitize_latex(result.code_used)
     date_str = datetime.now().strftime("%Y--%m--%d")
     is_aci = "ACI" in result.code_used
+    is_doe = "doe" in result.code_used.lower()
     # Logo for LaTeX header — checked at generation time; actual file is copied in generate_pdf_report
     _logo_for_latex = _find_logo_file()
     _has_logo = _logo_for_latex is not None and _logo_for_latex.suffix.lower() in (".png", ".pdf", ".jpg", ".jpeg")
@@ -483,6 +526,8 @@ def generate_latex_source(
     coarse_sg = ip.get("coarse_agg_sg", "-")
     fine_fm = ip.get("fine_agg_fm", "-")
     grading_zone = ip.get("fine_agg_grading_zone", "II")
+    doe_p600 = ip.get("fine_agg_pct_passing_600um", "-")
+    doe_rd = ip.get("aggregate_relative_density_ssd", None)
     air_entrained = "Yes" if ip.get("air_entrained") else "No"
     sulfate = _sanitize_latex(str(ip.get("sulfate_exposure_class", "S0")))
     has_data = r"$\geq$30 tests" if ip.get("has_production_data", True) else "No data ($<$30 tests)"
@@ -537,6 +582,21 @@ Air-entrained concrete contains 2--8\% uniformly distributed bubbles that improv
 \subsection{Sulfate Exposure Classes}
 ACI~318 classes $S_0$--$S_3$: $S_0$ no exposure (no limit), $S_1$ moderate $W/C\leq0.50$, $S_2$ severe $W/C\leq0.45$, $S_3$ very severe $W/C\leq0.40$. These override the strength-based $W/C$ when more restrictive.
 """
+    # (IS context lives in the trailing else branch below.)
+    elif is_doe:
+        context_latex = r"""
+\subsection{Target Mean Strength $f_m$ (Figure 3)}
+The target mean strength is $f_m=f_c+M$ with margin $M=k\times s$ (BRE~331:1997 \S4.4). The multiplier $k$ follows the allowed defective percentage (5\% $\to$ 1.64); $s$ follows Figure~3 by test-cube count $n$ (Line~A $n<20$ / Line~B $n\ge20$), for any grade.
+
+\subsection{Free-Water/Cement Ratio (Figure 4)}
+The free-W/C ratio is read from the Figure~4 curves at the target mean strength, anchored by the Table~2 reference strength at W/C $=0.5$ for the cement class and aggregate type (crushed/uncrushed).
+
+\subsection{Free-Water Content (Table 3)}
+Free-water content follows Table~3 by NMSA (10/20/40~mm), aggregate type and workability class (slump or Vebe). Mixed fine/coarse types use $W=2/3\,W_f+1/3\,W_c$.
+
+\subsection{Wet Density \& Aggregates (Figures 5--6)}
+Stage~4 estimates the wet density of fully compacted concrete from Figure~5 using the free-water content and the combined aggregate relative density at SSD (Item~4.1, known/assumed); total aggregate $=D-C-W$ (C4). Stage~5 splits fines/coarse via Figure~6 at the percentage passing 600~$\mu$m.
+"""
     else:
         context_latex = r"""
 \subsection{Target Mean Strength $f_{tm}$}
@@ -566,6 +626,55 @@ Fine aggregate Zones I--IV per IS~383. Zone~II is reference; Zone~I $-3$\% water
     # Pre-computed outside the f-string below: Python < 3.12 forbids
     # backslashes inside f-string expression parts, and these LaTeX
     # fragments are full of them.
+    if is_doe:
+        trial_latex = (
+            "\\subsection{Trial Batches (BRE 331:1997 \\S6)}\n"
+            "BRE~331 \\S6 trial batch (0.05~m\\textsuperscript{3} reference): cast six "
+            "150~mm cubes plus slump/Vebe and density tests. Check the Figure~3 margin, "
+            "Figure~4 W/C and Figure~5 density against measured strength, workability and "
+            "yield, then adjust water, cement or fines proportion before adoption.\n"
+        )
+        method_latex = (
+            "\\subsection{Density Method (BRE 331 Stage 4)}\n"
+            "This DOE design uses the wet-density method: the Figure~5 wet density of fully "
+            "compacted concrete (from free-water content and combined aggregate relative "
+            "density at SSD, Item~4.1) minus cement and water gives the total aggregate "
+            "content (C4). No absolute-volume summation is used.\n"
+        )
+    elif is_aci:
+        trial_latex = (
+            "\\subsection{Trial Batches (ACI 211.1 \\S5.3.10)}\n"
+            "This mix design is a theoretical starting point. Before use in construction, "
+            "prepare and test trial batches to verify that target strength and workability "
+            "are achieved (yield check per ASTM~C138).\n"
+        )
+        method_latex = (
+            "\\subsection{Volume Method}\n"
+            "The absolute volume method is used. The volume of each ingredient (cement, "
+            "water, air, aggregates) is calculated from its mass and specific gravity; the "
+            "total is verified to equal 1.0 m\\textsuperscript{3}. Any discrepancy is "
+            "absorbed by the fine aggregate.\n"
+        )
+    else:
+        trial_latex = (
+            "\\subsection{Trial Batches (IS 10262:2019 Clause 5.8)}\n"
+            "This mix design provides theoretical baseline proportions. Per "
+            "\\textbf{IS 10262:2019 Clause 5.8}, the calculated proportions must be "
+            "validated using 4 trial batches:\n"
+            "\\begin{itemize}\n"
+            f"  \\item \\textbf{{Trial Mix 1}}: Initial calculated proportions (W/C $= {result.w_c_ratio:.2f}$) --- test slump/flow, observe freedom from segregation and bleeding, and check surface finish.\n"
+            f"  \\item \\textbf{{Trial Mix 2}}: If measured workability differs from target, adjust water and/or admixture while holding free W/C constant at ${result.w_c_ratio:.2f}$.\n"
+            f"  \\item \\textbf{{Trial Mixes 3 \\& 4}}: Same water content with W/C varied by $\\pm 10\\%$ (${result.w_c_ratio*0.90:.2f}$ \\& ${result.w_c_ratio*1.10:.2f}$) to plot the compressive strength vs.~W/C curve.\n"
+            "  \\item \\textbf{Clause 5.8.1 Reporting}: The final report shall document testing period, project details, material test data/brands, trial records, and recommended final proportions.\n"
+            "\\end{itemize}\n"
+        )
+        method_latex = (
+            "\\subsection{Volume Method}\n"
+            "The absolute volume method is used. The volume of each ingredient (cement, "
+            "water, air, aggregates) is calculated from its mass and specific gravity; the "
+            "total is verified to equal 1.0 m\\textsuperscript{3}. Any discrepancy is "
+            "absorbed by the fine aggregate.\n"
+        )
     if _has_logo:
         header_block = (
             "\\noindent\\begin{minipage}[c]{0.18\\textwidth}"
@@ -643,11 +752,22 @@ Fine aggregate SG & { _sanitize_latex(str(fine_sg)) } \\\\
 """
         if is_aci:
             latex += f"Fine aggregate FM & {_sanitize_latex(str(fine_fm))} \\\\\n"
+        elif is_doe:
+            latex += f"Fine aggregate passing 600 $\\mu$m & {_sanitize_latex(str(doe_p600))}\\% \\\\\n"
         else:
             latex += f"Grading zone & Zone {_sanitize_latex(str(grading_zone))} \\\\\n"
         latex += f"""Coarse aggregate SG & {_sanitize_latex(str(coarse_sg))} \\\\
-Air-entrained & {air_entrained if is_aci else exposure} \\\\
 """
+        if is_doe:
+            _rd_tex = f"{doe_rd:.2f} (known)" if doe_rd else "Auto (mean of FA/CA SG)"
+            latex += f"Combined RD, SSD (Item 4.1) & {_sanitize_latex(_rd_tex)} \\\\\n"
+        if is_aci:
+            latex += f"""Air-entrained & {air_entrained} \\\\\n"""
+        elif is_doe:
+            _n_tex = _sanitize_latex(str(ip.get("num_test_cubes", ip.get("n_cubes", "--"))))
+            latex += f"""Defective percent & {_sanitize_latex(str(ip.get("defective_percent", 5.0)))}\\% \\\\\nTest cubes, $n$ (Figure 3) & {_n_tex} \\\\\nTest age & {_sanitize_latex(str(ip.get("age_days", 28)))} days \\\\\nEntrained air (\\S8) & {_sanitize_latex(str(ip.get("air_pct", 0.0)))}\\% \\\\\n"""
+        else:
+            latex += f"""Exposure class (IS 456) & {exposure} \\\\\n"""
         if is_aci:
             latex += f"Sulfate class & {sulfate} \\\\\nProduction data & {has_data} \\\\\n"
         if scm_pct and scm_pct > 0:
@@ -722,21 +842,11 @@ Coarse aggregate & {result.coarse_aggregate_kg * v:.1f} kg \\\\
 % ── 6. Engineering Context ─────────────────────────────────────────
 \\section{{Engineering Context \\& Glossary}}
 {context_latex}
-\\subsection{{Trial Batches (IS 10262:2019 Clause 5.8)}}
-This mix design provides theoretical baseline proportions. Per \\textbf{{IS 10262:2019 Clause 5.8}}, the calculated proportions must be validated using 4 trial batches:
-\\begin{{itemize}}
-  \\item \\textbf{{Trial Mix 1}}: Initial calculated proportions (W/C $= {result.w_c_ratio:.2f}$) --- test slump/flow, observe freedom from segregation and bleeding, and check surface finish.
-  \\item \\textbf{{Trial Mix 2}}: If measured workability differs from target, adjust water and/or admixture while holding free W/C constant at ${result.w_c_ratio:.2f}$.
-  \\item \\textbf{{Trial Mixes 3 \\& 4}}: Same water content with W/C varied by $\\pm 10\\%$ (${result.w_c_ratio*0.90:.2f}$ \\& ${result.w_c_ratio*1.10:.2f}$) to plot the compressive strength vs.~W/C curve.
-  \\item \\textbf{{Clause 5.8.1 Reporting}}: The final report shall document testing period, structural details, material test data/brands, trial records, and recommended final proportions.
-\\end{{itemize}}
-
+{trial_latex}
 \\subsection{{Moisture Correction}}
 Aggregate quantities are in saturated surface-dry (SSD) condition. In practice the mixing water must be adjusted for the aggregates' moisture content and absorption. If aggregates are wetter than SSD, reduce water; if drier, increase it.
 
-\\subsection{{Volume Method}}
-The absolute volume method is used. The volume of each ingredient (cement, water, air, aggregates) is calculated from its mass and specific gravity; the total is verified to equal 1.0 m\\textsuperscript{{3}}. Any discrepancy is absorbed by the fine aggregate.
-
+{method_latex}
 {cost_latex}
 % ── 8. Disclaimer ─────────────────────────────────────────────────
 \\section*{{Disclaimer}}

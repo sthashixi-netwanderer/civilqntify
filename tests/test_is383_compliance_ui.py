@@ -36,6 +36,16 @@ def _stub_compliance_dialog(monkeypatch):
         "._show_astm_compliance_dialog",
         lambda self, checks: None,
     )
+    # Auto-accept the "Use in Mix Design" transfer confirmation so payload
+    # tests never block on the modal.
+    import app.widgets.psd_widget as psdmod
+    from PyQt6.QtWidgets import QMessageBox
+
+    monkeypatch.setattr(
+        psdmod.QMessageBox,
+        "question",
+        staticmethod(lambda *a, **k: QMessageBox.StandardButton.Ok),
+    )
 
 
 # Zone II fine grading: 100 / 98 / 90 / 70 / 45 / 20 / 5 % passing.

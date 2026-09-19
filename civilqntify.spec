@@ -21,7 +21,7 @@ ICON = os.path.join(ROOT, "app", "resources", "icon.ico")
 # Ensure local packages are importable when collecting submodules.
 # collect_submodules() searches sys.path, so ROOT must be present
 # before the call — otherwise it returns an empty list and hiddenimports
-# silently misses local modules (e.g. app.pricing, app.widgets.*).
+# silently misses local modules (e.g. app.widgets.*).
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
@@ -75,9 +75,6 @@ hiddenimports = _hidden_collected + [
     "app.workers",
     "app.workers.mix_design_worker",
     "app.workers.quantification_worker",
-    "app.pricing",
-    "app.pricing.price_sheet_service",
-    "app.pricing.price_sheet_worker",
     "app.weather",
     "app.weather.ghana_cities",
     "app.weather.weather_service",
@@ -140,7 +137,6 @@ hiddenimports = _hidden_collected + [
     "PIL",
     "PIL.Image",
     "requests",
-    "gspread",
     "sqlite3",
     "json",
     "csv",

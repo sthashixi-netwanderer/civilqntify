@@ -46,6 +46,7 @@ CREATE TABLE IF NOT EXISTS calculations (
     input_json    TEXT NOT NULL,
     result_json   TEXT NOT NULL,
     parent_id     INTEGER,
+    pinned        INTEGER NOT NULL DEFAULT 0,
     FOREIGN KEY (parent_id) REFERENCES calculations(id) ON DELETE SET NULL
 );
 
@@ -76,7 +77,18 @@ class HistoryDB:
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.execute("PRAGMA foreign_keys=ON")
         self._conn.executescript(_SCHEMA_SQL)
+        self._ensure_pinned_column()
         self._conn.commit()
+
+    def _ensure_pinned_column(self) -> None:
+        """Migrate existing DBs that predate the ``pinned`` column."""
+        cols = {row[1] for row in self._conn.execute("PRAGMA table_info(calculations)")}
+        if "pinned" not in cols:
+            self._conn.execute("ALTER TABLE calculations ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0")
+        self._conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_calculations_pinned "
+            "ON calculations(pinned DESC, created_at DESC)"
+        )
 
     def close(self) -> None:
         self._conn.close()
@@ -262,7 +274,11 @@ class HistoryDB:
         offset: int = 0,
         search: str | None = None,
     ) -> list[dict]:
-        """List calculations with optional filtering."""
+        """List calculations with optional filtering.
+
+        Pinned records sort first (``pinned DESC``) then by newest
+        ``created_at`` so pinned items stay at the top across pages.
+        """
         query = "SELECT * FROM calculations WHERE 1=1"
         params: list[Any] = []
 
@@ -274,12 +290,11 @@ class HistoryDB:
             query += " AND (name LIKE ? OR tags LIKE ?)"
             params.extend([f"%{search}%", f"%{search}%"])
 
-        query += " ORDER BY created_at DESC LIMIT ? OFFSET ?"
+        query += " ORDER BY pinned DESC, created_at DESC LIMIT ? OFFSET ?"
         params.extend([limit, offset])
 
         rows = self._conn.execute(query, params).fetchall()
         return [dict(r) for r in rows]
-
     def count_calculations(self, tab_type: str | None = None) -> int:
         """Count total calculations, optionally filtered by tab_type."""
         if tab_type:
@@ -294,12 +309,9 @@ class HistoryDB:
         return row[0]
 
     # ------------------------------------------------------------------
-    # Update methods
-    # ------------------------------------------------------------------
-
     def update_calculation(self, calc_id: int, **fields: Any) -> bool:
         """Update fields on an existing calculation. Returns True if updated."""
-        allowed = {"name", "tags", "input_json", "result_json"}
+        allowed = {"name", "tags", "input_json", "result_json", "pinned"}
         updates = {k: v for k, v in fields.items() if k in allowed}
         if not updates:
             return False
@@ -317,6 +329,19 @@ class HistoryDB:
 
     def tag_calculation(self, calc_id: int, tags: str) -> bool:
         return self.update_calculation(calc_id, tags=tags)
+
+    def set_pinned(self, calc_id: int, pinned: bool) -> bool:
+        """Pin or unpin a record. ``True`` pins to the top."""
+        return self.update_calculation(calc_id, pinned=1 if pinned else 0)
+
+    def toggle_pinned(self, calc_id: int) -> bool | None:
+        """Flip the pinned flag. Returns new pinned state or None if missing."""
+        rec = self.get_calculation(calc_id)
+        if rec is None:
+            return None
+        new_state = not bool(rec.get("pinned"))
+        self.set_pinned(calc_id, new_state)
+        return new_state
 
     # ------------------------------------------------------------------
     # Delete methods
@@ -401,8 +426,8 @@ class HistoryDB:
             self._conn.execute(
                 """INSERT INTO calculations
                    (tab_type, created_at, updated_at, name, tags,
-                    input_json, result_json, parent_id)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                    input_json, result_json, parent_id, pinned)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     rec.get("tab_type", "unknown"),
                     rec.get("created_at", now_iso()),
@@ -412,12 +437,12 @@ class HistoryDB:
                     rec.get("input_json", "{}"),
                     rec.get("result_json", "{}"),
                     rec.get("parent_id"),
+                    int(bool(rec.get("pinned", 0))),
                 ),
             )
             count += 1
         self._conn.commit()
         return count
-
     # ------------------------------------------------------------------
     # Search
     # ------------------------------------------------------------------
@@ -425,7 +450,10 @@ class HistoryDB:
     def search_calculations(
         self, query: str, tab_type: str | None = None
     ) -> list[dict]:
-        """Search by name, tags, or result content."""
+        """Search by name, tags, or result content.
+
+        Pinned records sort first, matching ``list_calculations``.
+        """
         sql = """
             SELECT * FROM calculations
             WHERE (name LIKE ? OR tags LIKE ? OR result_json LIKE ?)
@@ -436,7 +464,7 @@ class HistoryDB:
             sql += " AND tab_type = ?"
             params.append(tab_type)
 
-        sql += " ORDER BY created_at DESC"
+        sql += " ORDER BY pinned DESC, created_at DESC"
         rows = self._conn.execute(sql, params).fetchall()
         return [dict(r) for r in rows]
 

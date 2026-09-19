@@ -51,8 +51,6 @@ import app.widgets.cost_estimation_tab  # noqa: F401
 import app.widgets.history_tab  # noqa: F401
 import app.widgets.psd_widget  # noqa: F401
 import app.widgets.weather_widget  # noqa: F401
-import app.pricing.price_sheet_service  # noqa: F401
-import app.pricing.price_sheet_worker  # noqa: F401
 
 # Windows: give the process an explicit AppUserModelID so the taskbar
 # shows/groups it under our own icon instead of a generic one.

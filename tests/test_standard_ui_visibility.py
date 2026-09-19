@@ -41,6 +41,10 @@ def test_doe_ui_visibility(tab):
     assert tab._lbl_pct_passing_600um.isHidden() is False
     assert tab.pct_passing_600um_spin.isHidden() is False
 
+    # DOE Item 4.1 combined RD (SSD) is visible (Figure 5, Stage 4)
+    assert tab._lbl_agg_rd.isHidden() is False
+    assert tab.agg_rd_spin.isHidden() is False
+
     # Admixture SG is hidden for DOE (wet density method uses D - C - W)
     assert tab._lbl_admix_sg.isHidden() is True
     assert tab.admix_sg_spin.isHidden() is True
@@ -116,6 +120,8 @@ def test_is10262_ui_visibility(tab):
     assert tab.fa_type_combo.isHidden() is True
     assert tab._lbl_pct_passing_600um.isHidden() is True
     assert tab.pct_passing_600um_spin.isHidden() is True
+    assert tab._lbl_agg_rd.isHidden() is True
+    assert tab.agg_rd_spin.isHidden() is True
     assert tab._lbl_ca_bulk.isHidden() is True
     assert tab.ca_bulk_spin.isHidden() is True
     assert tab._lbl_fm.isHidden() is True
@@ -167,6 +173,8 @@ def test_aci211_ui_visibility(tab):
     assert tab.fa_type_combo.isHidden() is True
     assert tab._lbl_pct_passing_600um.isHidden() is True
     assert tab.pct_passing_600um_spin.isHidden() is True
+    assert tab._lbl_agg_rd.isHidden() is True
+    assert tab.agg_rd_spin.isHidden() is True
     assert tab._lbl_ca_frac.isHidden() is True
     assert tab.ca_fraction_combo.isHidden() is True
     assert tab._lbl_concrete_type.isHidden() is True
@@ -180,22 +188,23 @@ def test_aci211_ui_visibility(tab):
 def test_input_sidebars_fit_their_360px_pane_floor(qapp):
     """No input sidebar may demand more width than the splitter's 360 px
     floor. Widgets whose minimum-size hints exceed it (non-wrapping
-    checkbox labels, widest-item combo hints, long group-box titles)
-    force the input column wider than the pane, so fields get clipped or
-    pushed behind the pane edge when the sidebar is narrowed."""
+    checkbox labels, widest-item combo hints, long group-box titles,
+    long spin special-value texts) force the input column wider than
+    the pane, so fields get clipped or pushed behind the pane edge when
+    the sidebar is narrowed."""
     from PyQt6.QtWidgets import QScrollArea, QTabWidget
 
     from app.widgets.psd_widget import ParticleSizeDistributionTab
 
-    def assert_fits(container, label):
+    def assert_fits(container, label, floor=360):
         for sa in container.findChildren(QScrollArea):
             inner = sa.widget()
             if inner is None:
                 continue
             width = inner.minimumSizeHint().width()
-            assert width <= 360, (
+            assert width <= floor, (
                 f"{label}: input content needs {width} px, "
-                "more than the 360 px sidebar floor"
+                f"more than the {floor} px sidebar floor"
             )
 
     # PSD tab in its worst case: ASTM C33 with both quality pages built.
@@ -203,20 +212,43 @@ def test_input_sidebars_fit_their_360px_pane_floor(qapp):
     psd.standard_combo.setCurrentIndex(psd.standard_combo.findData("astm_c33"))
     assert_fits(psd, "PSD tab (ASTM C33)")
 
-    # Concrete Mix and Material Quantify: every page of the left input
-    # tab widget (identified by its 360 px floor).
+    # Concrete Mix: every code shows a different row set, so each code
+    # state is checked against the tab widget's own floor. (The DOE-only
+    # combined-RD "Auto (mean of FA/CA SG)" spin once forced the form
+    # past the floor and clipped every row with the scrollbar off.)
     from app.widgets.concrete_tab import ConcreteMixTab
+
+    mix = ConcreteMixTab()
+    mix_floor = mix._left_tabs.minimumWidth()
+    for code in ("aci211", "is10262", "doe"):
+        mix.code_combo.setCurrentIndex(mix.code_combo.findData(code))
+        for i in range(mix._left_tabs.count()):
+            # The PSD page keeps its standalone 360 px allowance (its
+            # ASTM/IS/BS quality pages carry full-sentence option labels);
+            # the Mix Design page must fit the 280 px sidebar floor.
+            floor = (
+                mix_floor if i == mix._mixdesign_idx else 360
+            )
+            assert_fits(
+                mix._left_tabs.widget(i),
+                f"ConcreteMixTab/{code}/{mix._left_tabs.tabText(i)}",
+                floor=floor,
+            )
+
+    # Material Quantify: every page of the left input tab widget
+    # (identified by its 360 px floor).
     from app.widgets.material_quantify_tab import MaterialQuantifyTab
 
-    for parent_cls in (ConcreteMixTab, MaterialQuantifyTab):
-        parent = parent_cls()
-        for tabs in parent.findChildren(QTabWidget):
-            if tabs.minimumWidth() != 360:
-                continue
-            for i in range(tabs.count()):
-                assert_fits(
-                    tabs.widget(i), f"{parent_cls.__name__}/{tabs.tabText(i)}"
-                )
+    mq = MaterialQuantifyTab()
+    for tabs in mq.findChildren(QTabWidget):
+        if tabs.minimumWidth() != 360:
+            continue
+        for i in range(tabs.count()):
+            assert_fits(
+                tabs.widget(i),
+                f"MaterialQuantifyTab/{tabs.tabText(i)}",
+                floor=360,
+            )
 
     # Cost Estimation: the input scroll (identified by its 360 px floor).
     from app.widgets.cost_estimation_tab import CostEstimationTab

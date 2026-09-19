@@ -15,6 +15,9 @@ The following documents have been extracted from authoritative concrete design s
 | [`31-ACI 211.1-22.md`](./31-ACI%20211.1-22.md) | ACI PRC-211.1-22 | Selecting Proportions for Normal-Density and High-Density Concrete — Guide |
 | [`IS-10262-2019-NewConcreteMix-design.md`](./IS-10262-2019-NewConcreteMix-design.md) | IS 10262:2019 | Concrete Mix Proportioning — Guidelines (Bureau of Indian Standards) |
 | [`BRE-331-1997-DOE-Mix-Design.md`](./BRE-331-1997-DOE-Mix-Design.md) | BRE 331:1997 | Design of Normal Concrete Mixes (British DOE Method) |
+| [`BS-882-1992-Aggregates-for-Concrete.md`](./BS-882-1992-Aggregates-for-Concrete.md) | BS 882:1992 | British aggregate grading Tables 3–6; verified transcriptions precede raw OCR |
+| [`BS-812-103.1-Particle-Size-Distribution.md`](./BS-812-103.1-Particle-Size-Distribution.md) | BS 812-103.1:1985 | Sieving methods, mass calculations and whole-percent reporting |
+| [`BS-812-105.1-Flakiness-Index.md`](./BS-812-105.1-Flakiness-Index.md) | BS 812-105.1:1989 | Independent particle-shape/flakiness test, not PSD grading limits |
 
 ---
 
@@ -62,6 +65,17 @@ The following documents have been extracted from authoritative concrete design s
 - Fine aggregate must also follow the selected code: IS 383 grading Zones I–IV use a 10 mm top sieve; ASTM C33/C33M Table 1 uses a 9.5 mm top sieve and its own percentage-passing envelope.
 - Use the exact minimum and maximum percentage-passing limits from the selected standard. A dash, ellipsis, or blank cell means no grading requirement: keep the sieve available for PSD input, but do not invent a 0% or 100% limit and do not use it for conformance checking.
 - A visually smoothed standard band may be drawn between specified control points, but the curve must pass through every stated limit and must not overshoot, cross its opposite boundary, or imply requirements beyond the first and last specified sieves.
+
+### British PSD — DOE/BRE 331
+
+- Use BS 882:1992 Tables 3/4 with BS 812-103.1:1985 testing, not ASTM/IS near-equivalent sieve apertures. BS coarse grading apertures are 50, 37.5, 20, 14, 10, 5 and 2.36 mm; sand uses 10, 5, 2.36, 1.18, 0.600, 0.300 and 0.150 mm.
+- Use the verified table transcriptions in the BS 882 Markdown, not uncorrected OCR. The supplied scan is incomplete after printed page 7.
+- Table 4 C/M/F are overlapping additional limits applied with overall limits, not IS grading zones. Respect the crushed-rock 150 µm exception and heavy-duty-floor restriction. A single PSD cannot establish the consecutive-sample requirement in §5.2.1.
+- BS plots use a numerical linear sieve-aperture axis and straight segments as an explicit app display policy. Do not describe this as a mandatory BS 812 plotting scale. IS/ASTM remain logarithmic. Never reuse log-space smoothing or characteristic-diameter annotations on the BS display.
+- Under BS 812-103.1 §§7–8, washed samples use original dry mass M1; incorporate M1−M2 exactly once with dry-sieved fines. Table 6 separately uses the washing result specified by §7.2.1; missing evidence means not assessed.
+- Report BS passing percentages to whole numbers (§10); half-up ties are app policy. Keep calculation values unrounded. Apply the measured 600 µm BS value to DOE using the same reporting precision; do not substitute C/M/F or a synthetic interpolated measurement.
+- BRE §1.2.5 uses sand percentage passing 600 µm, not combined grading curves. Keep DOE design nominal sizes 10/20/40 mm; a BS PSD reference of 14 or 5 mm must not silently map to one of these.
+- BS 812-105.1 flakiness is a separate test. A supplied measured FI can be compared with BS 882 §4.2, but cannot be derived from PSD mass data. Passing PSD checks does not establish full BS 882 compliance.
 
 ### When Adding New Features
 

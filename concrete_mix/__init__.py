@@ -138,6 +138,7 @@ def design_mix_simple(
     margin_mpa: float | None = None,
     num_test_cubes: int | None = None,
     n_cubes: int | None = None,  # alias for num_test_cubes
+    aggregate_relative_density_ssd: float | None = None,
 ) -> MixDesignResult:
     """Simplified API for quick mix design calculations.
 
@@ -204,11 +205,15 @@ def design_mix_simple(
         fine_agg_pct_passing_600um: Fine aggregate % passing 600µm (DOE only)
         std_deviation: User-provided standard deviation in MPa (DOE only).
             If provided, overrides automatic calculation from Figure 3.
-        num_test_cubes: DOE structural — number of test cubes (n) cast for
-            strength testing. When supplied, BRE 331:1997 Figure 3 structural
-            rule applies: n<20 → s=8 MPa (Line A), n≥20 → s=4 MPa (Line B).
-            n_cubes is an alias.
-            This app assumes DOE mixes are for structural elements (fc≥25 MPa).
+        num_test_cubes: DOE — number of test cubes (n) cast for
+            strength testing. When supplied, the BRE 331:1997 Figure 3
+            rule applies: n<20 → Line A (s = 0.4×fc for fc≤20, else 8 MPa),
+            n≥20 → Line B (s = 0.2×fc for fc≤20, else 4 MPa).
+            n_cubes is an alias. Any grade in [5, 100] MPa is designable.
+        aggregate_relative_density_ssd: combined aggregate relative density at
+            SSD, BRE 331:1997 Item 4.1 "known/assumed" (DOE only, e.g. 2.6).
+            None (default) assumes the unweighted mean of the fine and coarse
+            SSD specific gravities. Ignored by ACI/IS.
 
     Returns:
         MixDesignResult with all proportions
@@ -359,6 +364,7 @@ def design_mix_simple(
         std_deviation=std_deviation,
         margin_mpa=margin_mpa,
         num_test_cubes=_n_cubes,
+        aggregate_relative_density_ssd=aggregate_relative_density_ssd,
     )
 
     res = design_mix(inp)

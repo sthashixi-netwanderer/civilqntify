@@ -63,7 +63,7 @@ class ACI211MixDesign(MixDesignCode):
                                            0.90·f'c + 2.33·k·s)
             where k is the Table 4.7.4.3 modification factor when s is
             calculated from 15 to 29 tests (1.00 at ≥ 30 tests).
-            (500 psi = 3.45 MPa; 5000 psi = 34.5 MPa.)
+            (500 psi = 3.45 MPa; 5000 psi = 34.47 MPa exact.)
 
         When has_production_data=False (no prior data):
             Uses ACI 318 Table 26.4.3.1(b) / Table 4.7.4.1 overdesign rules.
@@ -94,7 +94,7 @@ class ACI211MixDesign(MixDesignCode):
         ks = k * s
 
         # Table 4.7.4.4 — both branches of the table, by f'c vs 5000 psi.
-        if target_strength_mpa <= 34.5:
+        if target_strength_mpa <= 34.47:
             fcr_statistical = target_strength_mpa + 1.34 * ks
             fcr_limited = target_strength_mpa + 2.33 * ks - 3.45
         else:
@@ -204,7 +204,7 @@ class ACI211MixDesign(MixDesignCode):
         if f_min_fc is not None and inp.target_strength_mpa < f_min_fc:
             raise ValueError(
                 f"Specified strength {inp.target_strength_mpa:g} MPa is below "
-                f"the minimum {f_min_fc:.1f} MPa for freezing exposure class "
+                f"the minimum {f_min_fc:g} MPa for freezing exposure class "
                 f"'{f_class}'{' (plain concrete row)' if f_class == 'F3' and inp.concrete_type == 'plain' else ''} "
                 f"per ACI 301 Table 4.2.2.6(c) "
                 f"(PRC-211.1-22 Table 4.7.3b). Use a higher strength."
@@ -233,7 +233,7 @@ class ACI211MixDesign(MixDesignCode):
         if w_min_fc is not None and inp.target_strength_mpa < w_min_fc:
             raise ValueError(
                 f"Specified strength {inp.target_strength_mpa:g} MPa is below "
-                f"the minimum {w_min_fc:.1f} MPa for water exposure class "
+                f"the minimum {w_min_fc:g} MPa for water exposure class "
                 f"'{w_class}' per ACI 301 Table 4.2.2.6(d) "
                 f"(PRC-211.1-22 Table 4.7.3c). Use a higher strength."
             )
@@ -254,7 +254,7 @@ class ACI211MixDesign(MixDesignCode):
         if c_min_fc is not None and inp.target_strength_mpa < c_min_fc:
             raise ValueError(
                 f"Specified strength {inp.target_strength_mpa:g} MPa is below "
-                f"the minimum {c_min_fc:.1f} MPa for corrosion exposure class "
+                f"the minimum {c_min_fc:g} MPa for corrosion exposure class "
                 f"'{c_class}' per ACI 301 Table 4.2.2.6(e) "
                 f"(PRC-211.1-22 Table 4.7.3d). Use a higher strength."
             )
@@ -269,7 +269,7 @@ class ACI211MixDesign(MixDesignCode):
         if s_min_fc is not None and inp.target_strength_mpa < s_min_fc:
             raise ValueError(
                 f"Specified strength {inp.target_strength_mpa:g} MPa is below "
-                f"the minimum {s_min_fc:.1f} MPa for sulfate exposure class "
+                f"the minimum {s_min_fc:g} MPa for sulfate exposure class "
                 f"'{s_class}' per ACI 301 Table 4.2.2.6(b) "
                 f"(PRC-211.1-22 Table 4.7.3a). Use a higher strength."
             )
@@ -309,13 +309,13 @@ class ACI211MixDesign(MixDesignCode):
         if not has_data:
             formula = "Table 26.4.3.1(b) / Table 4.7.4.1 (no data)"
         elif _n_tests is not None and _n_tests < 30:
-            _second = ("f'c + 2.33·k·s − 3.45" if inp.target_strength_mpa <= 34.5
+            _second = ("f'c + 2.33·k·s − 3.45" if inp.target_strength_mpa <= 34.47
                        else "0.90·f'c + 2.33·k·s")
             formula = (
                 f"max(f'c + 1.34·k·s, {_second}), "
                 f"k = Table 4.7.4.3 (n = {_n_tests})"
             )
-        elif inp.target_strength_mpa > 34.5:
+        elif inp.target_strength_mpa > 34.47:
             formula = "max(f'c + 1.34s, 0.90·f'c + 2.33s) — Table 4.7.4.4, f'c > 5000 psi"
         else:
             formula = "max(f'c + 1.34s, f'c + 2.33s - 3.45)"
@@ -410,16 +410,37 @@ class ACI211MixDesign(MixDesignCode):
         # is inconsistent in its own examples — Example 1 (§9.2.3) keeps the
         # tabulated water for a rounded coarse aggregate while Example 2
         # (§9.3.3) applies the −8% — so the engine keeps the tabulated
-        # value (Example-1 parity) and surfaces the clause for the trial
-        # batch instead of silently cutting water.
-        if (inp.coarse_aggregate.shape.value
+        # value (Example-1 parity) unless apply_rounded_aggregate_reduction
+        # is set, and otherwise surfaces the clause for the trial batch
+        # instead of silently cutting water.
+        _is_rounded = (inp.coarse_aggregate.shape.value
                 if hasattr(inp.coarse_aggregate.shape, "value")
-                else str(inp.coarse_aggregate.shape)) == "rounded_gravel":
+                else str(inp.coarse_aggregate.shape)) == "rounded_gravel"
+        if getattr(inp, "apply_rounded_aggregate_reduction", False):
+            _adj_pct -= 8.0
+            _adj_applied = _adj_applied + ["rounded aggregate −8.0% (Table 5.3.3.1, §9.3.3)"]
+            water_kg = base_water_kg * (1.0 + _adj_pct / 100.0)
+            steps.append(self._make_step(
+                3.2, "Water content (rounded-aggregate reduction)",
+                "Table 5.3.3.1 −8% for rounded coarse aggregate, "
+                "as applied in §9.3 Example 2 Step 3",
+                {"base_water": base_water_kg, "adjustment_pct": _adj_pct},
+                water_kg, "kg/m³",
+                "ACI PRC-211.1-22 Table 5.3.3.1 / §9.3.3"
+            ))
+            if not _is_rounded:
+                warnings.append(
+                    "Rounded-aggregate −8% water cut applied although the "
+                    "coarse aggregate shape is not rounded — verify the "
+                    "aggregate qualifies for Table 5.3.3.1"
+                )
+        elif _is_rounded:
             warnings.append(
                 "Rounded coarse aggregate may reduce mixing water by 8% "
                 "(Table 5.3.3.1; Example 2 applies it, Example 1 does not) — "
-                "kept at the Table 5.3.3 estimate here; refine at the trial "
-                "batch via water_adjustment_531(rounded_aggregate=True)"
+                "kept at the Table 5.3.3 estimate here; enable the "
+                "rounded-aggregate reduction or refine at the trial batch "
+                "via water_adjustment_531(rounded_aggregate=True)"
             )
 
         # PRC-211.1-22 §4.7.6: conventional water-reducers should cut ≥5%,
@@ -461,9 +482,9 @@ class ACI211MixDesign(MixDesignCode):
                 f"Table 4.7.3.1 for Exposure Class {f_class} "
                 f"(NMSA {nmsa} mm, air-entrained)"
             )
-            if inp.target_strength_mpa >= 34.5:
+            if inp.target_strength_mpa >= 34.47:
                 warnings.append(
-                    "At f'c ≥ 5000 psi (34.5 MPa) a 1.0-point reduction of the "
+                    "At f'c ≥ 5000 psi (34.47 MPa) a 1.0-point reduction of the "
                     "Table 4.7.3.1 air content is acceptable (table footnote); "
                     "full air content retained — verify by trial batch"
                 )

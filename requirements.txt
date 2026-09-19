@@ -11,9 +11,6 @@ requests>=2.28.0
 # defective-rate 'k' factor (concrete_mix.utils.statistics).
 scipy>=1.10.0
 
-# Optional Dependencies
-gspread>=5.10.0
-
 # Development & Testing Dependencies
 pytest>=7.0.0
 pyinstaller>=6.0.0

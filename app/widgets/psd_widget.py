@@ -40,9 +40,10 @@ import csv
 import io
 import math
 
-from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QColor
+from PyQt6.QtCore import QPointF, Qt, pyqtSignal
+from PyQt6.QtGui import QColor, QWheelEvent
 from PyQt6.QtWidgets import (
+    QApplication,
     QCheckBox,
     QComboBox,
     QDoubleSpinBox,
@@ -74,6 +75,13 @@ from matplotlib.figure import Figure
 from app.styles import uppercase_preserving_si_units
 from app.widgets.astm_c33_compliance_dialog import ASTM_C33ComplianceDialog
 from app.widgets.info_button import InfoButton
+from app.widgets.bs882_quality_widget import BS882QualityWidget
+from concrete_mix.codes.tables.bs882 import get_bs_fine_band, get_bs_coarse_band
+from concrete_mix.engine.bs812 import compute_bs812_psd, report_whole_percent
+from concrete_mix.engine.psd import BS812_EXTENDED_SIEVES
+from concrete_mix.validation.bs882 import (
+    classify_bs882_sand, evaluate_bs882_fine, evaluate_bs882_coarse,
+)
 from concrete_mix.codes.tables import astm_c33_quality as astm_q
 from concrete_mix.codes.tables.grading_bands import (
     ASTM_COARSE_NOMINAL_SIZES,
@@ -129,6 +137,49 @@ _BAND_EDGE = "#1e40af"
 # the spin sits at its minimum and shows "not tested", meaning the
 # corresponding clause is reported as not evaluated (never as a failure).
 _NOT_TESTED = -1.0
+
+
+class _ScrollForwardingCanvas(FigureCanvas):
+    """Matplotlib canvas that does not trap the mouse wheel.
+
+    The gradation canvas lives inside the result panel's QScrollArea, but
+    the base-class ``wheelEvent`` consumes the event (matplotlib
+    scroll-zoom, which has no toolbar here and so does nothing visible) —
+    leaving the panel stuck whenever the cursor sits over the plot. The
+    event is therefore re-targeted at the enclosing scroll area's viewport
+    (the widget Qt would have delivered it to had the canvas not been in
+    the way); if nothing scrolls there, it falls back to matplotlib
+    dispatch and is left ignored so it can keep propagating.
+    """
+
+    def wheelEvent(self, event) -> None:  # noqa: N802 (Qt naming)
+        viewport = self._enclosing_viewport()
+        if viewport is not None:
+            clone = QWheelEvent(
+                QPointF(self.mapTo(viewport, event.position().toPoint())),
+                event.globalPosition(),
+                event.pixelDelta(),
+                event.angleDelta(),
+                event.buttons(),
+                event.modifiers(),
+                event.phase(),
+                event.inverted(),
+            )
+            QApplication.sendEvent(viewport, clone)
+            if clone.isAccepted():
+                event.accept()
+                return
+        super().wheelEvent(event)
+        event.ignore()
+
+    def _enclosing_viewport(self):
+        """Return the nearest enclosing QScrollArea viewport, if any."""
+        parent = self.parentWidget()
+        while parent is not None:
+            if isinstance(parent, QScrollArea):
+                return parent.viewport()
+            parent = parent.parentWidget()
+        return None
 
 
 def _fmt_size(mm: float) -> str:
@@ -307,6 +358,22 @@ class PSDResultPanel(QWidget):
         super().__init__(parent)
         self._last_result: PSDResult | None = None
         self._last_band_key = None
+        # Copy of the reference band dict passed to display_psd, kept so
+        # the CSV export can include the "Standard % Passing" column.
+        self._last_band: dict[float, tuple[float, float]] | None = None
+        # Standard the empty plot section advertises (linear for BS 882,
+        # semi-log otherwise); kept in sync with the input tab's standard
+        # combo via set_standard_display so the section always matches the
+        # selected standard, even before Compute & Plot is pressed.
+        self._display_standard = "is383"
+        # BS 882 lab record snapshot for the DOE handoff (set by
+        # ParticleSizeDistributionTab._evaluate_and_plot on every BS
+        # compute): source_type, heavy_duty_floor, sand C/M/F grades
+        # (fine only) and failed BS 882 check summaries. Lets the
+        # mix-design form receive the BRE 331 inputs that never come
+        # from the sieve curve itself (aggregate type, §1.2.4) plus the
+        # compliance gates (Tables 3/4/6, §4.2 FI) as warnings.
+        self._bs_handoff: dict | None = None
         self._build_ui()
 
     # ── UI Construction ──────────────────────────────────────────────
@@ -340,7 +407,7 @@ class PSDResultPanel(QWidget):
         v.setContentsMargins(12, 16, 12, 12)
 
         self._fig = Figure(figsize=(7, 4.5), tight_layout=True)
-        self._canvas = FigureCanvas(self._fig)
+        self._canvas = _ScrollForwardingCanvas(self._fig)
         self._canvas.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.MinimumExpanding
         )
@@ -423,7 +490,9 @@ class PSDResultPanel(QWidget):
             "sieve analysis.\n\n"
             "ACI 211.1-22 §4.3.5: fineness modulus → Table 5.3.6\n"
             "IS 10262:2019 Clause 5.4: grading zone → Table 5\n"
-            "BRE 331:1997 §1.2.5: % passing 600 µm → Figure 6"
+            "BRE 331:1997 §1.2.5: % passing 600 µm → Figure 6\n"
+            "BS 882 analyses also carry the lab record: aggregate type "
+            "(§1.2.4) and Tables 3/4/6 + §4.2 checks"
         )
         self._btn_apply.clicked.connect(self._on_apply_to_mix)
         btn_row.addWidget(self._btn_apply)
@@ -435,6 +504,7 @@ class PSDResultPanel(QWidget):
         self._btn_img.setObjectName("secondary")
         self._btn_img.setEnabled(False)
         self._btn_img.clicked.connect(self._on_export_image)
+        self._export_metadata: dict | None = None
         btn_row.addWidget(self._btn_csv)
         btn_row.addWidget(self._btn_img)
         btn_row.addStretch()
@@ -464,17 +534,26 @@ class PSDResultPanel(QWidget):
         """
         self._last_result = result
         self._last_band_key = band_key
+        self._last_band = dict(band) if band else {}
         self._update_results_cards(result)
         self._fill_fm_derivation(result, fm_required)
         self._draw_curve(result, band, band_key)
         self._btn_csv.setEnabled(True)
         self._btn_img.setEnabled(True)
-        self._btn_apply.setEnabled(True)
+        ready = True
+        if band_key and band_key[0] == "bs882":
+            ready = (
+                derive_mix_design_params(result, standard="bs882").doe_ready
+                if band_key[1] == "fine" else band_key[-1] in (10, 20, 40)
+            )
+        self._btn_apply.setEnabled(ready)
 
     def clear(self) -> None:
         """Reset the panel to its empty placeholder state."""
         self._last_result = None
         self._last_band_key = None
+        self._last_band = None
+        self._bs_handoff = None
         self._results_group.setVisible(False)
         self._set_band_warning("")
         self._set_corrections([])
@@ -486,18 +565,97 @@ class PSDResultPanel(QWidget):
 
     # ── Mix-design handoff ───────────────────────────────────────────
 
-    def _on_apply_to_mix(self) -> None:
-        """Emit PSD-derived parameters for the mix-design form.
+    # Design code each PSD standard feeds (mirrors the mapping in
+    # ConcreteMixTab._on_psd_apply): shown in the transfer confirmation so
+    # the user sees where the values will land before anything is locked.
+    _BAND_STANDARD_TO_CODE = {
+        "is383": "IS 10262:2019",
+        "astm_c33": "ACI 211.1-22",
+        "bs882": "DOE (BRE 331:1997)",
+    }
 
-        The payload carries every parameter the three supported standards
-        consume from a sieve analysis (ACI 211.1-22 §4.3.5 FM, IS 383
-        Table 9 zone → IS 10262 Table 5, BRE 331 %passing 600 µm), the
-        band identity that tells fine vs coarse aggregate and, for coarse
-        analyses, the reference nominal size.
+    def _band_reference_text(self, key) -> str:
+        """Human-readable reference-band name for a band key tuple."""
+        if not key:
+            return "—"
+        if key[0] == "is383" and key[1] == "fine":
+            return f"IS 383 Grading Zone {key[2]}"
+        if key[0] == "astm_c33" and key[1] == "fine":
+            return "ASTM C33/C33M Table 1"
+        if key[0] == "is383":
+            return f"{key[-1]:g} mm {key[2]} (IS 383:2016 Table 7)"
+        if key[0] == "bs882":
+            if key[1] == "fine":
+                return f"BS 882 Table 4 · {key[2]}"
+            return f"BS 882 {key[2]} {key[-1]:g} mm (Table 3)"
+        return f"{key[-1]:g} mm reference (ASTM Size {key[-1]})"
+
+    def _transfer_summary(self, payload: dict) -> list[str]:
+        """One plain-language line per value the payload will transfer."""
+        lines: list[str] = []
+        kind = payload.get("aggregate_kind", "fine")
+        lines.append(
+            f"Aggregate: {'Fine (sand)' if kind == 'fine' else 'Coarse (stone/gravel)'}"
+            f" — {self._band_reference_text(self._last_band_key)}"
+        )
+        code = self._BAND_STANDARD_TO_CODE.get(payload.get("band_standard"), "")
+        if code:
+            lines.append(f"Design standard to fill: {code}")
+        if payload.get("fineness_modulus") is not None:
+            lines.append(
+                f"Fineness Modulus = {payload['fineness_modulus']:.2f} "
+                "(ACI 211.1-22 §4.3.5 → Table 5.3.6)"
+            )
+        if payload.get("grading_zone") is not None:
+            lines.append(
+                f"Grading Zone {payload['grading_zone']} "
+                "(IS 383 Table 9 → IS 10262 Table 5)"
+            )
+        if payload.get("pct_passing_600um") is not None:
+            lines.append(
+                f"Passing 600 µm = {payload['pct_passing_600um']:.1f}% "
+                "(BRE 331 §1.2.5 → Figure 6)"
+            )
+        if payload.get("nominal_size_mm") is not None:
+            lines.append(
+                f"Nominal size = {payload['nominal_size_mm']} mm "
+                "(→ mix-design NMSA)"
+            )
+        if payload.get("bs_source_type"):
+            lines.append(
+                f"Aggregate source = {payload['bs_source_type']} "
+                "(BRE 331 §1.2.4 → Tables 2–3)"
+            )
+        for grade in payload.get("bs_sand_grades") or []:
+            lines.append(f"Sand grading {grade} (BS 882 Table 4)")
+        if payload.get("all_conform"):
+            lines.append("Gradation: all checked sieves inside the band")
+        else:
+            lines.append(
+                "Gradation: some sieves fall outside the band — review the "
+                "PSD suggested adjustments before relying on it"
+            )
+        for warning in payload.get("warnings", []):
+            lines.append(f"Note: {warning}")
+        return lines
+
+    def _on_apply_to_mix(self) -> None:
+        """Confirm, then emit PSD-derived parameters for the mix-design form.
+
+        A confirmation modal lists every value about to be transferred
+        (per the consuming standard: ACI FM, IS zone, DOE %p600/NMSA, BS
+        lab record) so the user sees the handoff before any mix-design
+        field is filled and locked. The payload itself is unchanged (see
+        ConcreteMixTab._on_psd_apply, which reports the applied locks).
         """
         if self._last_result is None:
             return
-        linkage = derive_mix_design_params(self._last_result)
+        if not self._btn_apply.isEnabled():
+            return
+        linkage = derive_mix_design_params(
+            self._last_result,
+            standard=self._last_band_key[0] if self._last_band_key else None,
+        )
 
         aggregate_kind = "fine"
         nominal_size_mm = None
@@ -509,22 +667,48 @@ class PSDResultPanel(QWidget):
             if aggregate_kind == "coarse":
                 nominal_size_mm = int(key[-1])
 
-        self.apply_to_mix_design.emit(
-            {
-                "aggregate_kind": aggregate_kind,
-                "band_standard": key[0] if key else None,
-                "nominal_size_mm": nominal_size_mm,
-                "fineness_modulus": linkage.fineness_modulus,
-                "grading_zone": linkage.grading_zone,
-                "pct_passing_600um": linkage.pct_passing_600um,
-                "all_conform": self._last_result.all_conform,
-                "warnings": list(linkage.warnings),
-                # IS 383 Clause 6.3 outcome for the transferred zone.
-                "zone_conforms": linkage.zone_conforms,
-                "zone_deviations": list(linkage.zone_deviations),
-                "zone_crushed_sand_relief": linkage.zone_crushed_sand_relief,
-            }
+        payload = {
+            "aggregate_kind": aggregate_kind,
+            "band_standard": key[0] if key else None,
+            "nominal_size_mm": nominal_size_mm,
+            "fineness_modulus": linkage.fineness_modulus,
+            "grading_zone": linkage.grading_zone,
+            "pct_passing_600um": linkage.pct_passing_600um,
+            "all_conform": self._last_result.all_conform,
+            "warnings": list(linkage.warnings),
+            # IS 383 Clause 6.3 outcome for the transferred zone.
+            "zone_conforms": linkage.zone_conforms,
+            "zone_deviations": list(linkage.zone_deviations),
+            "zone_crushed_sand_relief": linkage.zone_crushed_sand_relief,
+            # BS 882 lab record for the DOE handoff (None unless a BS
+            # analysis was computed): source_type, heavy_duty_floor,
+            # sand_grades (fine only) and bs_quality_failures. Set by
+            # ParticleSizeDistributionTab._evaluate_and_plot.
+            "bs_source_type": (self._bs_handoff or {}).get("source_type"),
+            "bs_heavy_duty_floor": (self._bs_handoff or {}).get(
+                "heavy_duty_floor", False
+            ),
+            "bs_sand_grades": list(
+                (self._bs_handoff or {}).get("sand_grades", [])
+            ),
+            "bs_quality_failures": list(
+                (self._bs_handoff or {}).get("failures", [])
+            ),
+        }
+
+        confirm = QMessageBox.question(
+            self,
+            "Use in Mix Design",
+            "Transfer these sieve-analysis results to the Mix Design form?\n"
+            "The receiving fields will be filled and locked (Clear in the "
+            "PSD tab unlocks them).\n\n"
+            + "\n".join(f"• {line}" for line in self._transfer_summary(payload)),
+            QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Cancel,
         )
+        if confirm != QMessageBox.StandardButton.Ok:
+            return
+        self.apply_to_mix_design.emit(payload)
 
     # ── Results cards ────────────────────────────────────────────────
 
@@ -534,6 +718,7 @@ class PSDResultPanel(QWidget):
             item = self._results_grid.takeAt(0)
             w = item.widget()
             if w:
+                w.hide()
                 w.deleteLater()
 
         cards: list[tuple[str, str]] = []
@@ -549,8 +734,13 @@ class PSDResultPanel(QWidget):
             cards.append(("Cu (Uniformity)", f"{result.uniformity_coefficient:.2f}"))
         if result.coefficient_of_curvature is not None:
             cards.append(("Cc (Curvature)", f"{result.coefficient_of_curvature:.2f}"))
-        if result.pct_passing_600um is not None:
-            cards.append(("% Passing 600 µm (DOE)", f"{result.pct_passing_600um:.1f}%"))
+        bs = self._last_band_key and self._last_band_key[0] == "bs882"
+        p600 = derive_mix_design_params(
+            result, standard="bs882" if bs else None
+        ).pct_passing_600um
+        if p600 is not None:
+            cards.append(("% Passing 600 µm (DOE)",
+                          f"{p600:.0f}%" if bs else f"{p600:.1f}%"))
         cards.append(("Total Mass", f"{result.total_mass:.1f} g"))
 
         # Conformance badge
@@ -709,14 +899,46 @@ class PSDResultPanel(QWidget):
 
     # ── Plotting ─────────────────────────────────────────────────────
 
+    _DISPLAY_STANDARD_NAMES = {
+        "is383": "IS 383:2016",
+        "astm_c33": "ASTM C33/C33M",
+        "bs882": "BS 882:1992",
+    }
+
+    def set_standard_display(self, standard: str) -> None:
+        """Match the gradation section to the selected PSD standard.
+
+        BS 882 analyses render on a linear sieve axis (display policy,
+        not a BS 812 clause); IS 383 and ASTM C33/C33M use the semi-log
+        plot. The group title and the empty placeholder follow the
+        standard immediately — a computed curve (which sets its own
+        title) is left untouched.
+        """
+        self._display_standard = standard
+        self._plot_group.setTitle(
+            "Gradation Curve (Linear — BS display policy)"
+            if standard == "bs882" else "Gradation Curve (Semi-Log)"
+        )
+        if self._last_result is None:
+            self._draw_placeholder()
+
     def _draw_placeholder(self) -> None:
         self._fig.clear()
         ax = self._fig.add_subplot(111)
-        ax.set_xlabel("Sieve Size (mm)  —  log scale")
-        ax.set_ylabel("Percent Passing (%)")
+        bs = self._display_standard == "bs882"
+        if bs:
+            ax.set_xlabel("Sieve aperture (mm) — linear scale")
+            ax.set_ylabel("Cumulative passing by mass (%)")
+        else:
+            ax.set_xlabel("Sieve Size (mm)  —  log scale")
+            ax.set_ylabel("Percent Passing (%)")
         ax.set_title("Enter sieve masses, then click Compute & Plot")
+        std_name = self._DISPLAY_STANDARD_NAMES.get(
+            self._display_standard, self._display_standard
+        )
         ax.text(
-            0.5, 0.5, "No data", transform=ax.transAxes,
+            0.5, 0.5, f"No data — {std_name}",
+            transform=ax.transAxes,
             ha="center", va="center", fontsize=14, color=_TEXT_DIM,
         )
         ax.set_xticks([])
@@ -732,6 +954,15 @@ class PSDResultPanel(QWidget):
         self._fig.clear()
         ax = self._fig.add_subplot(111)
 
+        bs = bool(band_key and band_key[0] == "bs882")
+        self._plot_group.setTitle(
+            "Gradation Curve (Linear — BS display policy)" if bs
+            else "Gradation Curve (Semi-Log)"
+        )
+        # BS display policy: direct numerical mm positions and straight
+        # segments. Other standards retain their existing log smoothing.
+        interpolate = (lambda x, y: (x, y)) if bs else _smooth_band_boundary
+
         # ── Standard band (smooth shaded region) ──
         # Blank standard-table cells are absent from ``band``. Smooth only
         # between specified control points so the visual envelope does not
@@ -740,8 +971,8 @@ class PSDResultPanel(QWidget):
             band_sizes = sorted(band.keys())
             lower = [band[s][0] for s in band_sizes]
             upper = [band[s][1] for s in band_sizes]
-            smooth_sizes, smooth_lower = _smooth_band_boundary(band_sizes, lower)
-            _, smooth_upper = _smooth_band_boundary(band_sizes, upper)
+            smooth_sizes, smooth_lower = interpolate(band_sizes, lower)
+            _, smooth_upper = interpolate(band_sizes, upper)
             # Independent shape-preserving boundaries should not cross, but
             # guard the rendered section against floating-point edge cases.
             ordered_boundaries = [
@@ -765,28 +996,80 @@ class PSDResultPanel(QWidget):
             )
 
         # ── User's gradation curve ──
-        # Smoothed with the same log-space shape-preserving interpolation
-        # as the band, so the measured line renders as one continuous
-        # curve instead of polyline segments between sieves (PSDResult
-        # lists sieves coarsest → finest, so sort ascending for the
-        # helper). The curve passes exactly through every measured
-        # %passing, stays within 0–100 %, and is not extended past the
-        # finest/coarsest sieve of the analysis; the measured points
-        # remain visible as markers drawn on top of the curve.
+        # Straight chords between measured points (PSDResult lists sieves
+        # coarsest → finest, so sort ascending for plotting). On the log
+        # sieve axis these render as log-linear segments — the same
+        # interpolation ASTM D6913 / engine ``_interpolate_size`` uses for
+        # D10/D30/D60 — so each characteristic-size marker sits exactly on
+        # the drawn line. (Hermite smoothing is kept for the standard
+        # band only; smoothing the measured line made the D guides float
+        # several points off the curve on steep gap-graded segments.)
+        # The line passes exactly through every measured %passing and is
+        # not extended past the finest/coarsest sieve of the analysis;
+        # the measured points remain visible as markers drawn on top.
         sizes = result.sieve_sizes
-        passing = result.percent_passing
+        passing = ([report_whole_percent(p) for p in result.percent_passing]
+                   if bs else result.percent_passing)
         pts = sorted(zip(sizes, passing))
-        smooth_sizes, smooth_passing = _smooth_band_boundary(
-            [s for s, _ in pts], [p for _, p in pts]
-        )
+        # Main vs projected line: the solid main line connects only the
+        # sieves that carry a grading requirement in the selected band,
+        # so it can be compared dot-for-dot with the shaded envelope. A
+        # sieve with no requirement (ASTM C33 Table 2 dash / IS 383
+        # Table 7 blank / unlisted BS aperture, e.g. 12.5 mm for Size 67)
+        # is joined to its neighbours by a dotted projected span instead:
+        # the laboratory measurement is still shown, but the excursion
+        # can no longer be mistaken for an out-of-band failure. When
+        # every sieve is specified (all fine-aggregate bands) the main
+        # line simply runs through every point and no projection appears.
+        if band:
+            main_pts = [(s, p) for s, p in pts if s in band]
+        else:
+            main_pts = list(pts)
         ax.plot(
-            smooth_sizes, smooth_passing, color=_PRIMARY, linewidth=2.2,
+            [s for s, _ in main_pts], [p for _, p in main_pts],
+            color=_PRIMARY, linewidth=2.2,
             label="Your gradation", zorder=5,
         )
-        ax.plot(
-            sizes, passing, linestyle="none", marker="o", color=_PRIMARY,
-            markersize=6, zorder=6,
-        )
+        if band:
+            _projected_label = "Projected (no requirement)"
+            for (s0, p0), (s1, p1) in zip(pts, pts[1:]):
+                if s0 in band and s1 in band:
+                    continue
+                ax.plot(
+                    [s0, s1], [p0, p1], color=_PRIMARY, linewidth=1.6,
+                    linestyle=(0, (2, 2)), alpha=0.55, zorder=4,
+                    label=_projected_label,
+                )
+                _projected_label = "_nolegend_"
+        # Checked vs unchecked sieves (ASTM C33 Table 2 dashes / IS 383
+        # Table 7 blanks / BS 882 unlisted apertures): sieves absent from
+        # ``band`` carry no grading requirement — they stay available for
+        # laboratory input and mass balance but are excluded from
+        # conformance. Draw them as hollow markers with their own legend
+        # entry so a point outside the interpolated shade (e.g. 12.5 mm
+        # for Size 67 with 0 g retained) is not mistaken for a failure.
+        # The measured curve itself stays one continuous line through
+        # every sieve so the laboratory result is never misrepresented.
+        if band:
+            checked = [(s, p) for s, p in zip(sizes, passing) if s in band]
+            unchecked = [(s, p) for s, p in zip(sizes, passing)
+                         if s not in band]
+        else:
+            checked = list(zip(sizes, passing))
+            unchecked = []
+        if checked:
+            ax.plot(
+                [s for s, _ in checked], [p for _, p in checked],
+                linestyle="none", marker="o", color=_PRIMARY,
+                markersize=6, zorder=6,
+            )
+        if unchecked:
+            ax.plot(
+                [s for s, _ in unchecked], [p for _, p in unchecked],
+                linestyle="none", marker="o", markerfacecolor="#ffffff",
+                markeredgecolor=_PRIMARY, markeredgewidth=1.6,
+                markersize=7, zorder=6, label="No requirement (\u2014)",
+            )
 
         # ── Out-of-band markers + summary for the banner below the plot
         # (IS 383 grading tables / ASTM C33 Tables 1 and 2) ──
@@ -812,9 +1095,37 @@ class PSDResultPanel(QWidget):
         # X limits with a small padding margin so end data points are not clipped on the border
         ax.set_xlim(min(sizes) * 0.75, max(sizes) * 1.3)
 
-        # ── Characteristic sizes D10, D30, D60 (ACI 211.1-22 §4.3.5 / ASTM D6913 / IS 383) ──
-        # Straight reference lines to both axes with annotated size values
-        self._plot_characteristic_diameters(ax, result)
+        if band_key and band_key[0] == "bs882":
+            # BS 882:1992 display policy (UI-only, not a clause of
+            # BS 812-103.1): a true linear numerical sieve axis. Boundaries
+            # and the measured curve stay straight segments through every
+            # stated point; no D10/D30/D60/Cu/Cc overlays.
+            ax.set_xscale("linear")
+            ax.set_xlabel("Sieve aperture (mm) — linear scale", fontsize=11)
+            ax.set_ylabel("Cumulative passing by mass (%)", fontsize=11)
+            padding = (max(sizes) - min(sizes)) * 0.06
+            ax.set_xlim(max(0, min(sizes) - padding), max(sizes) + padding)
+            # Uniform numerical labels remain readable even when the
+            # optional fine sieves crowd together; minor ticks mark the
+            # measured apertures, whose exact labels are in the input table.
+            from matplotlib.ticker import MaxNLocator, ScalarFormatter
+            ax.xaxis.set_major_locator(MaxNLocator(nbins=6))
+            ax.xaxis.set_major_formatter(ScalarFormatter())
+            ax.set_xticks(sorted(set(sizes)), minor=True)
+            ax.tick_params(axis="x", which="major", labelrotation=0)
+            ax.set_ylim(0, 100)
+            ax.set_yticks(range(0, 101, 10))
+        else:
+            ax.set_xscale("log")
+            ax.set_xlabel("Sieve Size (mm)  —  log scale", fontsize=11)
+            ax.set_xticks(sizes)
+            ax.set_xticklabels(
+                [_fmt_size(s) for s in sizes], rotation=35, ha="right"
+            )
+            ax.set_ylim(0, 105)
+            ax.set_yticks([0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100])
+            self._plot_characteristic_diameters(ax, result)
+        ax.grid(True, which="both", linestyle=":", linewidth=0.5, alpha=0.6)
 
         # Title with the selected standard and reference band.
         if not band_key:
@@ -829,6 +1140,14 @@ class PSDResultPanel(QWidget):
                 f"Coarse Aggregate Gradation — {_fmt_size(nominal_size)} "
                 f"{grading_type}\n(IS 383:2016 Table 7)"
             )
+        elif band_key[0] == "bs882":
+            if band_key[1] == "fine":
+                title = f"Sand — BS 882:1992 Table 4 · {band_key[2]}"
+            else:
+                title = (
+                    f"Coarse aggregate — BS 882:1992 Table 3\n"
+                    f"{band_key[2]} {_fmt_size(band_key[-1])}"
+                )
         else:
             _, _, nominal_size = band_key
             title = (
@@ -1016,16 +1335,36 @@ class PSDResultPanel(QWidget):
             return
         buf = io.StringIO()
         writer = csv.writer(buf)
+        bs = self._last_band_key and self._last_band_key[0] == "bs882"
+        if bs:
+            writer.writerow(["Standard", "BS 882:1992"])
+            writer.writerow(["Reference band", *self._last_band_key[1:]])
+            writer.writerow(["Units", "mm; g; % by mass"])
+            for name, value in (self._export_metadata or {}).get("bs882", {}).items():
+                writer.writerow([name, value])
+            writer.writerow(["Reporting", "BS 812-103.1 §10 whole passing %"])
+        else:
+            std_names = {"is383": "IS 383:2016",
+                         "astm_c33": "ASTM C33/C33M"}
+            if self._last_band_key:
+                writer.writerow(["Standard",
+                                 std_names.get(self._last_band_key[0],
+                                               self._last_band_key[0])])
+                writer.writerow(["Reference band", *self._last_band_key[1:]])
+        band = self._last_band or {}
         writer.writerow(["Sieve Size (mm)", "Mass Retained (g)",
-                         "% Retained", "Cumulative % Retained", "% Passing"])
+                         "% Retained", "Cumulative % Retained", "% Passing",
+                         "Standard % Passing"])
         for s, m, pr, c, p in zip(
             r.sieve_sizes, r.mass_retained, r.percent_retained,
             r.cumulative_percent_retained, r.percent_passing,
         ):
             writer.writerow([f"{s:g}", f"{m:.1f}", f"{pr:.2f}",
-                             f"{c:.2f}", f"{p:.2f}"])
-        writer.writerow(["Pan", f"{r.pan_mass:.1f}", "", "", ""])
-        writer.writerow(["Total", f"{r.total_mass:.1f}", "", "", ""])
+                             f"{c:.2f}", report_whole_percent(p) if bs else f"{p:.2f}",
+                             _fmt_passing_limit(band.get(s))])
+        writer.writerow(["Pan incl. wash loss" if bs else "Pan",
+                         f"{r.pan_mass:.1f}", "", "", "", ""])
+        writer.writerow(["Total", f"{r.total_mass:.1f}", "", "", "", ""])
         if r.fineness_modulus is not None:
             writer.writerow(["Fineness Modulus", f"{r.fineness_modulus:.2f}"])
         if r.d10 is not None:
@@ -1132,6 +1471,12 @@ class ParticleSizeDistributionTab(QWidget):
         # ── Header / controls ──
         layout.addWidget(self._build_controls())
 
+        self._bs_checks: list = []
+        self.bs_quality = BS882QualityWidget()
+        self.bs_quality.changed.connect(self._on_bs_changed)
+        self.bs_quality.stack_changed.connect(self._on_bs_stack_changed)
+        layout.addWidget(self.bs_quality)
+
         # ── Input table ──
         layout.addWidget(self._build_table())
 
@@ -1163,6 +1508,9 @@ class ParticleSizeDistributionTab(QWidget):
         self._rebuild_band_combo()
         self._rebuild_table()
         self._update_quality_visibility()
+        self._result_panel.set_standard_display(
+            self.standard_combo.currentData()
+        )
 
     def _build_controls(self) -> QGroupBox:
         grp = QGroupBox("Sieve Analysis — Setup")
@@ -1174,6 +1522,7 @@ class ParticleSizeDistributionTab(QWidget):
         self.standard_combo = _shrinkable_combo(QComboBox())
         self.standard_combo.addItem("IS 383:2016", "is383")
         self.standard_combo.addItem("ASTM C33/C33M", "astm_c33")
+        self.standard_combo.addItem("BS 882:1992", "bs882")
         self.standard_combo.setMinimumWidth(0)
         self.standard_combo.currentIndexChanged.connect(self._on_standard_changed)
         form.addWidget(self._label("Standard"), 0, 0)
@@ -1190,7 +1539,11 @@ class ParticleSizeDistributionTab(QWidget):
         form.addWidget(self._label("Aggregate Type"), 1, 0)
         form.addWidget(self.agg_combo, 1, 1)
 
-        # Reference band selector — depends on standard and aggregate type
+        # Reference band selector — depends on standard and aggregate type.
+        # The 'i' text is dynamic: _update_band_info() rewrites it for the
+        # selected standard × aggregate × band (notably BS 882 Table 4
+        # Overall/C/M/F). The static text below is only the pre-first-build
+        # fallback.
         self.band_combo = _shrinkable_combo(QComboBox())
         self.band_combo.setMinimumWidth(0)
         self.band_combo.currentIndexChanged.connect(self._on_band_changed)
@@ -1202,6 +1555,7 @@ class ParticleSizeDistributionTab(QWidget):
             "ASTM C33/C33M → Table 1 fine envelope; Table 2 coarse references "
             "10 mm (Size 8), 20 mm (Size 67), and 40 mm (Size 467).",
         )
+        self._band_info_btn = self._lbl_band.findChild(InfoButton)
         form.addWidget(self._lbl_band, 2, 0)
         form.addWidget(self.band_combo, 2, 1)
 
@@ -1243,6 +1597,25 @@ class ParticleSizeDistributionTab(QWidget):
         # Style the header and input column so it visually stands out
         self._style_input_column()
         v.addWidget(self.table)
+
+        # Export the input table exactly as displayed — all six headers
+        # including "Standard % Passing".
+        export_row = QHBoxLayout()
+        export_row.setContentsMargins(0, 8, 0, 0)
+        export_row.setSpacing(8)
+        self.export_table_btn = QPushButton("Export Table CSV")
+        self.export_table_btn.setObjectName("secondary")
+        self.export_table_btn.setToolTip(
+            "Save the sieve table above to a CSV file, with all columns "
+            "as displayed (Sieve Size, Mass Retained, % Retained, "
+            "Cumulative % Retained, % Passing and Standard % Passing)."
+        )
+        self.export_table_btn.clicked.connect(self._on_export_table_csv)
+        export_row.addWidget(self.export_table_btn)
+        export_row.addStretch(1)
+        export_wrap = QWidget()
+        export_wrap.setLayout(export_row)
+        v.addWidget(export_wrap)
         return grp
 
     def _style_input_column(self) -> None:
@@ -1322,6 +1695,20 @@ class ParticleSizeDistributionTab(QWidget):
         spin.setValue(_NOT_TESTED)
         spin.setMinimumWidth(0)
         spin.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        # IS 383 percentages are mass fractions (IS 2386) — physically
+        # 0–100 %, so values between the "not tested" sentinel (-1.0)
+        # and 0.0 are meaningless. Snap across the gap: stepping up
+        # from "not tested" lands on 0.0, stepping down from 0.0
+        # returns to "not tested" (likewise for typed values).
+        _prev = {"v": _NOT_TESTED}
+
+        def _snap_not_tested_gap(v: float) -> None:
+            if _NOT_TESTED < v < 0.0:
+                spin.setValue(0.0 if v > _prev["v"] else _NOT_TESTED)
+            else:
+                _prev["v"] = v
+
+        spin.valueChanged.connect(_snap_not_tested_gap)
         return spin
 
     def _build_quality_group(self) -> QGroupBox:
@@ -2606,6 +2993,17 @@ class ParticleSizeDistributionTab(QWidget):
         fines.setSpecialValueText("not tested")
         fines.setMinimumWidth(0)
         fines.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        # Same "not tested" gap snap as _pct_spin: values between the
+        # sentinel (-1.0) and 0.0 are meaningless for a load in kN.
+        _fines_prev = {"v": _NOT_TESTED}
+
+        def _snap_fines_gap(v: float) -> None:
+            if _NOT_TESTED < v < 0.0:
+                fines.setValue(0.0 if v > _fines_prev["v"] else _NOT_TESTED)
+            else:
+                _fines_prev["v"] = v
+
+        fines.valueChanged.connect(_snap_fines_gap)
         self.is_coarse_ten_pct_fines_spin = fines
         f.addWidget(self._label_with_info(
             "Ten percent fines load",
@@ -2767,7 +3165,7 @@ class ParticleSizeDistributionTab(QWidget):
     def _gather_is_fine_quality_inputs(self) -> IS383FineQualityInputs:
         def optional(spin: QDoubleSpinBox) -> float | None:
             value = spin.value()
-            return None if value == _NOT_TESTED else value
+            return None if value < 0.0 else value  # negatives (incl. sentinel) = not tested
 
         combo = self.is_fine_organic_combo
         relieved = combo.currentData() == "fail_color_relieved"
@@ -2812,7 +3210,7 @@ class ParticleSizeDistributionTab(QWidget):
     def _gather_is_coarse_quality_inputs(self) -> IS383CoarseQualityInputs:
         def optional(spin: QDoubleSpinBox) -> float | None:
             value = spin.value()
-            return None if value == _NOT_TESTED else value
+            return None if value < 0.0 else value  # negatives (incl. sentinel) = not tested
 
         aar = self.is_coarse_aar_combo.currentData()
         numeric_aar = aar in ("mortar_bar_38c", "mortar_bar_60c", "ambt_80c")
@@ -2829,7 +3227,7 @@ class ParticleSizeDistributionTab(QWidget):
             high_grade=self.is_coarse_high_grade_check.isChecked(),
             crushing_value_pct=optional(self.is_coarse_acv_spin),
             ten_pct_fines_load_kn=(
-                fines.value() if fines.value() != _NOT_TESTED else None
+                fines.value() if fines.value() >= 0.0 else None
             ),
             impact_value_pct=optional(self.is_coarse_aiv_spin),
             abrasion_loss_pct=optional(self.is_coarse_abrasion_spin),
@@ -2921,7 +3319,7 @@ class ParticleSizeDistributionTab(QWidget):
         """Live 'sum of deleterious substances' (Table 3 column 3)."""
         clay = self.coarse_clay_spin.value()
         chert = self.coarse_chert_spin.value()
-        if clay == _NOT_TESTED or chert == _NOT_TESTED:
+        if clay < 0.0 or chert < 0.0:
             self.coarse_sum_label.setText("—")
             self.coarse_sum_label.setToolTip(
                 "Sum of clay lumps, friable particles and chert; enter both "
@@ -2939,6 +3337,8 @@ class ParticleSizeDistributionTab(QWidget):
     def _update_quality_visibility(self) -> None:
         """Show the quality group for either standard and match the page."""
         standard = self.standard_combo.currentData()
+        self.bs_quality.setVisible(standard == "bs882")
+        self.bs_quality.set_fine(self.agg_combo.currentData() == "fine")
         show = standard in ("astm_c33", "is383")
         self._quality_group.setVisible(show)
         if not show:
@@ -2966,7 +3366,7 @@ class ParticleSizeDistributionTab(QWidget):
     def _gather_fine_quality_inputs(self) -> FineQualityInputs:
         def optional(spin: QDoubleSpinBox) -> float | None:
             value = spin.value()
-            return None if value == _NOT_TESTED else value
+            return None if value < 0.0 else value  # negatives (incl. sentinel) = not tested
 
         c87 = (
             self.fine_c87_spin.value()
@@ -2998,7 +3398,7 @@ class ParticleSizeDistributionTab(QWidget):
     def _gather_coarse_quality_inputs(self) -> CoarseQualityInputs:
         def optional(spin: QDoubleSpinBox) -> float | None:
             value = spin.value()
-            return None if value == _NOT_TESTED else value
+            return None if value < 0.0 else value  # negatives (incl. sentinel) = not tested
 
         return CoarseQualityInputs(
             class_designation=self.coarse_class_combo.currentData() or "",
@@ -3068,7 +3468,15 @@ class ParticleSizeDistributionTab(QWidget):
     def _current_sieves(self) -> list[float]:
         standard = self.standard_combo.currentData()
         aggregate_type = self.agg_combo.currentData()
-        return STANDARD_SIEVES_BY_CODE[standard][aggregate_type]
+        sieves = list(STANDARD_SIEVES_BY_CODE[standard][aggregate_type])
+        if standard == "bs882":
+            if self.bs_quality.extended_check.isChecked():
+                sieves = list(BS812_EXTENDED_SIEVES)
+            if self.bs_quality.sieve75_check.isChecked():
+                sieves = sorted(set(sieves) | {0.075}, reverse=True)
+            else:
+                sieves = [s for s in sieves if s != 0.075]
+        return sieves
 
     def _rebuild_table(self) -> None:
         """Rebuild the input table rows for the current aggregate type."""
@@ -3139,7 +3547,22 @@ class ParticleSizeDistributionTab(QWidget):
         standard = self.standard_combo.currentData()
         aggregate_type = self.agg_combo.currentData()
 
-        if standard == "is383" and aggregate_type == "fine":
+        if standard == "bs882":
+            if aggregate_type == "fine":
+                for grade in ("Overall", "C", "M", "F"):
+                    self.band_combo.addItem(
+                        f"BS 882 Table 4 — {grade}", ("bs882", "fine", grade)
+                    )
+            else:
+                for kind, sizes in (("graded", (40, 20, 14)),
+                                    ("single", (40, 20, 14, 10, 5))):
+                    for size in sizes:
+                        self.band_combo.addItem(
+                            f"BS 882 {kind} {size} mm (Table 3)",
+                            ("bs882", "coarse", kind, size),
+                        )
+                self.band_combo.setCurrentIndex(1)
+        elif standard == "is383" and aggregate_type == "fine":
             for zone in FINE_ZONES:
                 self.band_combo.addItem(
                     f"IS 383 Grading Zone {zone}",
@@ -3175,6 +3598,150 @@ class ParticleSizeDistributionTab(QWidget):
                 ASTM_COARSE_NOMINAL_SIZES.index(20)
             )
         self.band_combo.blockSignals(False)
+        self._update_band_info()
+
+    # ── Dynamic Reference-Band help ──────────────────────────────────
+    # The 'i' beside Reference Band always describes the currently
+    # selected standard × aggregate × band. Table envelopes below are the
+    # verified transcriptions used for conformance (never raw OCR):
+    # IS 383 Table 9 / Table 7, ASTM C33 Tables 1–2, BS 882 Tables 3–4.
+
+    _BAND_INFO_COMMON = (
+        "Limits and sieve rows always follow the selected standard — "
+        "never mix one standard's sieves with another's limits.\n\n"
+        "A dash (—) means no requirement at that sieve: it stays "
+        "available for input but is ignored for conformance."
+    )
+
+    # IS 383:2016 Table 9 zone envelopes (% passing), coarsest → finest.
+    _IS_ZONE_BANDS = {
+        "I": "10 mm 100; 4.75 mm 90–100; 2.36 mm 60–95; 1.18 mm 30–70; "
+             "600 µm 15–34; 300 µm 5–20; 150 µm 0–10",
+        "II": "10 mm 100; 4.75 mm 90–100; 2.36 mm 75–100; 1.18 mm 55–90; "
+              "600 µm 35–59; 300 µm 8–30; 150 µm 0–10",
+        "III": "10 mm 100; 4.75 mm 90–100; 2.36 mm 85–100; 1.18 mm 75–100; "
+               "600 µm 60–79; 300 µm 12–40; 150 µm 0–10",
+        "IV": "10 mm 100; 4.75 mm 95–100; 2.36 mm 95–100; 1.18 mm 90–100; "
+              "600 µm 80–100; 300 µm 15–50; 150 µm 0–15",
+    }
+
+    # BS 882:1992 Table 4 sand envelopes (% passing). Overall limits apply
+    # to every sand; each of C/M/F is intersected with Overall (§5.2.1).
+    _BS_OVERALL_SAND = (
+        "10 mm 100; 5 mm 89–100; 150 µm 0–15 "
+        "(20% for crushed-rock fines, except heavy-duty floors)"
+    )
+    _BS_SAND_GRADES = {
+        # C = Coarse sand, M = Medium sand, F = Fine sand.
+        "C": ("Coarse sand (coarsest of the three)",
+              "2.36 mm 60–100; 1.18 mm 30–90; 600 µm 15–54; 300 µm 5–40"),
+        "M": ("Medium sand",
+              "2.36 mm 65–100; 1.18 mm 45–100; 600 µm 25–80; 300 µm 5–48"),
+        "F": ("Fine sand (finest of the three)",
+              "2.36 mm 80–100; 1.18 mm 70–100; 600 µm 55–100; 300 µm 5–70"),
+    }
+
+    def _update_band_info(self) -> None:
+        """Rewrite the Reference-Band 'i' text for the current selection."""
+        btn = getattr(self, "_band_info_btn", None)
+        if btn is None:
+            return
+        standard = self.standard_combo.currentData()
+        agg = self.agg_combo.currentData()
+        key = self.band_combo.currentData()
+        btn.set_text(self._band_info_text(standard, agg, key))
+
+    def _band_info_text(self, standard, agg, key) -> str:
+        """Build the Reference-Band help for one standard × agg × band."""
+        head = self._BAND_INFO_COMMON
+        if standard == "bs882" and agg == "fine":
+            grade = key[2] if key and len(key) > 2 else "Overall"
+            body = (
+                "BS 882:1992 Table 4 — sand grading (§5.2).\n\n"
+                "Two layers: (1) Overall limits every sand must meet "
+                f"({self._BS_OVERALL_SAND}); "
+                "(2) one additional grading — C, M or F — which the sand "
+                "must additionally sit inside for at least 9 of 10 "
+                "consecutive samples (§5.2.1; a single sample cannot prove "
+                "it). The three gradings overlap: one sand may satisfy "
+                "more than one.\n\n"
+                "C = Coarse sand; M = Medium sand; F = Fine sand — "
+                "three overlapping envelopes, finest at the top:\n"
+                f"• C (coarse): {self._BS_SAND_GRADES['C'][1]}\n"
+                f"• M (medium): {self._BS_SAND_GRADES['M'][1]}\n"
+                f"• F (fine): {self._BS_SAND_GRADES['F'][1]}\n"
+                "(each combined with the Overall limits above).\n\n"
+                "Heavy-duty floor finishes require C or M (§5.2.2). A sand "
+                "inside Overall but in no C/M/F needs an agreed envelope "
+                "(Table 4 note). BRE 331 §1.2.5 expects a C/M/F sand; "
+                "Figure 6 then uses % passing 600 µm."
+            )
+            if grade in self._BS_SAND_GRADES:
+                label, env = self._BS_SAND_GRADES[grade]
+                body += (
+                    f"\n\nSelected: {grade} — {label}: {env} "
+                    "(with Overall limits)."
+                )
+            else:
+                body += "\n\nSelected: Overall — the base envelope every sand must meet."
+            return head + "\n\n" + body
+        if standard == "bs882":
+            kind = key[2] if key and len(key) > 3 else "graded"
+            size = key[3] if key and len(key) > 3 else key[-1] if key else "?"
+            return (
+                head + "\n\n"
+                "BS 882:1992 Table 3 — coarse aggregate (§5.1).\n\n"
+                "Graded aggregates (40–5, 20–5, 14–5 mm) are blended sizes; "
+                "single-sized aggregates (40, 20, 14, 10, 5 mm) are "
+                "nominal fractions. 5 mm single-sized is used mainly in "
+                "precast products (Table 3 footnote).\n\n"
+                f"Selected: {kind} {size} mm.\n\n"
+                "BRE 331 designs only 10/20/40 mm NMSA — 14 and 5 mm "
+                "references never map onto a DOE size."
+            )
+        if standard == "is383" and agg == "fine":
+            zone = key[2] if key and len(key) > 2 else "II"
+            env = self._IS_ZONE_BANDS.get(zone, "")
+            return (
+                head + "\n\n"
+                "IS 383:2016 Table 9 — fine-aggregate grading Zones I "
+                "(coarsest) → IV (finest). "
+                "600 µm anchors: I 15–34; II 35–59; III 60–79; IV 80–100.\n\n"
+                f"Selected Zone {zone}: {env}.\n\n"
+                "The zone keys IS 10262 Table 5 coarse-aggregate volume "
+                "fraction. Assigned from the 600 µm sieve; other sieves may "
+                "deviate within the Clause 6.3 tolerance."
+            )
+        if standard == "is383":
+            kind = key[2] if key and len(key) > 3 else "graded"
+            size = key[3] if key and len(key) > 3 else "?"
+            return (
+                head + "\n\n"
+                "IS 383:2016 Table 7 — coarse aggregate grading.\n\n"
+                "Graded references (40, 20, 16, 12.5 mm nominal) are "
+                "blended sizes; single-sized references (63, 40, 20, 16, "
+                "12.5, 10 mm) are nominal fractions.\n\n"
+                f"Selected: {kind} {size} mm — guides the mix-design NMSA."
+            )
+        if standard == "astm_c33" and agg == "fine":
+            return (
+                head + "\n\n"
+                "ASTM C33/C33M Table 1 — fine-aggregate grading envelope "
+                "(% passing): 9.5 mm 100; 4.75 mm 95–100; 2.36 mm 80–100; "
+                "1.18 mm 50–85; 600 µm 25–60; 300 µm 5–30; 150 µm 0–10.\n\n"
+                "Clause 6.2 additionally restricts fineness modulus to "
+                "2.3–3.1; Clause 6.4 limits shipment variation to 0.20 "
+                "from the source base FM."
+            )
+        size = key[-1] if key else "?"
+        astm_no = {10: 8, 20: 67, 40: 467}.get(size, "?")
+        return (
+            head + "\n\n"
+            "ASTM C33/C33M Table 2 — coarse-aggregate grading.\n\n"
+            "Project references: 10 mm → Size 8; 20 mm → Size 67; "
+            f"40 mm → Size 467.\n\nSelected: {size} mm (Size {astm_no}) — "
+            "guides the mix-design NMSA."
+        )
 
     def _update_standard_limit_column(self) -> None:
         """Show selected-code passing limits and dashes for unchecked sieves."""
@@ -3189,7 +3756,24 @@ class ParticleSizeDistributionTab(QWidget):
     # ── Live recompute of the table's derived columns ────────────────
 
     def _on_cell_changed(self) -> None:
+        if self.standard_combo.currentData() == "bs882":
+            self._on_bs_changed()
         self._recompute_table()
+
+    def _compute_current_psd(
+        self, masses: list[float], sieves: list[float], pan: float
+    ) -> PSDResult:
+        if self.standard_combo.currentData() == "bs882":
+            data = self.bs_quality.metadata()
+            return compute_bs812_psd(
+                masses, sieves, pan,
+                original_dry_mass=data["original_dry_mass"],
+                washed_dry_mass=(data["washed_dry_mass"]
+                                 if data["method"] == "washed" else None),
+                method=data["method"],
+            )
+        return compute_psd(masses, sieves, pan,
+                           compute_fineness_modulus=self._fm_required())
 
     def _recompute_table(self) -> None:
         """Recompute %retained / cumulative / %passing from the mass column."""
@@ -3209,14 +3793,26 @@ class ParticleSizeDistributionTab(QWidget):
         except ValueError:
             pan = 0.0
 
-        result = compute_psd(masses, sieves, pan_mass=pan)
+        try:
+            result = self._compute_current_psd(masses, sieves, pan)
+        except ValueError:
+            for i in range(len(sieves) + 1):
+                for col in (2, 3, 4):
+                    self.table.item(i, col).setText("—")
+            self.table.item(len(sieves) + 1, 1).setText("—")
+            self.table.blockSignals(False)
+            return
 
         for i in range(len(sieves)):
             self.table.item(i, 2).setText(f"{result.percent_retained[i]:.2f}")
             self.table.item(i, 3).setText(
                 f"{result.cumulative_percent_retained[i]:.2f}"
             )
-            self.table.item(i, 4).setText(f"{result.percent_passing[i]:.2f}")
+            self.table.item(i, 4).setText(
+                str(report_whole_percent(result.percent_passing[i]))
+                if self.standard_combo.currentData() == "bs882"
+                else f"{result.percent_passing[i]:.2f}"
+            )
 
         # Pan row: show pan mass % of total
         pan_pct = pan / result.total_mass * 100 if result.total_mass > 0 else 0.0
@@ -3229,15 +3825,93 @@ class ParticleSizeDistributionTab(QWidget):
 
         self.table.blockSignals(False)
 
+    def _on_export_table_csv(self) -> None:
+        """Export the mass-retained input table to CSV.
+
+        Writes the table exactly as displayed — all six headers
+        including "Standard % Passing" — preceded by Standard /
+        Aggregate Type / Reference Band rows for traceability.
+        Derived columns are refreshed first so the file matches the
+        on-screen values.
+        """
+        self._recompute_table()
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Export PSD Table CSV", "psd_sieve_table.csv",
+            "CSV (*.csv)",
+        )
+        if not path:
+            return
+        buf = io.StringIO()
+        writer = csv.writer(buf)
+        std_names = {"is383": "IS 383:2016",
+                     "astm_c33": "ASTM C33/C33M",
+                     "bs882": "BS 882:1992"}
+        standard = self.standard_combo.currentData()
+        writer.writerow(["Standard",
+                         std_names.get(standard, str(standard))])
+        writer.writerow(["Aggregate Type",
+                         self.agg_combo.currentText()])
+        writer.writerow(["Reference Band",
+                         self.band_combo.currentText()])
+        headers = [
+            self.table.horizontalHeaderItem(c).text()
+            if self.table.horizontalHeaderItem(c) is not None else ""
+            for c in range(self.table.columnCount())
+        ]
+        writer.writerow(headers)
+        for row in range(self.table.rowCount()):
+            writer.writerow([
+                self.table.item(row, col).text()
+                if self.table.item(row, col) is not None else ""
+                for col in range(self.table.columnCount())
+            ])
+        with open(path, "w", newline="") as f:
+            f.write(buf.getvalue())
+        if hasattr(self.window(), "status_bar") and self.window().status_bar:
+            self.window().status_bar.showMessage(
+                f"PSD table exported to {path}", 5000)
+
     # ── Event handlers ───────────────────────────────────────────────
 
     def _on_standard_changed(self) -> None:
         self._rebuild_band_combo()
         self._rebuild_table()
         self._update_quality_visibility()
+        self._result_panel.set_standard_display(
+            self.standard_combo.currentData()
+        )
         self._result_panel.clear()
         self._last_result = None
         self._astm_checks = []
+        self._bs_checks = []
+
+    def _on_bs_changed(self) -> None:
+        # Any BS laboratory-record change invalidates the previous analysis:
+        # exports and Apply are disabled until Compute & Plot re-runs.
+        self._result_panel.clear()
+        self._last_result = None
+        self._bs_checks = []
+        self.bs_quality.checks_label.setText("Inputs changed — compute again.")
+        self._update_standard_limit_column()
+        self._recompute_table()
+
+    def _on_bs_stack_changed(self) -> None:
+        # Optional-stack and method changes preserve the lab record by
+        # aperture identity, not index. New sieve rows start at zero.
+        masses = {
+            self.table.item(i, 0).data(Qt.ItemDataRole.UserRole):
+            self.table.item(i, 1).text()
+            for i in range(max(0, self.table.rowCount() - 2))
+        }
+        pan = self.table.item(self.table.rowCount() - 2, 1).text()
+        self._rebuild_table()
+        self.table.blockSignals(True)
+        for i, sieve in enumerate(self._current_sieves()):
+            self.table.item(i, 1).setText(masses.get(sieve, "0"))
+        self.table.item(len(self._current_sieves()), 1).setText(pan)
+        self.table.blockSignals(False)
+        self._on_bs_changed()
+        self._recompute_table()
 
     def _on_agg_type_changed(self) -> None:
         self._rebuild_band_combo()
@@ -3249,6 +3923,7 @@ class ParticleSizeDistributionTab(QWidget):
 
     def _on_band_changed(self) -> None:
         self._update_standard_limit_column()
+        self._update_band_info()
         # If a result already exists, re-evaluate conformance and redraw.
         if self._last_result is not None:
             self._evaluate_and_plot(self._last_result)
@@ -3288,10 +3963,7 @@ class ParticleSizeDistributionTab(QWidget):
             return
 
         try:
-            result = compute_psd(
-                masses, sieves, pan_mass=pan,
-                compute_fineness_modulus=self._fm_required(),
-            )
+            result = self._compute_current_psd(masses, sieves, pan)
         except ValueError as e:
             QMessageBox.warning(self, "Input Error", str(e))
             return
@@ -3340,11 +4012,52 @@ class ParticleSizeDistributionTab(QWidget):
     def _evaluate_and_plot(self, result: PSDResult) -> None:
         """Check conformance against the selected band and show on the panel."""
         band_key = self.band_combo.currentData()
+        if band_key is None:
+            self._result_panel.clear()
+            return
         band = self._current_band(band_key)
         check_conformance(result, band)
         self._result_panel.display_psd(
             result, band, band_key, fm_required=self._fm_required()
         )
+        if self.standard_combo.currentData() != "bs882":
+            self._result_panel._bs_handoff = None
+            return
+        quality = self.bs_quality.quality_inputs()
+        self._bs_checks = (
+            evaluate_bs882_fine(result, quality, grading=band_key[2])
+            if band_key[1] == "fine"
+            else evaluate_bs882_coarse(result, band, quality)
+        )
+        self.bs_quality.show_checks(self._bs_checks)
+        self._result_panel._export_metadata = self._gather_history_input()
+        # Snapshot the BRE 331 handoff: the lab record the sieve curve
+        # alone cannot supply (BRE §1.2.4 aggregate type from the BS 882
+        # source classification) plus the compliance gates (Tables 3/4
+        # grading, Table 6 fines, §4.2 FI) and, for sand, every fully
+        # matching C/M/F grading (BRE §1.2.5 expects a C/M/F sand).
+        passing = dict(zip(result.sieve_sizes, result.percent_passing))
+        rock = quality.source_type == "crushed_rock"
+        sand_grades: tuple[str, ...] = ()
+        if band_key[1] == "fine":
+            try:
+                sand_grades = classify_bs882_sand(
+                    passing, crushed_rock=rock,
+                    heavy_duty_floor=quality.heavy_duty_floor,
+                )
+            except Exception:
+                sand_grades = ()
+        self._result_panel._bs_handoff = {
+            "source_type": quality.source_type,
+            "heavy_duty_floor": quality.heavy_duty_floor,
+            "sand_grades": list(sand_grades),
+            "failures": [
+                f"{c.clause} {c.title}: {c.measured} "
+                f"({c.requirement}{('; ' + c.detail) if c.detail else ''})"
+                for c in self._bs_checks if c.failed
+            ],
+        }
+        self._recompute_table()
 
     def _fm_required(self) -> bool:
         """Whether the selected standard carries an FM requirement here.
@@ -3366,6 +4079,14 @@ class ParticleSizeDistributionTab(QWidget):
         if band_key is None:
             return {}
         standard, aggregate_type, *reference = band_key
+        if standard == "bs882":
+            if aggregate_type == "fine":
+                return get_bs_fine_band(
+                    reference[0],
+                    crushed_rock=self.bs_quality.source_combo.currentData() == "crushed_rock",
+                    heavy_duty_floor=self.bs_quality.heavy_check.isChecked(),
+                )
+            return get_bs_coarse_band(*reference)
         if standard == "is383" and aggregate_type == "fine":
             return get_fine_band(reference[0])
         if standard == "astm_c33" and aggregate_type == "fine":
@@ -3406,6 +4127,8 @@ class ParticleSizeDistributionTab(QWidget):
             "masses": masses,
             "pan_mass": pan,
         }
+        if inp["standard"] == "bs882":
+            inp["bs882"] = self.bs_quality.metadata()
         if inp["standard"] == "astm_c33":
             if inp["aggregate_type"] == "fine":
                 inp["fine_quality"] = asdict(
@@ -3432,7 +4155,8 @@ class ParticleSizeDistributionTab(QWidget):
             return
         try:
             inp = self._gather_history_input()
-            std = "ASTM C33" if inp["standard"] == "astm_c33" else "IS 383"
+            std = {"astm_c33": "ASTM C33", "is383": "IS 383",
+                   "bs882": "BS 882"}[inp["standard"]]
             agg = "Fine" if inp["aggregate_type"] == "fine" else "Coarse"
             name = f"PSD {std} {agg} — {result.total_mass:.1f} g"
             self._history_db.save_psd(inp, result, name=name)
@@ -3468,21 +4192,32 @@ class ParticleSizeDistributionTab(QWidget):
         if isinstance(band_key, list):
             band_key = tuple(band_key)
         if band_key is not None:
-            idx = self.band_combo.findData(band_key)
+            idx = next((i for i in range(self.band_combo.count())
+                        if self.band_combo.itemData(i) == band_key), -1)
             if idx >= 0:
                 self.band_combo.setCurrentIndex(idx)
 
+        # Restore BS method/stack before masses; aperture identity, never
+        # row offsets, controls matching when optional sieves are present.
+        if inp.get("standard") == "bs882":
+            self.bs_quality.restore(inp.get("bs882", {}))
+            self._rebuild_table()
         # 3) Sieve masses — rows exist for this stack after step 1
         sieves = self._current_sieves()
         masses = inp.get("masses") or []
+        by_aperture = dict(zip(inp.get("sieves", sieves), masses))
         for i in range(len(sieves)):
-            m = masses[i] if i < len(masses) else 0.0
+            m = (by_aperture.get(sieves[i], 0.0)
+                 if inp.get("standard") == "bs882"
+                 else masses[i] if i < len(masses) else 0.0)
             item = self.table.item(i, 1)
             if item is not None:
-                item.setText(f"{float(m):g}")
+                # repr() round-trips the float exactly; f"{m:g}" would clip
+                # to 6 significant digits and break BS 812 mass reconciliation.
+                item.setText(repr(float(m)))
         pan_item = self.table.item(len(sieves), 1)
         if pan_item is not None:
-            pan_item.setText(f"{float(inp.get('pan_mass', 0.0)):g}")
+            pan_item.setText(repr(float(inp.get('pan_mass', 0.0))))
 
         # 4) Quality inputs of the saved standard
         if inp.get("standard") == "astm_c33":
@@ -3494,13 +4229,36 @@ class ParticleSizeDistributionTab(QWidget):
                 inp.get("is383_fine_quality"), inp.get("is383_coarse_quality")
             )
 
+        # BS 812 results must reproduce the restored laboratory masses.
+        if inp.get("standard") == "bs882":
+            try:
+                result = self._compute_current_psd(
+                    [float(self.table.item(i, 1).text()) for i in range(len(sieves))],
+                    sieves, float(pan_item.text()),
+                )
+            except ValueError:
+                self._on_bs_changed()
+                return
+
         # 5) Result → conformance check + panel (compliance dialog is not
         #    re-opened on load; checks are recomputed for the button state)
         self._last_result = result
         self._evaluate_and_plot(result)
         self._astm_checks = []
         std_now = self.standard_combo.currentData()
-        if std_now == "astm_c33":
+        if std_now == "bs882":
+            quality = self.bs_quality.quality_inputs()
+            if self.band_combo.currentData()[1] == "fine":
+                self._bs_checks = evaluate_bs882_fine(
+                    result, quality,
+                    grading=self.band_combo.currentData()[2],
+                )
+            else:
+                self._bs_checks = evaluate_bs882_coarse(
+                    result, self._current_band(self.band_combo.currentData()),
+                    quality,
+                )
+        elif std_now == "astm_c33":
             self._astm_checks = self._run_astm_c33_checks(result)
         elif std_now == "is383":
             self._astm_checks = self._run_is383_checks(result)

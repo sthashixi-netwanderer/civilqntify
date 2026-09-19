@@ -209,9 +209,9 @@ class ISTrialMixesDialog(QDialog):
         rep_layout.addWidget(rep_intro)
 
         for code_letter, req_text in self._protocol["reporting_checklist"]:
-            chk = QCheckBox(f"<b>({code_letter})</b> {req_text}")
+            chk = QCheckBox(f"({code_letter}) {req_text}")  # QCheckBox is plain-text: no rich-text tags
             chk.setChecked(True)
-            chk.setStyleSheet("font-size: 12px; color: #1e293b;")
+            chk.setStyleSheet("QCheckBox { font-size: 12px; color: #1e293b; }")
             rep_layout.addWidget(chk)
 
         layout.addWidget(rep_group)

@@ -72,6 +72,33 @@ for _std in ("is10262", "aci211"):
         _rev.setdefault(_mapping[_std], _grade)
     _REVERSE_CEMENT_MAP[_std] = _rev
 
+# PSD sieve-analysis standard → mix-design code default mapping (per AGENTS.md):
+#   IS 383:2016 → IS 10262:2019 (zone → Table 5, Cl. 5.4 / IS 383 Table 9)
+#   ASTM C33/C33M → ACI PRC-211.1-22 (FM → Table 5.3.6, §4.3.5 / ASTM C136)
+#   BS 882:1992 → DOE BRE 331:1997 (%p600 → Figure 6, §1.2.5)
+# "Use in Mix Design" auto-switches to the mapped code; the user may then
+# switch codes freely — PSD-fed values stay locked/retained regardless.
+_PSD_STANDARD_TO_CODE: dict[str, str] = {
+    "is383": "is10262",
+    "astm_c33": "aci211",
+    "bs882": "doe",
+}
+# BS 882 source classification (§2.2/2.3, Appendix A) → BRE 331 §1.2.4
+# aggregate type. BRE considers only crushed vs uncrushed: uncrushed
+# gravel maps to uncrushed; crushed gravel/rock map to crushed.
+# Partially crushed gravel and unknown sources have no BRE equivalent
+# and are never silently mapped (caller warns, leaves the form unchanged).
+_BS_SOURCE_TO_DOE_TYPE: dict[str, str] = {
+    "uncrushed_gravel": "uncrushed",
+    "crushed_gravel": "crushed",
+    "crushed_rock": "crushed",
+}
+_CODE_LABELS: dict[str, str] = {
+    "is10262": "IS 10262:2019",
+    "aci211": "ACI PRC-211.1:2022",
+    "doe": "DOE (BRE 331:1997)",
+}
+
 
 class ConcreteMixTab(QWidget):
     """Tab for concrete mix design calculations (ACI 211.1 / IS 10262)."""
@@ -92,9 +119,19 @@ class ConcreteMixTab(QWidget):
         # PSD handoff lock state: keys currently locked from a sieve
         # analysis ('fm', 'zone', 'p600', 'nmsa') and their pre-application
         # defaults, so the PSD Clear button can restore them on unlock.
+        # _psd_zone_value / _psd_nmsa_value retain the transferred values
+        # across manual standard switches, even when the newly selected
+        # code hides (FM/p600/zone) or cannot offer (80/150 mm NMSA) the
+        # corresponding row — switching back restores them.
         self._psd_locked: set[str] = set()
         self._psd_snapshot: dict = {}
         self._psd_zone_value: str | None = None
+        self._psd_nmsa_value: int | float | None = None
+        # BRE 331 §1.2.4 aggregate types retained from the BS 882 source
+        # record (fine/coarse locked independently — one PSD analysis
+        # covers one aggregate only).
+        self._psd_fa_type_value: str | None = None
+        self._psd_ca_type_value: str | None = None
         self._mixdesign_idx: int = 0
         self._build_ui()
 
@@ -405,7 +442,7 @@ class ConcreteMixTab(QWidget):
             self._set_enabled(
                 self._lbl_margin, self.margin_spin, (mix_mode or is_doe) and margin_known
             )
-        self.doe_structural_label.setEnabled(mix_mode or is_doe)
+        self.doe_design_note_label.setEnabled(mix_mode or is_doe)
 
         # Target-strength mode does not need DOE age, durability cement limits,
         # workability range, or a manual W/C limit. These are re-enabled for
@@ -583,6 +620,11 @@ class ConcreteMixTab(QWidget):
             "  GGBFS: SG = 2.80–3.00 (ASTM C989)\n\n"
             "Volume = weight / (SG × 62.4 lb/ft³)\n"
             "3.15 is assumed unless test data is available.",
+            "doe": "Specific gravity of cement (supplier data / BS EN 197-1).\n\n"
+            "  OPC: SG = 3.15 (standard assumption)\n\n"
+            "BRE 331 Stage 4 uses the wet-density method (D − C − W, Items "
+            "4.2–4.3), so no cement volume is calculated from this value; "
+            "it is kept as a material record for the report.",
         },
         "fa_sg": {
             "is10262": "Fine aggregate specific gravity at SSD condition (IS 2386 Part 3).\n\n"
@@ -599,6 +641,12 @@ class ConcreteMixTab(QWidget):
             "ACI 211.1 uses bulk SG for volume calculations:\n"
             "  V = weight / (SG × 62.4) ft³\n"
             "Test per ASTM C128.",
+            "doe": "Fine aggregate relative density at SSD (BS 812).\n\n"
+            "  Typical range: 2.50–2.75 (default 2.65)\n\n"
+            "BRE 331 Item 4.1 needs the COMBINED aggregate RD: leave "
+            "'Aggregate Rel. Density (SSD)' on Auto to assume the mean of "
+            "the fine/coarse values, or enter a tested Item 4.1 value "
+            "there to override both.",
         },
         "fa_absorption": {
             "is10262": "Water absorption of fine aggregate (IS 2386 Part 3).\n\n"
@@ -619,6 +667,11 @@ class ConcreteMixTab(QWidget):
             "  Positive → wet aggregate, reduce batch water\n"
             "  Negative → dry aggregate, increase batch water\n"
             "Test per ASTM C128 (specific gravity & absorption).",
+            "doe": "Water absorption of fine aggregate (BS 812).\n\n"
+            "Typical range: 0.5–3.0% (default 1.0%)\n\n"
+            "BRE 331 §6.1 / BS 1881 Part 125 trial batch: SSD masses scale "
+            "directly; oven-dry equivalents and the absorption water use "
+            "this value.",
         },
         "fa_moisture": {
             "is10262": "Free moisture on fine aggregate above SSD condition.\n\n"
@@ -640,6 +693,11 @@ class ConcreteMixTab(QWidget):
             "  FA SSD = 1124 lb/yd³, field moisture = +3%\n"
             "  FA field = 1124 × 1.03 = 1158 lb/yd³\n"
             "  Free water = 1158 − 1124 = 34 lb/yd³ (deducted from batch water)",
+            "doe": "Surface moisture on fine aggregate above SSD (BS 812 / BS 1881).\n\n"
+            "  0% = SSD condition (no adjustment)\n"
+            "  Positive (+%) = wet → reduce batch water\n"
+            "  Negative (−%) = dry → increase batch water\n\n"
+            "Applied at the BRE 331 §6.1 trial batch (field masses).",
         },
         "ca_sg": {
             "is10262": "Coarse aggregate specific gravity at SSD condition (IS 2386 Part 3).\n\n"
@@ -657,6 +715,12 @@ class ConcreteMixTab(QWidget):
             "ACI 211.1 Appendix B (Table B.2):\n"
             "  Bulk density × volume fraction = coarse agg weight\n"
             "Test per ASTM C127.",
+            "doe": "Coarse aggregate relative density at SSD (BS 812).\n\n"
+            "  Granite: 2.65–2.80 (default 2.70)\n\n"
+            "BRE 331 Item 4.1 needs the COMBINED aggregate RD: leave "
+            "'Aggregate Rel. Density (SSD)' on Auto to assume the mean of "
+            "the fine/coarse values, or enter a tested Item 4.1 value "
+            "there to override both.",
         },
         "ca_absorption": {
             "is10262": "Water absorption of coarse aggregate (IS 2386 Part 3).\n\n"
@@ -676,6 +740,11 @@ class ConcreteMixTab(QWidget):
             "  Positive → reduce batch water\n"
             "  Negative → increase batch water\n"
             "Test per ASTM C127.",
+            "doe": "Water absorption of coarse aggregate (BS 812).\n\n"
+            "Typical range: 0.2–2.0% (default 0.5%)\n\n"
+            "BRE 331 §6.1 / BS 1881 Part 125 trial batch: SSD masses scale "
+            "directly; oven-dry equivalents and the absorption water use "
+            "this value.",
         },
         "ca_moisture": {
             "is10262": "Free moisture on coarse aggregate above SSD condition.\n\n"
@@ -694,6 +763,21 @@ class ConcreteMixTab(QWidget):
             "  CA SSD = 1951 lb/yd³, field moisture = +1%\n"
             "  CA field = 1951 × 1.01 = 1971 lb/yd³\n"
             "  Free water = 1971 − 1951 = 20 lb/yd³",
+            "doe": "Surface moisture on coarse aggregate above SSD (BS 812 / BS 1881).\n\n"
+            "  Positive (+%) = wet → reduce batch water\n"
+            "  Negative (−%) = dry → increase batch water\n\n"
+            "Applied at the BRE 331 §6.1 trial batch (field masses).",
+        },
+        "agg_rd": {
+            "doe": "Combined aggregate relative density at SSD — BRE 331:1997 Item 4.1 "
+            "('known/assumed'), the Figure 5 entry for Stage 4 wet density.\n\n"
+            "  Tested value → type it here (e.g. 2.60); it overrides both SG fields.\n"
+            "  Auto → assume the unweighted mean of the fine/coarse SSD specific "
+            "gravities (Stage 4 precedes the Stage 5 split, so no finer weighting "
+            "is defensible).\n\n"
+            "If the aggregates are untested, BRE 331 §5.4 allows assuming 2.6 "
+            "(uncrushed) or 2.7 (crushed): set the FA/CA SG fields accordingly "
+            "or type the assumed value here.",
         },
         "ca_bulk": {
             "is10262": "Bulk density of coarse aggregate (IS 2386 Part 3).\n\n"
@@ -1253,6 +1337,33 @@ class ConcreteMixTab(QWidget):
         )
         f1.addRow(self._lbl_aci_tests, self.aci_tests_spin)
 
+        # ACI-specific: sample standard deviation behind the production
+        # data (Tables 4.7.4.3-4.7.4.4, e.g. §9.3 Example 2: 300 psi =
+        # 2.07 MPa). 0 = engine default 4.0 MPa (≈600 psi).
+        self.aci_std_spin = self._spin(0.0, 0.0, 10.0, 0.1, 2)
+        self._lbl_aci_std = self._label_with_info(
+            "Std Deviation s (MPa)",
+            "Sample standard deviation behind the production data (ACI only).\n\n"
+            "ACI PRC-211.1-22 Table 4.7.4.4 required average:\n"
+            "  f'cr = max(f'c + 1.34·k·s, f'c + 2.33·k·s − 3.45 MPa)\n\n"
+            "Example: §9.3 Example 2 uses s = 300 psi (2.07 MPa) with n = 30.\n"
+            "0 = engine default 4.0 MPa (≈600 psi).\n\n"
+            "Requires 'Has Production Data' to be checked.",
+            key="aci_std_deviation",
+        )
+        f1.addRow(self._lbl_aci_std, self.aci_std_spin)
+
+        # ACI-specific: Table 5.3.3.1 −8% rounded-aggregate water cut.
+        self.aci_rounded_check = QCheckBox(
+            "Rounded aggregate −8% water (Table 5.3.3.1)")
+        self.aci_rounded_check.setToolTip(
+            "Apply the Table 5.3.3.1 −8% mixing-water cut for rounded coarse\n"
+            "aggregate (ACI only, off by default).\n\n"
+            "ACI PRC-211.1-22 §9.3 Example 2 Step 3 applies it (22 lb of the\n"
+            "280 → 227 lb ledger); §9.2 Example 1 keeps tabulated water.\n"
+            "Leave off unless the trial verifies the reduction.")
+        f1.addRow(None, self.aci_rounded_check)
+
         # ACI-specific: target paste volume (Example 4 / AASHTO PP 84).
         self.paste_vol_spin = self._spin(0.0, 0.0, 45.0, 0.5, 1)
         self.paste_vol_spin.setToolTip(
@@ -1428,19 +1539,19 @@ class ConcreteMixTab(QWidget):
         f1.addRow(self._lbl_vebe, self.vebe_spin)
 
         # Design-note banner (text set per code in _on_code_changed).
-        self.doe_structural_label = QLabel(
+        self.doe_design_note_label = QLabel(
             "ⓘ Any grade 5–100 MPa. Durability is gated by the exposure "
             "selection — e.g. severe exposure still requires its minimum grade."
         )
-        self.doe_structural_label.setWordWrap(True)
-        self.doe_structural_label.setStyleSheet(
+        self.doe_design_note_label.setWordWrap(True)
+        self.doe_design_note_label.setStyleSheet(
             "font-size: 11px; color: #92400e; padding: 8px 10px; "
             "background: #fef3c7; border: 1px solid #f59e0b; border-radius: 4px; "
             "margin-top: 4px;"
         )
-        f1.addRow(self.doe_structural_label)
+        f1.addRow(self.doe_design_note_label)
 
-        # No app-imposed structural floor: any grade 5–100 MPa per code
+        # No app-imposed minimum grade: any grade 5–100 MPa per code
         # (exposure classes impose their own minima downstream).
         self.strength_spin = UnitSpinBox("strength", 25.0, 5.0, 100.0, 0.5, 2)
         self.strength_spin.valueChanged.connect(self._update_std_dev_display)
@@ -1467,7 +1578,8 @@ class ConcreteMixTab(QWidget):
             "ACI 211.1: f'cr = f'c + 1.34·s (with data) or ACI 318 Table 26.4.3.1(b) overdesign.\n\n"
             "DOE (BRE 331 Figure 3): fm = fc + k·s — Line A (n<20): s = 0.4×fc "
             "(fc≤20) else 8 MPa; Line B (n≥20): s = 0.2×fc (fc≤20) else 4 MPa.\n\n"
-            "Typical range: 25–50 MPa (structural), 50–100 MPa (high-strength).",
+            "Usable range 5–100 MPa for any application; exposure and "
+            "durability selections may impose their own minimum grade.",
             key="strength",
         )
         f1.addRow(self._lbl_strength, self.strength_spin)
@@ -1721,7 +1833,7 @@ class ConcreteMixTab(QWidget):
             self._label_with_info(
                 "Fine Aggregate SG",
                 "Relative density of fine aggregate at SSD condition (water = 1.000).\n\n"
-                "IS 10262 D-2 / ACI A.4 / BRE 331 §5.4 Table 9:\n"
+                "IS 10262 D-2 / ACI A.4 / BS 812 (DOE Item 4.1):\n"
                 "  Typical range: 2.50–2.75\n\n"
                 "Used in volume and density calculations.",
                 key="fa_sg",
@@ -1851,7 +1963,7 @@ class ConcreteMixTab(QWidget):
             self._label_with_info(
                 "Coarse Aggregate SG",
                 "Relative density of coarse aggregate at SSD condition.\n\n"
-                "IS 10262 D-2 / ACI A.4 / BRE 331 Table 9:\n"
+                "IS 10262 D-2 / ACI A.4 / BS 812 (DOE Item 4.1):\n"
                 "  Granite: 2.65–2.80\n"
                 "  Limestone: 2.50–2.70\n"
                 "  Basalt: 2.80–3.00\n\n"
@@ -1863,6 +1975,28 @@ class ConcreteMixTab(QWidget):
         f2.addRow(self._lbl_ca_type, self.ca_type_combo)
         f2.addRow(self._lbl_shape, self.agg_shape_combo)
         f2.addRow(self._lbl_ca_bulk, self.ca_bulk_spin)
+        # DOE only: combined aggregate relative density at SSD (BRE 331:1997
+        # Item 4.1, "known/assumed") — the Figure 5 entry for Stage 4 wet
+        # density. 0.00 = Auto: assume the unweighted mean of the FA/CA SSD
+        # specific gravities above. Visible and consumed for DOE only.
+        self.agg_rd_spin = self._spin(0.0, 0.0, 3.5, 0.01, 2)
+        # Short "Auto" text: the full explanation lives in the label info
+        # and tooltip — a long specialValueText would inflate the spin's
+        # minimum-size hint past the sidebar floor and clip the whole form
+        # (the field column is shared by every row).
+        self.agg_rd_spin.setSpecialValueText("Auto")
+        self.agg_rd_spin.setToolTip(
+            "Auto = assume the mean of the fine/coarse SSD specific "
+            "gravities above (DOE Item 4.1)."
+        )
+        self._lbl_agg_rd = self._label_with_info(
+            "Aggregate Rel. Density (SSD)",
+            "Combined aggregate relative density at SSD condition (DOE only).\n\n"
+            "Enter a tested Item 4.1 value, or leave on Auto to assume the "
+            "mean of the fine/coarse SSD specific gravities.",
+            key="agg_rd",
+        )
+        f2.addRow(self._lbl_agg_rd, self.agg_rd_spin)
         f2.addRow(
             self._label_with_info(
                 "CA Absorption (%)",
@@ -2124,7 +2258,12 @@ class ConcreteMixTab(QWidget):
         # properties for IS 10262 §§7–8 acceptance and §8.3 envelope.
         # 0 / blank = not measured.
         # ════════════════════════════════════════════════════════════════
-        grp_scc = self._group("SCC fresh-property checks (optional, IS)")
+        grp_scc = self._group("SCC Checks (optional, IS)")
+        grp_scc.setToolTip(
+            "SCC fresh-property checks (IS only): slump-flow class (§7.2.1), "
+            "L-box (§7.2.2), segregation SR (§7.2.3) and V-funnel (§7.2.4) "
+            "per IS 1199 (Part 6)."
+        )
         fs = QFormLayout()
         fs.setSpacing(8)
         fs.setContentsMargins(12, 16, 12, 12)
@@ -2967,7 +3106,7 @@ class ConcreteMixTab(QWidget):
 
         # Production Data check is for ACI only (>=30 tests).  For DOE the
         # standard deviation is now derived from the number of test cubes n
-        # (structural: n<20 → 8 MPa Line A, n≥20 → 4 MPa Line B).
+        # (n<20 → 8 MPa Line A, n≥20 → 4 MPa Line B).
         if is_aci:
             self.prod_data_check.setText("Has Production Data (\u226530 tests)")
             self.prod_data_check.setVisible(True)
@@ -2977,6 +3116,9 @@ class ConcreteMixTab(QWidget):
         # target follow the production-data visibility.
         self._lbl_aci_tests.setVisible(is_aci)
         self.aci_tests_spin.setVisible(is_aci)
+        self._lbl_aci_std.setVisible(is_aci)
+        self.aci_std_spin.setVisible(is_aci)
+        self.aci_rounded_check.setVisible(is_aci)
         self._lbl_paste_vol.setVisible(is_aci)
         self.paste_vol_spin.setVisible(is_aci)
 
@@ -3017,21 +3159,23 @@ class ConcreteMixTab(QWidget):
         self.vebe_spin.setVisible(is_doe)
         self._lbl_doe_workability.setVisible(is_doe)
         self.doe_workability_combo.setVisible(is_doe)
+        self._lbl_agg_rd.setVisible(is_doe)
+        self.agg_rd_spin.setVisible(is_doe)
         if is_doe:
             # Entering DOE mode: align the range selector with the
             # current numeric inputs and refresh its Table 3 readout.
             self._update_water_display()
-        if hasattr(self, "doe_structural_label"):
-            self.doe_structural_label.setVisible(True)
+        if hasattr(self, "doe_design_note_label"):
+            self.doe_design_note_label.setVisible(True)
             if is_doe:
-                self.doe_structural_label.setText(
+                self.doe_design_note_label.setText(
                     "ⓘ DOE Figure 3 design (BRE 331 §4.4): any characteristic "
                     "strength grade (≥ 5 MPa). Standard deviation follows "
                     "Line A (n < 20 results) / Line B (n ≥ 20 results) from "
                     "the number of test cubes, exactly as charted."
                 )
             else:
-                self.doe_structural_label.setText(
+                self.doe_design_note_label.setText(
                     "ⓘ Any grade 5–100 MPa. Durability is gated by the exposure "
                     "selection (IS 456 Table 5 / ACI 318 Chapter 19) — e.g. severe "
                     "exposure still requires its minimum grade."
@@ -3046,7 +3190,7 @@ class ConcreteMixTab(QWidget):
         else:
             self.slump_spin.set_metric_range(10.0, 250.0)
 
-        # Strength range is 5–100 MPa for every code (no structural floor);
+        # Strength range is 5–100 MPa for every code (no minimum-grade floor);
         # exposure minima are enforced by the engines, not the control.
         _strength_lo = 5.0
         self.strength_spin.set_metric_range(_strength_lo, 100.0)
@@ -3071,6 +3215,12 @@ class ConcreteMixTab(QWidget):
 
         # NMSA options follow the code: IS adds mass-concreting 80/150 mm (§9).
         cur_nmsa = self.nmsa_combo.currentData()
+        # A PSD-locked size is retained across manual code switches even
+        # when the new code cannot offer it — prefer the retained value
+        # for the restore attempt so switching back brings it back.
+        want_nmsa = cur_nmsa
+        if "nmsa" in self._psd_locked and self._psd_nmsa_value is not None:
+            want_nmsa = self._psd_nmsa_value
         self.nmsa_combo.blockSignals(True)
         self.nmsa_combo.clear()
         _nmsa_items = [("10 mm", 10), ("20 mm", 20), ("40 mm", 40)]
@@ -3080,19 +3230,20 @@ class ConcreteMixTab(QWidget):
             self.nmsa_combo.addItem(_lbl, _val)
         _restored = False
         for i in range(self.nmsa_combo.count()):
-            if self.nmsa_combo.itemData(i) == cur_nmsa:
+            if self.nmsa_combo.itemData(i) == want_nmsa:
                 self.nmsa_combo.setCurrentIndex(i)
                 _restored = True
                 break
         if not _restored:
             self.nmsa_combo.setCurrentIndex(
                 self.nmsa_combo.findData(20))
-        # A PSD-locked NMSA the new code cannot offer (e.g. 80 mm mass
-        # size under ACI/DOE) unlocks instead of silently changing value.
-        if not _restored and "nmsa" in self._psd_locked:
-            self._psd_locked.discard("nmsa")
-            self._psd_snapshot.pop("nmsa", None)
-            self.nmsa_combo.setEnabled(True)
+        # Retention: a PSD-locked NMSA the new code cannot offer (e.g.
+        # 80 mm mass size under ACI/DOE) stays locked/retained — the
+        # combo shows the fallback but remains disabled, and _enforce
+        # restores the retained size when switching back. Never silently
+        # remap it onto another size.
+        if "nmsa" in self._psd_locked:
+            self.nmsa_combo.setEnabled(False)
         self.nmsa_combo.blockSignals(False)
 
         self._on_nmsa_changed()
@@ -3437,6 +3588,7 @@ class ConcreteMixTab(QWidget):
         self.ca_abs_spin.setValue(0.5)
         self.ca_moist_spin.setValue(0.0)
         self.ca_bulk_spin.setValue(1600.0)
+        self.agg_rd_spin.setValue(0.0)  # DOE Item 4.1: Auto (mean of FA/CA SG)
         self.agg_shape_combo.setCurrentIndex(self.agg_shape_combo.findData("angular"))
         self.ca_type_combo.setCurrentIndex(self.ca_type_combo.findData("uncrushed"))
         self.fa_type_combo.setCurrentIndex(self.fa_type_combo.findData("uncrushed"))
@@ -3561,6 +3713,11 @@ class ConcreteMixTab(QWidget):
             # sample standard deviation (production data checked).
             if self.prod_data_check.isChecked():
                 kwargs["num_strength_tests"] = int(self.aci_tests_spin.value())
+                _s = self.aci_std_spin.value()
+                kwargs["std_deviation"] = _s if _s > 0 else None
+            kwargs["apply_rounded_aggregate_reduction"] = (
+                self.aci_rounded_check.isChecked()
+            )
             _pv = self.paste_vol_spin.value()
             kwargs["target_paste_volume_pct"] = _pv if _pv > 0 else None
             kwargs["sulfate_exposure_class"] = self.sulfate_combo.currentData()
@@ -3613,7 +3770,7 @@ class ConcreteMixTab(QWidget):
             kwargs["coarse_agg_type"] = self.ca_type_combo.currentData()
             kwargs["fine_agg_shape"] = self.fa_type_combo.currentData()
             kwargs["fine_agg_type"] = self.fa_type_combo.currentData()
-            # DOE structural — ask for number of test cubes n
+            # DOE — number of test cubes n for the Figure 3 rule:
             # n < 20 → s = 8 MPa (Line A), n ≥ 20 → s = 4 MPa (Line B) per BRE 331 §4.4
             n_cubes = self.n_cubes_spin.value() if hasattr(self, "n_cubes_spin") else 20
             kwargs["num_test_cubes"] = int(n_cubes)
@@ -3641,6 +3798,10 @@ class ConcreteMixTab(QWidget):
             _vebe = self.vebe_spin.value()
             kwargs["vebe_s"] = _vebe if _vebe > 0 else None
             kwargs["ca_split"] = self.ca_split_combo.currentData() or None
+            # BRE 331 Item 4.1 combined RD (SSD): 0.00 = Auto (engine assumes
+            # the FA/CA mean). DOE branch only — ACI/IS never receive it.
+            _rd = self.agg_rd_spin.value()
+            kwargs["aggregate_relative_density_ssd"] = _rd if _rd > 0 else None
 
         return kwargs
 
@@ -3649,15 +3810,22 @@ class ConcreteMixTab(QWidget):
     def _on_psd_apply(self, payload: dict) -> None:
         """Fill mix-design inputs from a PSD result and lock them.
 
-        Each parameter fed here is the sieve-analysis-derived value a
-        supported standard consumes (per AGENTS.md):
-          - ACI 211.1-22 §4.3.5 fineness modulus → Table 5.3.6.
-          - IS 10262:2019 Clause 5.4 / IS 383 Table 9 grading zone → Table 5.
-          - BRE 331:1997 §1.2.5 % passing 600 µm → Figure 6.
-          - Coarse PSD → NMSA (ASTM C33 Table 2 / IS 383 Table 7).
-          - An ASTM C33 fine PSD additionally switches the design standard
-            to ACI 211.1 before its FM is applied — FM is consumed only by
-            the ACI engine (§4.3.5 → Table 5.3.6).
+        Default standard mapping (per AGENTS.md — each sieve standard feeds
+        the mix method that consumes it):
+          - IS 383:2016 → IS 10262:2019 (Cl. 5.4 / IS 383 Table 9 grading
+            zone → Table 5 CA volume fraction).
+          - ASTM C33/C33M → ACI PRC-211.1-22 (§4.3.5 FM → Table 5.3.6).
+          - BS 882:1992 → DOE BRE 331:1997 (§1.2.5 % passing 600 µm →
+            Figure 6).
+          - Coarse PSD → NMSA of the mapped code (ASTM Table 2 / IS 383
+            Table 7 / BRE §1.2.5 10-20-40 mm).
+
+        The switch happens first so transferred values land in visible
+        fields the active engine consumes. Afterwards the user may switch
+        codes freely — every locked PSD-fed value (FM, zone, %p600, NMSA,
+        DOE aggregate types) is retained in ``self._psd_locked`` /
+        ``_psd_*_value`` and re-applied by :meth:`_enforce_psd_locks`,
+        even when the newly selected code hides that row.
 
         Every affected field is recorded in ``self._psd_locked`` and disabled
         so it cannot be overridden in the form. Re-applying a new PSD updates
@@ -3665,17 +3833,56 @@ class ConcreteMixTab(QWidget):
         unlocks and restores the snapshot.
         """
         kind = payload.get("aggregate_kind", "fine")
+        band_standard = payload.get("band_standard")
         applied: list[str] = []
         warnings = list(payload.get("warnings", []))
+        nominal = payload.get("nominal_size_mm")
+
+        # BRE §1.2.5 covers only 10/20/40 mm nominal coarse sizes.
+        # Never silently map BS 14 or 5 mm onto a DOE size.
+        if band_standard == "bs882":
+            if kind == "coarse" and nominal not in (10, 20, 40):
+                return
+            if kind == "fine" and payload.get("pct_passing_600um") is None:
+                return
+
+        # ── Default standard mapping: switch first, then fill ──
+        target_code = _PSD_STANDARD_TO_CODE.get(band_standard) if band_standard else None
+        if target_code and self.code_combo.currentData() != target_code:
+            idx = self.code_combo.findData(target_code)
+            if idx >= 0:
+                self.code_combo.setCurrentIndex(idx)
+                if target_code == "is10262":
+                    applied.append(
+                        "Design standard switched to IS 10262:2019 — IS 383 "
+                        "grading zone keys Table 5 (Cl. 5.4 / IS 383 Table 9)"
+                    )
+                elif target_code == "aci211":
+                    applied.append(
+                        "Design standard switched to ACI PRC-211.1:2022 — "
+                        "fineness modulus is used by ACI (§4.3.5 → "
+                        "Table 5.3.6), not by IS or DOE"
+                    )
+                else:
+                    applied.append(
+                        "Design standard switched to DOE (BRE 331:1997) — "
+                        "% passing 600 µm feeds Figure 6 (§1.2.5)"
+                    )
 
         if kind == "coarse":
-            nominal = payload.get("nominal_size_mm")
             if nominal is not None:
-                self._lock_nmsa(nominal)
-                applied.append(
-                    f"Nominal maximum size set to {nominal} mm "
-                    f"(band reference: {payload.get('band_standard', '—')})"
-                )
+                if self._lock_nmsa(int(nominal)):
+                    applied.append(
+                        f"Nominal maximum size set to {nominal} mm "
+                        f"(band reference: {band_standard or '—'})"
+                    )
+                else:
+                    warnings.append(
+                        f"Nominal size {nominal} mm from "
+                        f"{band_standard or 'the PSD'} has no direct NMSA "
+                        "entry in the mix-design form — choose the closest "
+                        "supported NMSA manually."
+                    )
             else:
                 warnings.append(
                     "Coarse-PSD conformance guides NMSA choice; no reference "
@@ -3686,26 +3893,10 @@ class ConcreteMixTab(QWidget):
             if fm is not None:
                 # Fineness modulus is an ACI 211.1-22 §4.3.5 parameter,
                 # consumed with NMSA via Table 5.3.6; the IS and DOE engines
-                # never use it and keep the FM row hidden. An ASTM C33
-                # grading therefore implies the ACI engine — switch the
-                # design standard first so the transferred value lands in
-                # a visible field that actually consumes it.
-                switched_to_aci = False
-                if (
-                    payload.get("band_standard") == "astm_c33"
-                    and self.code_combo.currentData() != "aci211"
-                ):
-                    aci_idx = self.code_combo.findData("aci211")
-                    if aci_idx >= 0:
-                        self.code_combo.setCurrentIndex(aci_idx)
-                        switched_to_aci = True
+                # never use it and keep the FM row hidden. The value is
+                # still locked/retained when the active code is IS/DOE so
+                # switching back to ACI restores it.
                 self._set_field("fm", self.fm_spin, round(float(fm), 2))
-                if switched_to_aci:
-                    applied.append(
-                        "Design standard switched to ACI 211.1 — fineness "
-                        "modulus is used by ACI (§4.3.5 → Table 5.3.6), "
-                        "not by IS or DOE"
-                    )
                 applied.append(
                     f"Fineness Modulus = {fm:.2f} (ACI 211.1-22 §4.3.5; used "
                     "with NMSA in Table 5.3.6)"
@@ -3759,6 +3950,72 @@ class ConcreteMixTab(QWidget):
                     "used by Figure 6)"
                 )
 
+        # ── BS 882 lab record → BRE 331 design inputs ──
+        # The sieve curve alone cannot supply these (per AGENTS.md):
+        #   * aggregate type crushed/uncrushed (BRE §1.2.4) from the BS 882
+        #     source classification (§2.2/2.3, Appendix A) — keys Table 2
+        #     reference strength and Table 3 water content (incl. the
+        #     2/3·Wf + 1/3·Wc mixed-type note);
+        #   * compliance gates — sand Table 4 incl. C/M/F (BRE §1.2.5),
+        #     coarse Table 3, fines Table 6 (BS 812-103.1 §7.2.1) and
+        #     flakiness §4.2 (BS 812-105.1) — surfaced as warnings.
+        # Item 4.1 combined RD (SSD) is deliberately NOT auto-filled: it
+        # needs a measured BS 812 density/absorption value (BS 882
+        # Appendix A). The DOE form stays on Auto (FA/CA mean) unless the
+        # user types a tested value; BRE §5.4 allows assuming 2.6
+        # (uncrushed) / 2.7 (crushed) via the SG fields when untested.
+        if band_standard == "bs882":
+            src = payload.get("bs_source_type")
+            doe_type = _BS_SOURCE_TO_DOE_TYPE.get(src) if src else None
+            if doe_type is not None:
+                side_combo = (
+                    self.fa_type_combo if kind == "fine"
+                    else self.ca_type_combo
+                )
+                side_key = "fa_type" if kind == "fine" else "ca_type"
+                side_label = (
+                    "Fine aggregate type" if kind == "fine"
+                    else "Coarse aggregate type"
+                )
+                self._lock_agg_type(side_key, side_combo, doe_type)
+                applied.append(
+                    f"{side_label} = {doe_type} "
+                    f"(BRE 331 §1.2.4 from BS 882 source '{src}'; "
+                    "keys Table 2 strength and Table 3 water)"
+                )
+                if {"fa_type", "ca_type"} <= self._psd_locked:
+                    fa_now = self.fa_type_combo.currentData()
+                    ca_now = self.ca_type_combo.currentData()
+                    if fa_now and ca_now and fa_now != ca_now:
+                        applied.append(
+                            "Mixed aggregate types — DOE applies "
+                            "W = 2/3·Wf + 1/3·Wc "
+                            "(BRE 331 Note to Table 3)"
+                        )
+            elif src is not None:
+                warnings.append(
+                    f"BS 882 source '{src}' has no single BRE 331 §1.2.4 "
+                    "equivalent (BRE considers only crushed vs uncrushed) — "
+                    "aggregate type left unchanged; set it manually."
+                )
+            if kind == "fine":
+                grades = payload.get("bs_sand_grades") or []
+                if grades:
+                    applied.append(
+                        "Sand grading "
+                        + "/".join(grades)
+                        + " (BS 882 Table 4; BRE §1.2.5 expects a C/M/F sand)"
+                    )
+                else:
+                    warnings.append(
+                        "Sand matches no BS 882 Table 4 C/M/F grading — "
+                        "BRE §1.2.5 expects a C/M/F sand; an agreed envelope "
+                        "may be used only if the supplier satisfies the "
+                        "purchaser on concrete quality (Table 4 note)."
+                    )
+            for failure in payload.get("bs_quality_failures") or []:
+                warnings.append(f"BS 882 requirement not met — {failure}")
+
         if not applied and not warnings:
             QMessageBox.warning(
                 self,
@@ -3794,6 +4051,10 @@ class ConcreteMixTab(QWidget):
             self._unlock_field(key)
         self._psd_locked.clear()
         self._psd_snapshot.clear()
+        self._psd_zone_value = None
+        self._psd_nmsa_value = None
+        self._psd_fa_type_value = None
+        self._psd_ca_type_value = None
 
     # ── Lock primitives ────────────────────────────────────────────
 
@@ -3805,16 +4066,26 @@ class ConcreteMixTab(QWidget):
         widget.setEnabled(False)
         self._psd_locked.add(key)
 
-    def _lock_nmsa(self, nominal: int) -> None:
-        """Lock NMSA to a nominal size and disable the combo."""
+    def _lock_nmsa(self, nominal: int) -> bool:
+        """Lock NMSA to a nominal size and disable the combo.
+
+        Returns True when the size exists in the current code's NMSA
+        options; False otherwise (no silent mapping — caller warns and
+        leaves the combo unlocked for a manual choice). On success the
+        requested value is retained in ``_psd_nmsa_value`` so a later
+        manual code switch that cannot offer it (e.g. IS mass sizes
+        80/150 mm under ACI/DOE) can restore it when switching back.
+        """
         for i in range(self.nmsa_combo.count()):
             if self.nmsa_combo.itemData(i) == nominal:
+                self._psd_nmsa_value = nominal
                 if "nmsa" not in self._psd_snapshot:
                     self._psd_snapshot["nmsa"] = self.nmsa_combo.currentIndex()
                 self.nmsa_combo.setCurrentIndex(i)
                 self.nmsa_combo.setEnabled(False)
                 self._psd_locked.add("nmsa")
-                break
+                return True
+        return False
 
     def _lock_zone(self, zone: str) -> None:
         """Lock the grading zone into every form source the engine reads.
@@ -3823,7 +4094,8 @@ class ConcreteMixTab(QWidget):
         ``_build_kwargs`` (``grading_combo``) and, for IS mode, its visible
         Table 5 display is the CA-fraction combo — both are set so the
         transferred zone and the fraction row shown can never disagree.
-        Non-IS modes use the plain Grading Zone combo alone. Snapshots are
+        Both combos stay disabled while locked so a manual standard
+        switch cannot silently change the retained value; snapshots are
         taken once so Clear can restore either.
         """
         self._psd_zone_value = zone
@@ -3852,9 +4124,33 @@ class ConcreteMixTab(QWidget):
                         abs(frac - target) < 1e-9:
                     self.ca_fraction_combo.setCurrentIndex(i)
                     break
-            self.ca_fraction_combo.setEnabled(False)
+        # Locked in every mode: the hidden source must not drift while
+        # another code is active, so switching back restores the same zone.
+        self.grading_combo.setEnabled(False)
+        self.ca_fraction_combo.setEnabled(False)
+
+    def _lock_agg_type(self, key: str, combo, value: str) -> None:
+        """Lock a DOE aggregate-type combo from the BS 882 source record.
+
+        Args:
+            key: ``"fa_type"`` (fine, BRE Table 3 Wf) or ``"ca_type"``
+                (coarse, Wc). One PSD analysis covers one aggregate, so
+                the two sides lock independently across successive handoffs.
+            combo: The DOE type combo to set (``fa_type_combo`` /
+                ``ca_type_combo``).
+            value: ``"crushed"`` or ``"uncrushed"`` (BRE §1.2.4).
+        """
+        if key == "fa_type":
+            self._psd_fa_type_value = value
         else:
-            self.grading_combo.setEnabled(False)
+            self._psd_ca_type_value = value
+        if key not in self._psd_snapshot:
+            self._psd_snapshot[key] = combo.currentIndex()
+        idx = combo.findData(value)
+        if idx >= 0:
+            combo.setCurrentIndex(idx)
+        combo.setEnabled(False)
+        self._psd_locked.add(key)
 
     def _unlock_field(self, key: str) -> None:
         """Re-enable a locked field and restore its snapshot default."""
@@ -3864,9 +4160,21 @@ class ConcreteMixTab(QWidget):
             )
             self.grading_combo.setEnabled(True)
             self.ca_fraction_combo.setEnabled(True)
-            self.grading_combo.setCurrentIndex(g_idx)
-            if self.ca_fraction_combo.count():
+            if 0 <= g_idx < self.grading_combo.count():
+                self.grading_combo.setCurrentIndex(g_idx)
+            if 0 <= c_idx < self.ca_fraction_combo.count():
                 self.ca_fraction_combo.setCurrentIndex(c_idx)
+            return
+        if key in ("fa_type", "ca_type"):
+            combo = (
+                self.fa_type_combo if key == "fa_type"
+                else self.ca_type_combo
+            )
+            combo.setEnabled(True)
+            if key in self._psd_snapshot:
+                _idx = self._psd_snapshot[key]
+                if 0 <= _idx < combo.count():
+                    combo.setCurrentIndex(_idx)
             return
         widgets = {"fm": self.fm_spin, "p600": self.pct_passing_600um_spin,
                    "nmsa": self.nmsa_combo}
@@ -3876,7 +4184,9 @@ class ConcreteMixTab(QWidget):
         widget.setEnabled(True)
         if key in self._psd_snapshot:
             if isinstance(widget, QComboBox):
-                widget.setCurrentIndex(self._psd_snapshot[key])
+                _idx = self._psd_snapshot[key]
+                if 0 <= _idx < widget.count():
+                    widget.setCurrentIndex(_idx)
             else:
                 widget.setValue(self._psd_snapshot[key])
 
@@ -3885,8 +4195,10 @@ class ConcreteMixTab(QWidget):
 
         ``_apply_mode_state`` and ``_on_nmsa_changed`` re-enable form rows;
         this re-disables every currently locked PSD-fed field and, for the
-        zone, re-targets both zone sources (grading combo and, in IS mode,
-        its Table 5 row) via :meth:`_lock_zone`.
+        zone/NMSA, re-targets the retained values via :meth:`_lock_zone`
+        (both zone sources) and the stored ``_psd_nmsa_value`` — so a manual
+        code switch retains the PSD data even when the new code hides the
+        row, and switching back restores the same values.
         """
         if not hasattr(self, "fm_spin"):
             return
@@ -3895,9 +4207,33 @@ class ConcreteMixTab(QWidget):
         if "p600" in self._psd_locked:
             self.pct_passing_600um_spin.setEnabled(False)
         if "nmsa" in self._psd_locked:
+            # Restore the retained size when the active code offers it
+            # (e.g. back to IS after an ACI/DOE detour with 80/150 mm);
+            # otherwise keep the fallback entry but stay disabled so the
+            # retained value is not silently overwritten.
+            if self._psd_nmsa_value is not None:
+                for i in range(self.nmsa_combo.count()):
+                    if self.nmsa_combo.itemData(i) == self._psd_nmsa_value:
+                        self.nmsa_combo.setCurrentIndex(i)
+                        break
             self.nmsa_combo.setEnabled(False)
         if "zone" in self._psd_locked and self._psd_zone_value is not None:
             self._lock_zone(self._psd_zone_value)
+        # BRE §1.2.4 aggregate types from the BS 882 source record: hidden
+        # under ACI/IS, so re-assert the retained value as well as the
+        # disabled state (mirrors the zone/NMSA retention above).
+        if "fa_type" in self._psd_locked:
+            if self._psd_fa_type_value is not None:
+                idx = self.fa_type_combo.findData(self._psd_fa_type_value)
+                if idx >= 0:
+                    self.fa_type_combo.setCurrentIndex(idx)
+            self.fa_type_combo.setEnabled(False)
+        if "ca_type" in self._psd_locked:
+            if self._psd_ca_type_value is not None:
+                idx = self.ca_type_combo.findData(self._psd_ca_type_value)
+                if idx >= 0:
+                    self.ca_type_combo.setCurrentIndex(idx)
+            self.ca_type_combo.setEnabled(False)
 
     def _on_result(self, result: MixDesignResult) -> None:
         self._last_result = result
@@ -4034,6 +4370,13 @@ class ConcreteMixTab(QWidget):
         self.prod_data_check.setChecked(bool(inp.has_production_data))
         _ntests = getattr(inp, "num_strength_tests", None)
         self.aci_tests_spin.setValue(int(_ntests) if _ntests else 30)
+        _s_site = getattr(inp, "std_deviation", None)
+        if hasattr(self, "aci_std_spin"):
+            self.aci_std_spin.setValue(
+                float(_s_site) if _s_site else 0.0)
+        if hasattr(self, "aci_rounded_check"):
+            self.aci_rounded_check.setChecked(
+                bool(getattr(inp, "apply_rounded_aggregate_reduction", False)))
         _pv_saved = getattr(inp, "target_paste_volume_pct", None)
         self.paste_vol_spin.setValue(float(_pv_saved) if _pv_saved else 0.0)
 
@@ -4125,6 +4468,11 @@ class ConcreteMixTab(QWidget):
             self.ca_type_combo,
             "crushed" if ca_shape in ("angular", "crushed_fragments")
             else "uncrushed",
+        )
+        # DOE Item 4.1 combined RD (SSD): 0.00 = Auto. Old history records
+        # predate the field and restore as Auto.
+        self.agg_rd_spin.setValue(
+            getattr(inp, "aggregate_relative_density_ssd", None) or 0.0
         )
 
         # IS CA volume fraction (Table 5) — the combo was rebuilt for the

@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 
 from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtGui import QBrush, QColor, QFont
 from PyQt6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -237,24 +238,63 @@ class HistoryTab(QWidget):
         self._select_all_cb.setChecked(False)
         self._select_all_cb.blockSignals(False)
 
+        pinned_bg = QBrush(QColor("#fef3c7"))
+        pinned_fg = QBrush(QColor("#92400e"))
+
         for i, rec in enumerate(records):
+            pinned = bool(rec.get("pinned"))
+
             # Checkbox column
             cb = QCheckBox()
             cb.setProperty("calc_id", rec["id"])
             self._table.setCellWidget(i, 0, cb)
 
-            self._table.setItem(i, 1, QTableWidgetItem(str(rec["id"])))
-            name_item = QTableWidgetItem(rec.get("name", ""))
+            id_item = QTableWidgetItem(str(rec["id"]))
+            if pinned:
+                f = QFont(id_item.font())
+                f.setBold(True)
+                id_item.setFont(f)
+                id_item.setBackground(pinned_bg)
+                id_item.setToolTip("Pinned — stays at top. Right-click to unpin.")
+            self._table.setItem(i, 1, id_item)
+
+            raw_name = rec.get("name", "") or ""
+            display_name = f"\U0001f4cc {raw_name}" if pinned else raw_name
+            # Use pushpin 📌 U+1F4CC
+            if pinned and not raw_name:
+                display_name = "\U0001f4cc"
+            name_item = QTableWidgetItem(display_name)
+            if pinned:
+                f = QFont(name_item.font())
+                f.setBold(True)
+                name_item.setFont(f)
+                name_item.setBackground(pinned_bg)
+                name_item.setForeground(pinned_fg)
+                name_item.setToolTip("Pinned — stays at top. Right-click to unpin or rename.")
+            else:
+                name_item.setToolTip("Right-click to pin to top or rename.")
             self._table.setItem(i, 2, name_item)
 
             tab_label = _TAB_TYPE_LABELS.get(rec["tab_type"], rec["tab_type"])
-            self._table.setItem(i, 3, QTableWidgetItem(tab_label))
+            type_item = QTableWidgetItem(tab_label)
+            if pinned:
+                f = QFont(type_item.font())
+                f.setBold(True)
+                type_item.setFont(f)
+                type_item.setBackground(pinned_bg)
+            self._table.setItem(i, 3, type_item)
 
             date_str = rec.get("created_at", "")[:10]
-            self._table.setItem(i, 4, QTableWidgetItem(date_str))
+            date_item = QTableWidgetItem(date_str)
+            if pinned:
+                date_item.setBackground(pinned_bg)
+            self._table.setItem(i, 4, date_item)
 
             key_result = self._extract_key_result(rec)
-            self._table.setItem(i, 5, QTableWidgetItem(key_result))
+            key_item = QTableWidgetItem(key_result)
+            if pinned:
+                key_item.setBackground(pinned_bg)
+            self._table.setItem(i, 5, key_item)
 
     def _extract_key_result(self, rec: dict) -> str:
         """Extract a human-readable key result from the record."""
@@ -286,7 +326,7 @@ class HistoryTab(QWidget):
             fig7 = result.get("figure7") or {}
             verdict = (result.get("verdict") or {}).get("decision", "")
             if fig7.get("D") is not None:
-                return f"w/c {fig7.get('B')}→{fig7.get('D')}, C={fig7.get('C')} MPa [{verdict or 'n/a'}]"
+                return f"w/c {fig7.get('B')}\u2192{fig7.get('D')}, C={fig7.get('C')} MPa [{verdict or 'n/a'}]"
             return "DOE trial record"
         elif tt == "aci_trial":
             nt = result.get("next_trial_per_m3") or {}
@@ -294,8 +334,8 @@ class HistoryTab(QWidget):
             ry = y.get("relative_yield")
             if nt.get("water"):
                 ry_txt = f", Ry={ry}" if ry is not None else ""
-                return (f"next water {nt.get('water')} kg/m³{ry_txt}, "
-                        f"w/cm {result.get('next_trial_w_cm') or '—'}")
+                return (f"next water {nt.get('water')} kg/m\u00b3{ry_txt}, "
+                        f"w/cm {result.get('next_trial_w_cm') or '\u2014'}")
             return "ACI trial record"
         return ""
 
@@ -511,11 +551,17 @@ class HistoryTab(QWidget):
         if calc_id is None:
             return
 
+        rec = self._db.get_calculation(calc_id)
+        is_pinned = bool(rec.get("pinned")) if rec else False
+
         menu = QMenu(self)
         menu.addAction("View Details", lambda: self._view_details(calc_id))
         menu.addAction("Load into Tab", lambda: self._load_record(calc_id))
         menu.addSeparator()
-        menu.addAction("Rename", lambda: self._rename(calc_id))
+        pin_label = "\U0001f4cc Unpin from Top" if is_pinned else "\U0001f4cc Pin to Top"
+        menu.addAction(pin_label, lambda checked=False, cid=calc_id: self._toggle_pin(cid))
+        menu.addAction("\u270f\ufe0f Rename\u2026", lambda: self._rename(calc_id))
+        menu.addSeparator()
         menu.addAction("Delete", lambda: self._delete_records([calc_id]))
         menu.exec(self._table.viewport().mapToGlobal(pos))
 
@@ -527,14 +573,43 @@ class HistoryTab(QWidget):
         dlg.load_requested.connect(self._load_record)
         dlg.exec()
 
-    def _rename(self, calc_id: int) -> None:
-        from PyQt6.QtWidgets import QInputDialog
+    def _toggle_pin(self, calc_id: int) -> None:
+        """Pin or unpin the record and refresh so pinned stays at top."""
         rec = self._db.get_calculation(calc_id)
         if rec is None:
             return
+        is_pinned = bool(rec.get("pinned"))
+        self._db.set_pinned(calc_id, not is_pinned)
+        # Pinned items sort first globally — reset to page 1 so the
+        # user immediately sees the pinned row at the top instead of
+        # staying on a stale page 2 offset where it is hidden.
+        self._offset = 0
+        self.refresh()
+
+    def _rename(self, calc_id: int) -> None:
+        from PyQt6.QtWidgets import QInputDialog, QLineEdit
+
+        rec = self._db.get_calculation(calc_id)
+        if rec is None:
+            return
+        old_name = rec.get("name", "") or ""
         name, ok = QInputDialog.getText(
-            self, "Rename", "Name:", text=rec.get("name", "")
+            self,
+            "Rename History Entry",
+            "Custom name:",
+            QLineEdit.EchoMode.Normal,
+            old_name,
         )
-        if ok and name:
-            self._db.rename_calculation(calc_id, name)
-            self.refresh()
+        if not ok:
+            return
+        new_name = name.strip()
+        if not new_name:
+            # Ignore empty — keep existing name. Allow clearing via explicit
+            # empty handling if desired: uncomment the next two lines.
+            # self._db.rename_calculation(calc_id, "")
+            # self.refresh()
+            return
+        if new_name == old_name:
+            return
+        self._db.rename_calculation(calc_id, new_name)
+        self.refresh()

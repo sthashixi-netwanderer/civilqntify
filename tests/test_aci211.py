@@ -355,7 +355,7 @@ class TestACIDesignIntegration:
         assert any("sulfate" in w.lower() for w in result.warnings)
 
     def test_sulfate_s2_blocks_below_4500psi(self):
-        """S2 below 31.0 MPa (4500 psi) fails fast (Table 4.7.3a)."""
+        """S2 below 31.03 MPa (4500 psi) fails fast (Table 4.7.3a)."""
         designer = ACI211MixDesign()
         inp = MixDesignInput(
             code="aci211",
@@ -363,17 +363,17 @@ class TestACIDesignIntegration:
             slump_mm=75.0,
             sulfate_exposure_class="S2",
         )
-        with pytest.raises(ValueError, match="minimum 31.0 MPa"):
+        with pytest.raises(ValueError, match="minimum 31.03 MPa"):
             designer.design(inp)
 
     def test_sulfate_s1_s3_floors(self):
-        """S1 blocks below 27.6 MPa (4000 psi); S3 below 34.5 (5000 psi)."""
+        """S1 blocks below 27.58 MPa (4000 psi); S3 below 34.47 (5000 psi)."""
         designer = ACI211MixDesign()
-        with pytest.raises(ValueError, match="minimum 27.6 MPa"):
+        with pytest.raises(ValueError, match="minimum 27.58 MPa"):
             designer.design(MixDesignInput(
                 code="aci211", target_strength_mpa=25.0, slump_mm=75.0,
                 sulfate_exposure_class="S1"))
-        with pytest.raises(ValueError, match="minimum 34.5 MPa"):
+        with pytest.raises(ValueError, match="minimum 34.47 MPa"):
             designer.design(MixDesignInput(
                 code="aci211", target_strength_mpa=30.0, slump_mm=75.0,
                 sulfate_exposure_class="S3"))
@@ -558,15 +558,15 @@ class TestACIFreezingExposure:
         assert result.air_volume_percent == 6.0
 
     def test_f2_min_strength_blocks_m25(self):
-        """M25 < 31.0 MPa minimum for F2 (Table 4.7.3b) → hard error."""
+        """M25 < 31.03 MPa minimum for F2 (Table 4.7.3b) → hard error."""
         designer = ACI211MixDesign()
-        with pytest.raises(ValueError, match="minimum 31.0 MPa"):
+        with pytest.raises(ValueError, match="minimum 31.03 MPa"):
             designer.design(self._inp("F2", strength=25.0))
 
     def test_f3_min_strength_blocks_m30(self):
-        """M30 < 34.5 MPa minimum for F3 → hard error."""
+        """M30 < 34.47 MPa minimum for F3 → hard error."""
         designer = ACI211MixDesign()
-        with pytest.raises(ValueError, match="minimum 34.5 MPa"):
+        with pytest.raises(ValueError, match="minimum 34.47 MPa"):
             designer.design(self._inp("F3", strength=30.0))
 
     def test_f1_wc_cap_governs(self):
@@ -616,7 +616,7 @@ class TestACIFreezingExposure:
             )
 
     def test_high_strength_frost_notes_air_footnote(self):
-        """At ≥34.5 MPa the 1.0-point air footnote is surfaced, not applied."""
+        """At ≥34.47 MPa the 1.0-point air footnote is surfaced, not applied."""
         designer = ACI211MixDesign()
         result = designer.design(self._inp("F2", strength=40.0))
         assert result.air_volume_percent == 6.0
@@ -929,9 +929,9 @@ class TestACIWaterCorrosionExposure:
         assert not any("Corrosion exposure" in w for w in result.warnings)
 
     def test_w2_min_strength_blocks_m25(self):
-        """M25 < 27.6 MPa minimum for W2 water-barrier elements."""
+        """M25 < 27.58 MPa minimum for W2 water-barrier elements."""
         designer = ACI211MixDesign()
-        with pytest.raises(ValueError, match="minimum 27.6 MPa"):
+        with pytest.raises(ValueError, match="minimum 27.58 MPa"):
             designer.design(self._inp(strength=25.0, w="W2"))
 
     def test_w2_wc_cap_governs(self):
@@ -949,9 +949,9 @@ class TestACIWaterCorrosionExposure:
         assert any("4.2.2.6(a)" in w for w in result.warnings)
 
     def test_c2_min_strength_blocks_m30(self):
-        """M30 < 34.5 MPa minimum for C2 external chlorides."""
+        """M30 < 34.47 MPa minimum for C2 external chlorides."""
         designer = ACI211MixDesign()
-        with pytest.raises(ValueError, match="minimum 34.5 MPa"):
+        with pytest.raises(ValueError, match="minimum 34.47 MPa"):
             designer.design(self._inp(strength=30.0, c="C2"))
 
     def test_c2_wc_cap_governs(self):
@@ -1101,7 +1101,7 @@ class TestACIF3PlainRow:
         """Plain F3 row (0.45 / 4500 psi) admits M32; reinforced F3 blocks it."""
         result = self._design("plain")
         assert result.w_c_ratio <= 0.45
-        with pytest.raises(ValueError, match="minimum 34.5"):
+        with pytest.raises(ValueError, match="minimum 34.47"):
             self._design("reinforced")
 
     def test_plain_f3_min_strength_still_enforced(self):

@@ -607,6 +607,10 @@ class TestDOEPfaGgbs:
             margin_mpa=12.0,
             w_c_ratio=0.60,
             min_cement_kg=300.0,
+            # §9.3.4 states the Item 4.1 value outright: "Using the relative
+            # density of 2.60, the free-water content of 145 kg/m³, and
+            # Figure 5: the wet density = 2420 kg/m³".
+            aggregate_relative_density_ssd=2.60,
         )
 
     def test_pfa_example_masses(self):
@@ -834,3 +838,88 @@ class TestDOEFigure3AnyGrade:
         assert r.standard_deviation_mpa == pytest.approx(6.0)
         assert r.target_mean_strength_mpa == pytest.approx(25.0)
         assert "Line A" in r.formula
+
+
+# ---------------------------------------------------------------------------
+# BRE 331:1997 Item 4.1 — combined aggregate relative density (SSD)
+# ---------------------------------------------------------------------------
+class TestDOEItem41RelativeDensity:
+    """Stage 4 Figure 5 entry: known Item 4.1 test value wins, otherwise the
+    unweighted mean of the fine/coarse SSD specific gravities is assumed."""
+
+    def _input(self, fa_sg, ca_sg, rd=None):
+        return MixDesignInput(
+            code="doe",
+            target_strength_mpa=30.0,
+            slump_mm=20.0,
+            fine_aggregate=FineAggregate(
+                specific_gravity=fa_sg, pct_passing_600um=70.0),
+            coarse_aggregate=CoarseAggregate(
+                nominal_max_size_mm=20, specific_gravity=ca_sg),
+            aggregate_relative_density_ssd=rd,
+        )
+
+    def test_known_item41_value_is_used(self):
+        """A tested Item 4.1 RD feeds Figure 5, not either SG alone."""
+        from concrete_mix.codes.tables.doe_tables import get_wet_density
+        designer = DOEMixDesign()
+        result = designer.design(self._input(2.65, 2.75, rd=2.60))
+        s9 = next(s for s in result.steps if s.step_number == 9)
+        assert s9.inputs["agg_rd"] == pytest.approx(2.60)
+        assert s9.inputs["item41_known"] == pytest.approx(2.60)
+        assert "known" in s9.inputs["rd_basis"]
+        assert "RD(combined SSD)=2.60" in s9.formula
+        assert s9.inputs["figure5_read"] == pytest.approx(
+            get_wet_density(result.water_kg, 2.60))
+
+    def test_auto_assumes_fa_ca_mean(self):
+        """Without Item 4.1, Figure 5 uses the mean of the FA/CA SSD SGs."""
+        from concrete_mix.codes.tables.doe_tables import get_wet_density
+        designer = DOEMixDesign()
+        result = designer.design(self._input(2.65, 2.75))
+        s9 = next(s for s in result.steps if s.step_number == 9)
+        assert s9.inputs["agg_rd"] == pytest.approx(2.70)
+        assert s9.inputs["fa_sg"] == pytest.approx(2.65)
+        assert s9.inputs["ca_sg"] == pytest.approx(2.75)
+        assert "assumed" in s9.inputs["rd_basis"]
+        assert s9.inputs["figure5_read"] == pytest.approx(
+            get_wet_density(result.water_kg, 2.70))
+
+    def test_differing_sg_changes_density(self):
+        """Fine SG is no longer silently ignored (was coarse-only)."""
+        designer = DOEMixDesign()
+        base = designer.design(self._input(2.60, 2.60))
+        split = designer.design(self._input(2.60, 2.80))
+        assert split.fine_aggregate_kg != base.fine_aggregate_kg
+        assert split.coarse_aggregate_kg != base.coarse_aggregate_kg
+
+    def test_item41_out_of_range_rejected(self):
+        """Absurd Item 4.1 values fail fast (valid range 2.0–3.5)."""
+        with pytest.raises(ValueError, match="Item 4.1"):
+            self._input(2.65, 2.70, rd=1.50)
+
+    def test_low_grade_full_design_no_structural_floor(self):
+        """fc = 10 MPa designs end-to-end (Line B default: s = 0.2×10)."""
+        designer = DOEMixDesign()
+        result = designer.design(MixDesignInput(
+            code="doe", target_strength_mpa=10.0, slump_mm=20.0,
+            fine_aggregate=FineAggregate(pct_passing_600um=70.0)))
+        # s = 0.2×10 = 2.0 → M = 1.64×2.0 = 3.28 → fm = ceil(13.28) = 14
+        assert result.target_mean_strength_mpa == pytest.approx(14.0)
+        assert result.cement_kg > 0 and result.water_kg > 0
+
+    def test_item41_ignored_by_aci_and_is(self):
+        """The DOE-only field never affects ACI/IS results."""
+        from concrete_mix import design_mix_simple
+        for code in ("aci211", "is10262"):
+            plain = design_mix_simple(code=code, target_strength_mpa=30.0,
+                                      slump_mm=75.0)
+            with_rd = design_mix_simple(code=code, target_strength_mpa=30.0,
+                                        slump_mm=75.0,
+                                        aggregate_relative_density_ssd=2.90)
+            assert with_rd.cement_kg == pytest.approx(plain.cement_kg)
+            assert with_rd.water_kg == pytest.approx(plain.water_kg)
+            assert (with_rd.fine_aggregate_kg ==
+                    pytest.approx(plain.fine_aggregate_kg))
+            assert (with_rd.coarse_aggregate_kg ==
+                    pytest.approx(plain.coarse_aggregate_kg))

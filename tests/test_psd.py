@@ -28,6 +28,9 @@ from concrete_mix.codes.tables.grading_bands import (
 from concrete_mix.engine.psd import (
     ASTM_COARSE_SIEVES,
     ASTM_FINE_SIEVES,
+    BS_FINE_SIEVES,
+    BS_COARSE_SIEVES,
+    BS812_EXTENDED_SIEVES,
     COARSE_SIEVES,
     FINE_SIEVES,
     IS_COARSE_SIEVES,
@@ -49,6 +52,14 @@ class TestStandardSieves:
         ]
         assert IS_COARSE_SIEVES == [
             80.0, 63.0, 40.0, 20.0, 16.0, 12.5, 10.0, 4.75, 2.36
+        ]
+
+    def test_bs_sieves_use_exact_apertures_and_washing_sieve(self) -> None:
+        assert BS_FINE_SIEVES == [10, 5, 2.36, 1.18, .6, .3, .15, .075]
+        assert BS_COARSE_SIEVES == [50, 37.5, 20, 14, 10, 5, 2.36, .075]
+        assert BS812_EXTENDED_SIEVES == [
+            75, 63, 50, 37.5, 28, 20, 14, 10, 6.3, 5, 3.35, 2.36,
+            1.7, 1.18, .85, .6, .425, .3, .212, .15, .075,
         ]
 
     def test_astm_sieves_match_c33_tables(self):
@@ -74,6 +85,7 @@ class TestStandardSieves:
 
     def test_standard_sieve_mapping_keeps_codes_separate(self):
         assert STANDARD_SIEVES_BY_CODE == {
+            "bs882": {"fine": BS_FINE_SIEVES, "coarse": BS_COARSE_SIEVES},
             "is383": {"fine": IS_FINE_SIEVES, "coarse": IS_COARSE_SIEVES},
             "astm_c33": {
                 "fine": ASTM_FINE_SIEVES,

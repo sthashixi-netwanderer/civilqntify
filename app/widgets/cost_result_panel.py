@@ -17,6 +17,7 @@ from PyQt6.QtWidgets import (
     QFrame,
     QGridLayout,
     QHBoxLayout,
+    QHeaderView,
     QLabel,
     QPushButton,
     QScrollArea,
@@ -118,7 +119,11 @@ class CostResultPanel(QWidget):
         # stretch left the table cut halfway with blank space under it.
         self._mat_table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self._mat_table.setMinimumHeight(220)
-        self._mat_table.horizontalHeader().setStretchLastSection(True)
+        _cost_header = self._mat_table.horizontalHeader()
+        _cost_header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        for _cost_col in range(1, self._mat_table.columnCount()):
+            _cost_header.setSectionResizeMode(
+                _cost_col, QHeaderView.ResizeMode.ResizeToContents)
         outer.addWidget(self._mat_table, stretch=1)
 
         # ── Project Summary ──

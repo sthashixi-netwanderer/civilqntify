@@ -98,7 +98,9 @@ class PSDLinkage:
         return self.pct_passing_600um is not None
 
 
-def derive_mix_design_params(result: PSDResult) -> PSDLinkage:
+def derive_mix_design_params(
+    result: PSDResult, *, standard: str | None = None
+) -> PSDLinkage:
     """Derive every mix-design-relevant parameter from one sieve analysis.
 
     Args:
@@ -111,6 +113,19 @@ def derive_mix_design_params(result: PSDResult) -> PSDLinkage:
         A :class:`PSDLinkage` holding the ACI fineness modulus, the IS 383
         grading zone and the DOE/BRE %passing 600 µm value, plus warnings.
     """
+    if standard == "bs882":
+        # BRE §1.2.5 consumes the actual 600 µm sieve, not a BS grading
+        # label or synthetic interpolation. BS 812-103.1 §10 reports whole %.
+        from concrete_mix.engine.bs812 import report_whole_percent
+
+        p600 = next((report_whole_percent(p) for s, p in zip(
+            result.sieve_sizes, result.percent_passing
+        ) if abs(s - _P600_MM) < 1e-8), None)
+        notes = () if p600 is not None else (
+            "BRE 331 §1.2.5 needs an actual 600 µm sieve measurement.",
+        )
+        return PSDLinkage(None, None, p600, notes)
+
     warnings: list[str] = []
     fm = result.fineness_modulus
     sizes = set(result.sieve_sizes)

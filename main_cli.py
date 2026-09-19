@@ -123,10 +123,10 @@ def collect_mix_inputs() -> dict:
     # Target strength
     strength_unit = "psi" if is_aci else "MPa"
     strength_default = 4000.0 if is_aci else 25.0
-    strength_lo = 3625.0 if is_aci else 25.0
+    strength_lo = 725.0 if is_aci else 5.0
     strength_hi = 14500.0 if is_aci else 100.0
-    print("\n  Note: This app assumes concrete mix design is for structural use")
-    print("  (characteristic strength ≥ 25 MPa / 3625 psi across all standards).\n")
+    print("\n  Note: characteristic strength 5–100 MPa (725–14500 psi) for any")
+    print("  application; exposure/durability selections may impose minimums.\n")
     if is_doe:
         print("  DOE (BR 331:1997) Standard deviation:")
         print("  n < 20 → s = 8 MPa (Line A), n ≥ 20 → s = 4 MPa (Line B).\n")
@@ -135,14 +135,14 @@ def collect_mix_inputs() -> dict:
         target_strength_mpa = strength / 145.038
         characteristic_strength = target_strength_mpa
     elif is_doe:
-        # DOE — user enters characteristic strength fc (structural, ≥25 MPa)
+        # DOE — user enters characteristic strength fc (any grade 5–100 MPa)
         characteristic_strength = strength
         target_strength_mpa = strength  # fc; target mean computed as fm = fc + k*s
         # Show expected margin for context (s depends on n, asked later)
         k = 1.64
         ftm_8 = round(characteristic_strength + k * 8.0, 2)
         ftm_4 = round(characteristic_strength + k * 4.0, 2)
-        print(f"\n  DOE structural: fm = fc + k×s  (k=1.64 for 5% defectives)")
+        print(f"\n  DOE: fm = fc + k×s  (k=1.64 for 5% defectives)")
         print(f"    n < 20 → s=8 MPa → f_m = {characteristic_strength} + {k}×8.0 = {ftm_8} MPa")
         print(f"    n ≥ 20 → s=4 MPa → f_m = {characteristic_strength} + {k}×4.0 = {ftm_4} MPa")
         print(f"  → Target mean strength depends on n (asked next).\n")
@@ -272,9 +272,10 @@ def collect_mix_inputs() -> dict:
     pct_passing_600um = 60.0
     fine_agg_shape = agg_shape
     std_deviation = None
+    agg_rd_doe = None
     if is_doe:
-        print("\n  --- DOE (BR 331:1997) Structural Parameters ---")
-        print("  This app assumes structural concrete (fc ≥ 25 MPa) per BRE 331 §4.4.")
+        print("\n  --- DOE (BR 331:1997) Design Parameters ---")
+        print("  Figure 3 covers any characteristic strength grade (≥ 5 MPa).")
         n_cubes = _prompt_int(
             "Number of test cubes (n) cast for strength testing", 20, 1, 200
         )
@@ -305,6 +306,12 @@ def collect_mix_inputs() -> dict:
             std_deviation = _prompt_float("Standard deviation s (MPa)", default_s, 1.0, 15.0)
         else:
             std_deviation = None
+        # Item 4.1 combined aggregate RD (SSD) for Figure 5 (optional)
+        if _prompt_yes_no("Enter tested combined aggregate relative density (Item 4.1)?", default=False):
+            agg_rd_doe = _prompt_float("Aggregate relative density, SSD (2.4–2.9 typical)", 2.65, 2.0, 3.5)
+        else:
+            print("    → Auto: mean of the fine/coarse SSD specific gravities.")
+            agg_rd_doe = None
 
     # SCM
     print("\n  --- Supplementary Cementitious Material ---")
@@ -436,6 +443,7 @@ def collect_mix_inputs() -> dict:
         "std_deviation": std_deviation if is_doe else None,
         "num_test_cubes": n_cubes if is_doe else None,
         "n_cubes": n_cubes if is_doe else None,
+        "aggregate_relative_density_ssd": agg_rd_doe if is_doe else None,
     }
 
 
