@@ -334,8 +334,9 @@ class HistoryTab(QWidget):
             ry = y.get("relative_yield")
             if nt.get("water"):
                 ry_txt = f", Ry={ry}" if ry is not None else ""
+                wc = result.get("next_trial_w_cm") or "\u2014"
                 return (f"next water {nt.get('water')} kg/m\u00b3{ry_txt}, "
-                        f"w/cm {result.get('next_trial_w_cm') or '\u2014'}")
+                        f"w/cm {wc}")
             return "ACI trial record"
         return ""
 

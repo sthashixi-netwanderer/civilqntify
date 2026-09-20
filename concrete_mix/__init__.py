@@ -139,6 +139,7 @@ def design_mix_simple(
     num_test_cubes: int | None = None,
     n_cubes: int | None = None,  # alias for num_test_cubes
     aggregate_relative_density_ssd: float | None = None,
+    apply_rounded_aggregate_reduction: bool = False,
 ) -> MixDesignResult:
     """Simplified API for quick mix design calculations.
 
@@ -210,12 +211,15 @@ def design_mix_simple(
             rule applies: n<20 → Line A (s = 0.4×fc for fc≤20, else 8 MPa),
             n≥20 → Line B (s = 0.2×fc for fc≤20, else 4 MPa).
             n_cubes is an alias. Any grade in [5, 100] MPa is designable.
-        aggregate_relative_density_ssd: combined aggregate relative density at
-            SSD, BRE 331:1997 Item 4.1 "known/assumed" (DOE only, e.g. 2.6).
-            None (default) assumes the unweighted mean of the fine and coarse
-            SSD specific gravities. Ignored by ACI/IS.
+            aggregate_relative_density_ssd: combined aggregate relative density at
+                SSD, BRE 331:1997 Item 4.1 "known/assumed" (DOE only, e.g. 2.6).
+                None (default) assumes the unweighted mean of the fine and coarse
+                SSD specific gravities. Ignored by ACI/IS.
+            apply_rounded_aggregate_reduction: Apply the ACI PRC-211.1-22
+                Table 5.3.3.1 −8% mixing-water cut for rounded coarse aggregate
+                (ACI only). Defaults to False (tabulated water, Example-1 parity).
 
-    Returns:
+        Returns:
         MixDesignResult with all proportions
     """
     from concrete_mix.models.materials import (
@@ -365,6 +369,7 @@ def design_mix_simple(
         margin_mpa=margin_mpa,
         num_test_cubes=_n_cubes,
         aggregate_relative_density_ssd=aggregate_relative_density_ssd,
+        apply_rounded_aggregate_reduction=apply_rounded_aggregate_reduction,
     )
 
     res = design_mix(inp)

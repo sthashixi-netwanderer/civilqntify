@@ -1,3 +1,32 @@
+# CivilQntify v1.0.11 Release Notes
+
+## 🚀 What's New in v1.0.11
+
+### 🧱 BS 812-103.1 & BS 882:1992 Integration
+
+- **BS 812-103.1:1985 particle-size distribution** modules and tests — sieving methods, mass calculations, and whole-percent reporting aligned with British PSD workflows.
+- **BS 882:1992 aggregates** reference and grading modules — coarse grading Tables 3/4, washed-sample mass handling (§7–8), and quality checks.
+- **DOE/BRE 331 PSD pathway**: measured 600 µm BS value fed into DOE fine-aggregate proportioning at BS reporting precision.
+
+### 🔬 Standards-Compliant Concrete Mix Design Logic
+
+- **ACI PRC-211.1-22** refinements — target strength, w/cm, aggregate proportions, paste volume, and cementitious efficiency factor (§9.4) aligned with extracted standards.
+- **IS 10262:2019** refinements — target strength (Table 1/2), volume calculations, and moisture adjustments per extracted clauses.
+- **BRE 331:1997 (DOE)** refinements — target strength, wet density, and aggregate proportioning per Figure 6/§9.3 with efficiency factor k=0.30.
+
+### 🛠️ UI & Reporting
+
+- **BS quality widget** for aggregate quality checks alongside IS/ASTM panels.
+- **PSD widget** enhancements for BS 882 grading bands and smoothed display policy.
+- **PDF report** and export improvements across mix design modes.
+
+### 📦 Platform & Testing
+
+- **Version**: `1.0.11` (`app/version.py`)
+- **Test Suite**: New BS 812 and BS 882 unit tests; expanded PSD and standard-visibility tests.
+
+---
+
 # CivilQntify v1.0.10 Release Notes
 
 ## 🚀 What's New in v1.0.10
