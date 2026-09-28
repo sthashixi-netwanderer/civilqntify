@@ -9,6 +9,9 @@ Layout follows Stitch "Civil Engineering Precision" design system:
 
 from __future__ import annotations
 
+import html as _html_module
+from datetime import date
+
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QCheckBox,
@@ -19,6 +22,7 @@ from PyQt6.QtWidgets import (
     QGroupBox,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QMessageBox,
     QPushButton,
     QScrollArea,
@@ -41,8 +45,10 @@ from app.widgets.psd_widget import (
 )
 from app.widgets.report_preview_dialog import ReportPreviewDialog
 from app.widgets.result_panel import ResultPanel, TargetStrengthResultPanel
+from app.widgets.strength_grade_combo import StrengthGradeCombo
 from app.widgets.unit_spin import UnitSpinBox
 from app.workers.mix_design_worker import MixDesignWorker
+from concrete_mix.codes.tables.strength_grades import min_fc_for_code
 from concrete_mix import (
     GHANA_CEMENT_MAP,
     MixDesignResult,
@@ -115,6 +121,9 @@ class ConcreteMixTab(QWidget):
         self._last_result: MixDesignResult | None = None
         self._last_target_result = None
         self._last_input_params: dict | None = None
+        # Report metadata (not a mix input — never sent to the engine).
+        # Set by the "Report Details" group at the bottom of the form.
+        self._project_name_edit: QLineEdit | None = None
         self.unit_prefs = None  # Set by MainWindow
         # PSD handoff lock state: keys currently locked from a sieve
         # analysis ('fm', 'zone', 'p600', 'nmsa') and their pre-application
@@ -1428,6 +1437,19 @@ class ConcreteMixTab(QWidget):
             "font-weight: 600; color: #1e40af; font-size: 13px; padding: 6px 10px; "
             "background: #eff4ff; border: 1px solid #dbeafe; border-radius: 4px;"
         )
+        # Shrinkable like every other sidebar field (v1.0.9 pattern): without
+        # a zero minimum the label's full single-line width becomes the row
+        # minimum and the value clips at narrow sidebar widths instead of
+        # wrapping. Full Figure 3 / BRE 331 §4.4 detail lives in the tooltip.
+        self.std_dev_display.setMinimumWidth(0)
+        self.std_dev_display.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred
+        )
+        self.std_dev_display.setToolTip(
+            "Standard deviation actually applied (BRE 331:1997 §4.4, Figure 3).\n\n"
+            "n < 20 → Line A: s = 0.4×fc (fc ≤ 20), else 8 MPa\n"
+            "n ≥ 20 → Line B: s = 0.2×fc (fc ≤ 20), else 4 MPa"
+        )
         self._lbl_std_dev = self._label_with_info(
             "Std Deviation (MPa) — Applied",
             "Standard deviation actually applied in the DOE calculation "
@@ -1540,8 +1562,9 @@ class ConcreteMixTab(QWidget):
 
         # Design-note banner (text set per code in _on_code_changed).
         self.doe_design_note_label = QLabel(
-            "ⓘ Any grade 5–100 MPa. Durability is gated by the exposure "
-            "selection — e.g. severe exposure still requires its minimum grade."
+            "ℹ Strength is chosen from this standard's own grade list — "
+            "see the Characteristic Strength tooltip. Durability is gated by "
+            "the exposure selection."
         )
         self.doe_design_note_label.setWordWrap(True)
         self.doe_design_note_label.setStyleSheet(
@@ -1551,10 +1574,18 @@ class ConcreteMixTab(QWidget):
         )
         f1.addRow(self.doe_design_note_label)
 
-        # No app-imposed minimum grade: any grade 5–100 MPa per code
-        # (exposure classes impose their own minima downstream).
-        self.strength_spin = UnitSpinBox("strength", 25.0, 5.0, 100.0, 0.5, 2)
-        self.strength_spin.valueChanged.connect(self._update_std_dev_display)
+        # Characteristic strength is a closed set per code, not a free
+        # number: the dropdown offers only the grades the selected
+        # standard defines, and repopulates when it changes. See
+        # concrete_mix.codes.tables.strength_grades for the per-code sets.
+        self.strength_combo = StrengthGradeCombo("is10262")
+        # Compatibility alias: ~30 read sites and several tests still say
+        # ``strength_spin``. The combo answers the same metric API
+        # (``value()`` is metric MPa, ``setValue`` takes metric), so they
+        # need no change. Fold the two names together once that call
+        # surface is swept.
+        self.strength_spin = self.strength_combo
+        self.strength_combo.valueChanged.connect(self._update_std_dev_display)
         self.slump_spin = UnitSpinBox("slump", 75.0, 10.0, 250.0, 5.0, 0)
         self.nmsa_combo = self._combo(
             [("10 mm", 10), ("12.5 mm", 12.5), ("20 mm", 20), ("40 mm", 40)],
@@ -1567,19 +1598,27 @@ class ConcreteMixTab(QWidget):
         self.volume_spin = UnitSpinBox("volume", 1.0, 0.01, 1000.0, 0.1, 3)
 
         self._lbl_strength = self._label_with_info(
-            "Characteristic Strength fck (MPa)",
+            "Characteristic Strength fck",
             "Characteristic compressive strength at 28 days.\n\n"
-            "Any grade 5–100 MPa in all three codes — durability is gated by\n"
-            "the exposure selection (IS 456 Table 5 / ACI 318 Chapter 19), not\n"
-            "by an input floor. DOE (Figure 3) designs any grade directly.\n\n"
-            "IS 10262:2019: f'ck = max(fck + 1.65·S,  fck + X) — take the higher value.\n"
+            "This is a closed list, not a free field: only the grades the\n"
+            "selected standard defines can be chosen, and the list changes\n"
+            "with the Standard selector.\n\n"
+            "IS 10262:2019 — M10 to M80 in 5 N/mm² steps (Table 1).\n"
+            "  f'ck = max(fck + 1.65·S,  fck + X) — take the higher value.\n"
             "  S = standard deviation (Table 2); X = grade factor (Table 1).\n"
-            "  e.g., M30 → f'ck = max(30+8.25, 30+6.5) = 38.25 → 39 MPa (rounded up).\n\n"
-            "ACI 211.1: f'cr = f'c + 1.34·s (with data) or ACI 318 Table 26.4.3.1(b) overdesign.\n\n"
-            "DOE (BRE 331 Figure 3): fm = fc + k·s — Line A (n<20): s = 0.4×fc "
-            "(fc≤20) else 8 MPa; Line B (n≥20): s = 0.2×fc (fc≤20) else 4 MPa.\n\n"
-            "Usable range 5–100 MPa for any application; exposure and "
-            "durability selections may impose their own minimum grade.",
+            "  e.g., M30 → f'ck = max(30+8.25, 30+6.5) = 38.25 → 39 MPa.\n"
+            "  IS 456:2000 Table 5 sets a minimum grade per exposure class\n"
+            "  (severe needs M30); grades below it are greyed out.\n\n"
+            "ACI 211.1 — 2,500 to 5,000 psi in 100 psi steps, then 5,500 to\n"
+            "  8,000 psi in 500 psi steps (ACI 318-19 §26.4.2.1(a)(1) grid).\n"
+            "  f'cr = f'c + 1.34·s (with data) or Table 26.4.3.1(b) overdesign.\n"
+            "  ACI 301-20 Tables 4.7.3a–d set a minimum f'c per exposure\n"
+            "  class (C2 needs 5,000 psi); those grades are greyed out.\n\n"
+            "DOE (BRE 331) — 20 to 60 N/mm² in 5 N/mm² steps.\n"
+            "  BRE 331 does not enumerate grades; this grid is app policy,\n"
+            "  spanning every strength the standard's worked examples design.\n"
+            "  fm = fc + k·s — Line A (n<20): s = 0.4×fc (fc≤20) else 8 MPa;\n"
+            "  Line B (n≥20): s = 0.2×fc (fc≤20) else 4 MPa.",
             key="strength",
         )
         f1.addRow(self._lbl_strength, self.strength_spin)
@@ -2390,7 +2429,7 @@ class ConcreteMixTab(QWidget):
             _c.currentIndexChanged.connect(self._update_fig6_prop_display)
         self.ca_type_combo.currentIndexChanged.connect(self._update_water_display)
         self.fa_type_combo.currentIndexChanged.connect(self._update_water_display)
-        self.strength_spin.valueChanged.connect(self._update_water_display)
+        self.strength_combo.valueChanged.connect(self._update_water_display)
         self.mass_check.toggled.connect(lambda _c: self._update_water_display())
         self.grading_combo.currentIndexChanged.connect(self._update_water_display)
         self.temp_spin.valueChanged.connect(self._update_water_display)
@@ -2404,9 +2443,57 @@ class ConcreteMixTab(QWidget):
             self._on_ca_fraction_changed
         )
 
+        # ════════════════════════════════════════════════════════════════
+        # Report Details — shown in the exported report header. Kept last
+        # in the form so it sits at the extreme bottom, above the pinned
+        # Calculate/Clear bar. Never sent to the calculation engine.
+        # ════════════════════════════════════════════════════════════════
+        grp_report = self._group("Report Details")
+        f_report = QFormLayout()
+        f_report.setSpacing(8)
+        f_report.setContentsMargins(12, 16, 12, 12)
+
+        self._project_name_edit = QLineEdit()
+        self._project_name_edit.setPlaceholderText(
+            "e.g., Terminal 3 Expansion — leave blank for N/A"
+        )
+        self._project_name_edit.setMinimumWidth(0)
+        self._project_name_edit.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+        )
+        self._project_name_edit.setClearButtonEnabled(True)
+        f_report.addRow(
+            self._label_with_info(
+                "Project Name",
+                "Project name printed in the report header "
+                "(preview and PDF export).\n\n"
+                "The report date is stamped automatically each time "
+                "the report is exported.",
+                key="project_name",
+            ),
+            self._project_name_edit,
+        )
+        grp_report.setLayout(f_report)
+        self._form.addWidget(grp_report)
+
         self._form.addStretch()
 
         # Initial visibility
+        # Exposure class and concrete type gate the IS 456 Table 5 grade
+        # floor; the four ACI exposure-class combos gate the 4.7.3 floors.
+        # Connected here, after every combo exists.
+        for _exposure_combo in (
+            self.exposure_combo,
+            self.concrete_type_combo,
+            self.sulfate_combo,
+            self.frost_combo,
+            self.water_exp_combo,
+            self.corr_combo,
+        ):
+            _exposure_combo.currentIndexChanged.connect(
+                self._update_strength_minimum
+            )
+
         self._on_code_changed()
 
     # ── Helpers ──────────────────────────────────────────────────────
@@ -3052,8 +3139,41 @@ class ConcreteMixTab(QWidget):
         up = self.unit_prefs or get_unit_prefs()
         s_disp = up.convert_strength_mpa(s)
         unit = up.strength_unit()
-        # Show one decimal; for imperial psi the conversion will be large (e.g., 8 MPa ≈ 1160 psi)
-        self.std_dev_display.setText(f"{s_disp:.1f} {unit}  (n={n}, {line}, BRE 331 §4.4)")
+        # Show one decimal; under imperial psi the conversion is large
+        # (e.g., 8 MPa is about 1160 psi).
+        # Kept short on purpose — the §4.4 citation lives in the label info
+        # and field tooltip so the value never clips the narrow sidebar.
+        self.std_dev_display.setText(f"{s_disp:.1f} {unit} (n={n}, {line})")
+
+    def _update_strength_minimum(self) -> None:
+        """Grey out characteristic-strength grades the exposure class forbids.
+
+        IS 456:2000 Table 5 and the ACI 301-20 exposure tables both put a
+        floor under the grade (IS severe needs M30+, ACI C2 needs
+        34.47 MPa). Those floors are shown as disabled items rather than
+        filtered out, so the user can see that stronger grades exist and
+        why they are locked.
+
+        Never changes the current selection: a grade that becomes invalid
+        because the user raised the exposure class stays put, and the
+        engine rejects it at Calculate with its existing, more specific
+        message.
+        """
+        if not hasattr(self, "strength_combo"):
+            # The exposure selectors are wired before the strength combo is
+            # built, so a signal can arrive mid-construction.
+            return
+        code = self.code_combo.currentData()
+        min_fc = min_fc_for_code(
+            code,
+            exposure=self.exposure_combo.currentData() or None,
+            concrete_type=self.concrete_type_combo.currentData() or "reinforced",
+            freezing_exposure_class=self.frost_combo.currentData() or "F0",
+            water_exposure_class=self.water_exp_combo.currentData() or "W0",
+            corrosion_exposure_class=self.corr_combo.currentData() or "C0",
+            sulfate_exposure_class=self.sulfate_combo.currentData() or "S0",
+        )
+        self.strength_combo.set_minimum(min_fc)
 
     def _on_code_changed(self) -> None:
         code = self.code_combo.currentData()
@@ -3169,16 +3289,20 @@ class ConcreteMixTab(QWidget):
             self.doe_design_note_label.setVisible(True)
             if is_doe:
                 self.doe_design_note_label.setText(
-                    "ⓘ DOE Figure 3 design (BRE 331 §4.4): any characteristic "
-                    "strength grade (≥ 5 MPa). Standard deviation follows "
-                    "Line A (n < 20 results) / Line B (n ≥ 20 results) from "
-                    "the number of test cubes, exactly as charted."
+                    "ℹ DOE Figure 3 design (BRE 331 §4.4): characteristic "
+                    "strength is offered as 20–60 N/mm² in 5 N/mm² steps — "
+                    "BRE 331 itself fixes no grades, so this grid is app policy. "
+                    "Standard deviation follows Line A (n < 20 results) / "
+                    "Line B (n ≥ 20 results) from the number of test cubes, "
+                    "exactly as charted."
                 )
             else:
                 self.doe_design_note_label.setText(
-                    "ⓘ Any grade 5–100 MPa. Durability is gated by the exposure "
-                    "selection (IS 456 Table 5 / ACI 318 Chapter 19) — e.g. severe "
-                    "exposure still requires its minimum grade."
+                    "ℹ Strength is chosen from this standard's own grade "
+                    "list — see the Characteristic Strength tooltip. Durability "
+                    "is gated by the exposure selection (IS 456 Table 5 / "
+                    "ACI 301-20 Tables 4.7.3a–d), which greys out the grades "
+                    "it rules out."
                 )
 
         # Slump range follows the active standard: BRE 331 Table 3 stops at
@@ -3190,16 +3314,14 @@ class ConcreteMixTab(QWidget):
         else:
             self.slump_spin.set_metric_range(10.0, 250.0)
 
-        # Strength range is 5–100 MPa for every code (no minimum-grade floor);
-        # exposure minima are enforced by the engines, not the control.
-        _strength_lo = 5.0
-        self.strength_spin.set_metric_range(_strength_lo, 100.0)
-        self.strength_spin.setToolTip(
-            "Characteristic compressive strength (fck / f'c / fc), 5–100 MPa.\n"
-            "Exposure selections may impose their own minimum grade/strength."
-        )
-        if self.strength_spin.value() < _strength_lo:
-            self.strength_spin.setValue(_strength_lo)
+        # Characteristic strength is a closed set per code, not a free
+        # number: reload the dropdown with the newly selected standard's
+        # grades. A value the new code also offers is carried across
+        # unchanged; one it does not lands on the nearest grade it does
+        # offer, because switching standard is an explicit request to
+        # re-express the design in that code.
+        self.strength_combo.populate(code, keep_value=True)
+        self._update_strength_minimum()
 
         # Fine aggregate: show FM for ACI, grading zone / CA fraction for IS, % passing 600um & Type for DOE
         self._lbl_fm.setVisible(is_aci)
@@ -4326,7 +4448,11 @@ class ConcreteMixTab(QWidget):
         # Standard first — its change handler re-applies per-code
         # visibility and rebuilds the IS CA-fraction combo defaults.
         set_combo(self.code_combo, inp.code, fallback=1)
-        self.strength_spin.setValue(
+        # A record saved before this field became a dropdown may hold a
+        # strength the code's grade list does not contain. setValue() carries
+        # it as a marked temporary item rather than re-snapping it, so the
+        # record recalculates to the result it was stored with.
+        self.strength_combo.setValue(
             inp.characteristic_strength_mpa or inp.target_strength_mpa
         )
         self.slump_spin.setValue(inp.slump_mm)
@@ -4548,6 +4674,23 @@ class ConcreteMixTab(QWidget):
                 f.write(content)
             self.window().status_bar.showMessage(f"Exported to {path}", 5000)
 
+    def _report_params(self) -> dict:
+        """Assemble report metadata for preview/export.
+
+        Merges the last calculation inputs with report-only fields that
+        never reach the engine: ``project_name`` (read live from the
+        Report Details field so no recalculation is needed) and ``date``
+        (stamped fresh on every call so each export carries the
+        current date).
+        """
+        params = dict(self._last_input_params or {})
+        project_name = ""
+        if self._project_name_edit is not None:
+            project_name = self._project_name_edit.text().strip()
+        params["project_name"] = project_name or "N/A"
+        params["date"] = date.today().strftime("%Y-%m-%d")
+        return params
+
     def _generate_mix_report_html(self) -> str:
         """Generate HTML report for concrete mix design preview.
 
@@ -4558,7 +4701,7 @@ class ConcreteMixTab(QWidget):
         if not result:
             return ""
 
-        params = self._last_input_params or {}
+        params = self._report_params()
         is_aci = params.get("code") == "aci211"
         code_label = "ACI PRC-211.1-22 (American)" if is_aci else "IS 10262:2019 (Indian)"
 
@@ -4749,6 +4892,13 @@ class ConcreteMixTab(QWidget):
 
         water_pvu = pvu if up.is_imperial() else "liters/m³"
 
+        # Report metadata: user text escaped for the HTML preview; the
+        # date is stamped fresh by _report_params on every export.
+        # (Named to avoid the local `html` report string below.)
+        project_label = _html_module.escape(
+            str(params.get("project_name", "N/A"))
+        )
+
         # ── Assemble full HTML ──
         html = (
             "<!DOCTYPE html>"
@@ -4773,7 +4923,7 @@ class ConcreteMixTab(QWidget):
             f'<td style="text-align:right; vertical-align:top;">'
             f'<div style="font-size:18px; font-weight:600; color:{TEXT};">CONCRETE MIX DESIGN REPORT</div>'
             f'<div style="font-size:12px; color:{TEXT_DIM}; margin-top:4px;">'
-            f"<b>Project:</b> {params.get('project_name', 'N/A')}</div>"
+            f"<b>Project:</b> {project_label}</div>"
             f'<div style="font-size:12px; color:{TEXT_DIM};">'
             f"<b>Date:</b> {params.get('date', 'N/A')}</div>"
             f"</td></tr></table>"
@@ -4951,7 +5101,9 @@ class ConcreteMixTab(QWidget):
             self, "Save PDF Report", "mix_design_report.pdf", "PDF (*.pdf)"
         )
         if path:
-            pdf_bytes = generate_pdf_report(self._last_result, self._last_input_params)
+            pdf_bytes = generate_pdf_report(
+                self._last_result, self._report_params()
+            )
             with open(path, "wb") as f:
                 f.write(pdf_bytes)
             self.window().status_bar.showMessage(f"PDF saved to {path}", 5000)

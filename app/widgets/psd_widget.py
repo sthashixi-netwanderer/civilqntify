@@ -1598,17 +1598,21 @@ class ParticleSizeDistributionTab(QWidget):
         self._style_input_column()
         v.addWidget(self.table)
 
-        # Export the input table exactly as displayed — all six headers
-        # including "Standard % Passing".
+        # Export the input table filtered to band-required sieves — all six
+        # headers including "Standard % Passing" (AGENTS.md PSD-tab rules:
+        # dash/blank/unlisted sieves carry no requirement).
         export_row = QHBoxLayout()
         export_row.setContentsMargins(0, 8, 0, 0)
         export_row.setSpacing(8)
         self.export_table_btn = QPushButton("Export Table CSV")
         self.export_table_btn.setObjectName("secondary")
         self.export_table_btn.setToolTip(
-            "Save the sieve table above to a CSV file, with all columns "
-            "as displayed (Sieve Size, Mass Retained, % Retained, "
-            "Cumulative % Retained, % Passing and Standard % Passing)."
+            "Save the sieve table above to a CSV file (Sieve Size, "
+            "Mass Retained, % Retained, Cumulative % Retained, % Passing "
+            "and Standard % Passing). Only sieves with a grading "
+            "requirement in the selected band are exported; sieves with "
+            "no requirement (dash/blank) are stripped. Pan/Total always "
+            "kept and cover the full stack."
         )
         self.export_table_btn.clicked.connect(self._on_export_table_csv)
         export_row.addWidget(self.export_table_btn)
@@ -3828,11 +3832,18 @@ class ParticleSizeDistributionTab(QWidget):
     def _on_export_table_csv(self) -> None:
         """Export the mass-retained input table to CSV.
 
-        Writes the table exactly as displayed — all six headers
-        including "Standard % Passing" — preceded by Standard /
-        Aggregate Type / Reference Band rows for traceability.
+        App export policy (not a standard clause): only sieves that carry
+        a grading requirement in the selected reference band are exported.
+        Per AGENTS.md PSD-tab rules a dash, ellipsis, blank or unlisted
+        cell means no grading requirement — such sieves stay available for
+        laboratory input and mass balance but are stripped from this table
+        export. Pan and Total rows are always kept and still cover the full
+        sieve stack, so the file stays traceable to the on-screen totals.
         Derived columns are refreshed first so the file matches the
         on-screen values.
+
+        Standards (AGENTS.md): IS 383:2016 Table 7, ASTM C33/C33M Table 2,
+        BS 882:1992 Tables 3/4 with BS 812-103.1 sections 7, 8 and 10.
         """
         self._recompute_table()
         path, _ = QFileDialog.getSaveFileName(
@@ -3853,23 +3864,44 @@ class ParticleSizeDistributionTab(QWidget):
                          self.agg_combo.currentText()])
         writer.writerow(["Reference Band",
                          self.band_combo.currentText()])
+        band = self._current_band(self.band_combo.currentData())
+        sieves = self._current_sieves()
+        required = set(band.keys()) if band else set(sieves)
+        stripped = [s for s in sieves if s not in required]
         headers = [
             self.table.horizontalHeaderItem(c).text()
             if self.table.horizontalHeaderItem(c) is not None else ""
             for c in range(self.table.columnCount())
         ]
         writer.writerow(headers)
+        kept = 0
         for row in range(self.table.rowCount()):
+            if row < len(sieves) and sieves[row] not in required:
+                continue
             writer.writerow([
                 self.table.item(row, col).text()
                 if self.table.item(row, col) is not None else ""
                 for col in range(self.table.columnCount())
             ])
+            if row < len(sieves):
+                kept += 1
+        if stripped:
+            writer.writerow([
+                "Note",
+                "Only band-required sieves exported; stripped "
+                f"{len(stripped)} sieve(s) with no requirement in this band "
+                f"({', '.join(_fmt_size(s) for s in stripped)}). "
+                "Pan/Total cover the full stack.",
+            ])
         with open(path, "w", newline="") as f:
             f.write(buf.getvalue())
         if hasattr(self.window(), "status_bar") and self.window().status_bar:
+            suffix = (
+                f" ({kept}/{len(sieves)} sieves; "
+                f"stripped {len(stripped)})" if stripped else ""
+            )
             self.window().status_bar.showMessage(
-                f"PSD table exported to {path}", 5000)
+                f"PSD table exported to {path}{suffix}", 5000)
 
     # ── Event handlers ───────────────────────────────────────────────
 

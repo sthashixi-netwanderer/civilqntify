@@ -601,6 +601,37 @@ X_VALUES: dict[str, float] = {
     "M80": 8.0,
 }
 
+# IS 10262:2019 Table 1 lists every grade the standard defines, M10 through
+# M80 in 5 N/mm² steps, and that set is exactly the key set of X_VALUES
+# above. Deriving the selectable grades from it (rather than restating the
+# list) keeps the two from ever drifting apart: a grade the standard drops
+# from Table 1 stops being offered, and vice versa.
+IS_FC_GRADES: tuple[float, ...] = tuple(float(g.lstrip("M")) for g in X_VALUES)
+
+
+def is_min_fc_mpa(
+    concrete_type: str = "reinforced", exposure: str | None = None
+) -> float | None:
+    """Lowest f_ck (MPa) the IS 456:2000 Table 5 exposure class allows.
+
+    Args:
+        concrete_type: "plain" or "reinforced" — picks the Table 5 row.
+        exposure: "mild", "moderate", "severe", "very_severe", "extreme",
+            or None/"" for no exposure class selected.
+
+    Returns:
+        Minimum characteristic strength in MPa, or None when the class
+        imposes no grade floor (plain/mild — "not specified", and no
+        selection at all).
+    """
+    if not exposure:
+        return None
+    row = IS456_EXPOSURE_LIMITS.get(concrete_type, {}).get(exposure)
+    if not row:
+        return None
+    min_grade = row.get("min_grade") or ""
+    return float(min_grade.lstrip("M")) if min_grade else None
+
 
 def _grade_from_fck(fck: float) -> str:
     """Determine concrete grade string from characteristic strength."""

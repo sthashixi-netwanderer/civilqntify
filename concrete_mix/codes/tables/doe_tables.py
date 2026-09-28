@@ -12,6 +12,23 @@ from concrete_mix.utils.statistics import defective_k_factor
 
 
 # ---------------------------------------------------------------------------
+# Selectable characteristic strengths (fc, N/mm²)
+#
+# Unlike IS 10262, BRE 331 never enumerates grades — §4.3 defines fc as
+# any specified strength and §4.4/Figure 3 treat it as a continuous axis
+# (the standard-deviation curves go flat above 20 N/mm²). So this is a
+# chosen 5 N/mm² grid, not a quoted table: 20–60 covers every strength
+# the standard's own worked examples design (20, 25, 30, 35, 40 and 50
+# N/mm²) with headroom, and stops well short of the high-strength region
+# the method is not charted for. The UI tooltip says as much, so the
+# engineer knows the grid is app policy rather than a BRE 331 requirement.
+# ---------------------------------------------------------------------------
+DOE_FC_GRADES_MPA: tuple[float, ...] = (
+    20.0, 25.0, 30.0, 35.0, 40.0, 45.0, 50.0, 55.0, 60.0,
+)
+
+
+# ---------------------------------------------------------------------------
 # Table 2 — Approximate compressive strengths (N/mm²) of concrete mixes
 # made with a free-water/cement ratio of 0.5
 #

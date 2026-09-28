@@ -6,6 +6,62 @@ Source: ACI PRC-211.1-22 Table 5.3.3 and Table 5.3.6.
 
 from __future__ import annotations
 
+# ── Specified compressive strength (f'c) grades ───────────────────────────
+# ACI has no single "grade table" the way IS 10262 lists M-grades. The
+# selectable set is the set of values f'c may lawfully take, per ACI 318-19
+# §26.4.2.1(a)(1): multiples of 100 psi at or below 5000 psi, and multiples
+# of 500 psi above 5000 psi. PRC-211.1-22 itself does not restate that rule
+# — it only notes strengths are "commonly specified … from 2500 psi to
+# greater than 10,000 psi" (§3.4) — but its own Table 5.3.4 (which drives
+# the w/cm lookup) tops out at 7000 psi, and the ACI 301-20 exposure tables
+# it reproduces (Tables 4.7.3a–4.7.3d) put floors at 2500/3500/4000/4500/5000
+# psi. The 100 psi grid is what makes those floors selectable at all: a
+# coarser 1000 psi grid (the Table 5.3.4 points) would leave F1 (3500 psi),
+# F2 (4500 psi) and S2 (4500 psi) unreachable.
+#
+# 2500–5000 psi in 100 psi steps (26 values), then 5500–8000 psi in 500 psi
+# steps (6 values).
+ACI_FC_GRADES_PSI: tuple[int, ...] = (
+    *range(2500, 5001, 100),
+    *range(5500, 8001, 500),
+)
+
+# 1 psi = 0.00689476 MPa (the same factor the exposure tables below use).
+_PSI_TO_MPA = 0.00689476
+
+
+def aci_min_fc_mpa(
+    freezing_exposure_class: str = "F0",
+    water_exposure_class: str = "W0",
+    corrosion_exposure_class: str = "C0",
+    sulfate_exposure_class: str = "S0",
+) -> float | None:
+    """Lowest f'c (MPa) the selected ACI exposure classes allow.
+
+    Folds the four exposure tables' ``min_fc_mpa`` into the single binding
+    limit, so the UI can grey out grades that would be rejected at Calculate.
+    Returns None when no active class imposes a floor (i.e. every class is at
+    its default "not exposed" value).
+
+    Args:
+        freezing_exposure_class: F0–F3 (ACI 301-20 Table 4.2.2.6(c)).
+        water_exposure_class: W0–W2 (ACI 301-20 Table 4.2.2.6(d)).
+        corrosion_exposure_class: C0–C2 (ACI 301-20 Table 4.2.2.6(e)).
+        sulfate_exposure_class: S0–S3 (ACI 301-20 Table 4.2.2.6(b)).
+
+    Returns:
+        Minimum specified compressive strength in MPa, or None for no floor.
+    """
+    limits = (
+        F_CLASS_LIMITS.get(freezing_exposure_class, {}).get("min_fc_mpa"),
+        W_CLASS_LIMITS.get(water_exposure_class, {}).get("min_fc_mpa"),
+        C_CLASS_LIMITS.get(corrosion_exposure_class, {}).get("min_fc_mpa"),
+        S_CLASS_LIMITS.get(sulfate_exposure_class, {}).get("min_fc_mpa"),
+    )
+    active = [v for v in limits if v is not None]
+    return max(active) if active else None
+
+
 # Table 5.3.3: Approximate mixing water and air content requirements per ACI PRC-211.1-22
 # Format: {nmsa_mm: {slump_mm: water_kg_m3}} — converted from lb/yd³ (× 0.5933)
 # 10 mm ≈ 3/8", 19 mm ≈ 3/4", 40 mm ≈ 1-1/2"

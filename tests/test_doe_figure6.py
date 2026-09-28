@@ -435,7 +435,7 @@ class TestFigure6PreviewUI:
         """
         from concrete_mix import design_mix_simple
 
-        doe_tab.strength_spin.set_display_value(30.0)
+        doe_tab.strength_spin.setValue(30.0)  # 30 MPa, on the DoE grade grid
         doe_tab.slump_spin.set_display_value(20.0)  # class 1 chart
         doe_tab.pct_passing_600um_spin.setValue(70.0)
         text = doe_tab.fig6_prop_label.text()

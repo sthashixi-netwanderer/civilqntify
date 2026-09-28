@@ -56,14 +56,29 @@ def _set(prefs, system: str = "metric") -> None:
 
 
 def test_concrete_backend_receives_metric_for_imperial_input(fresh_prefs):
-    """Imperial user input must be converted before hitting the SI backend."""
+    """Imperial user input must be converted before hitting the SI backend.
+
+    Strength is the exception, and deliberately so: it is a per-standard
+    grade dropdown rather than a typed field, so there is nothing to
+    convert. What has to hold instead is that the psi the user reads off
+    the item label is that grade's true metric value in the backend.
+    """
     from app.widgets.concrete_tab import ConcreteMixTab
 
     _set(fresh_prefs, "imperial")
     tab = ConcreteMixTab()
     tab.unit_prefs = fresh_prefs
 
-    tab.strength_spin.set_display_value(4000.0)  # psi
+    # ACI specifies its grades in psi; pick the one labelled 4,000 psi.
+    tab.code_combo.setCurrentIndex(tab.code_combo.findData("aci211"))
+    combo = tab.strength_spin
+    combo.setCurrentIndex(
+        next(
+            i
+            for i in range(combo.count())
+            if combo.itemText(i).startswith("4,000 psi")
+        )
+    )
     tab.slump_spin.set_display_value(4.0)  # inches
     tab.volume_spin.set_display_value(5.0)  # yd³
     tab.ca_bulk_spin.set_display_value(100.0)  # lb/ft³
@@ -76,15 +91,19 @@ def test_concrete_backend_receives_metric_for_imperial_input(fresh_prefs):
 
 
 def test_concrete_startup_applies_persisted_units(fresh_prefs):
-    """App launched with imperial persisted must show imperial suffixes immediately."""
+    """App launched with imperial persisted must show imperial units immediately."""
     from app.widgets.concrete_tab import ConcreteMixTab
 
     _set(fresh_prefs, "imperial")
     tab = ConcreteMixTab()
     tab.unit_prefs = fresh_prefs
 
-    assert "psi" in tab.strength_spin.suffix()
     assert "yd" in tab.volume_spin.suffix()
+    # Strength is a dropdown, so there is no suffix to read: imperial shows
+    # up in every item label instead.
+    labels = [tab.strength_spin.itemText(i) for i in range(tab.strength_spin.count())]
+    assert labels
+    assert all("psi" in label for label in labels)
 
 
 def test_concrete_unit_toggle_round_trip_preserves_metric(fresh_prefs):
@@ -94,15 +113,15 @@ def test_concrete_unit_toggle_round_trip_preserves_metric(fresh_prefs):
     _set(fresh_prefs, "metric")
     tab = ConcreteMixTab()
     tab.unit_prefs = fresh_prefs
-    tab.strength_spin.setValue(30.0)  # MPa (metric programmatic set)
+    tab.strength_spin.setValue(30.0)  # M30, an exact grade rather than a value
 
     _set(fresh_prefs, "imperial")
     assert tab.strength_spin.value() == pytest.approx(30.0, rel=1e-6)
-    assert tab.strength_spin.display_value() == pytest.approx(30.0 * 145.038, rel=1e-3)
+    assert tab.strength_spin.currentText() == "M30 · 4,351 psi"
 
-    tab.strength_spin.set_display_value(4351.0)  # user edits in psi
     _set(fresh_prefs, "metric")
-    assert tab.strength_spin.value() == pytest.approx(4351.0 / 145.038, rel=1e-3)
+    assert tab.strength_spin.value() == pytest.approx(30.0, rel=1e-6)
+    assert tab.strength_spin.currentText() == "M30 · 30 MPa"
 
 
 def test_concrete_min_max_cement_value_matches_label(fresh_prefs):

@@ -1,3 +1,29 @@
+# CivilQntify v1.0.12 Release Notes
+
+## 🚀 What's New in v1.0.12
+
+### 🧱 Characteristic Strength Is Now a Per-Standard Grade List
+
+- **Closed-set strength selector**: the free-typed strength field is replaced by a dropdown offering only the grades the selected standard defines — IS 10262:2019 M10–M80 (Table 1), ACI 318-19 §26.4.2.1(a)(1) psi increment grid (2,500–5,000 psi in 100 psi steps, 5,500–8,000 psi in 500 psi steps), and a 20–60 N/mm² app-policy grid for BRE 331 (which fixes no grades itself). Switching standards repopulates the list; off-list strengths from older saved records are carried as a marked temporary item so history still round-trips.
+- **Exposure-driven grade gating**: IS 456:2000 Table 5 minima (e.g. severe needs M30) and ACI 301-20 Tables 4.7.3a–d floors (e.g. C2 needs 5,000 psi) grey out grades the active exposure class forbids — visible but locked, with the engine's existing rejection message unchanged at Calculate.
+- **Metric-first under the hood**: the selector keeps the same metric-MPa API, so imperial display (e.g. `M30 · 4,351 psi`) is rendering only; the backend value is untouched.
+
+### 🧾 Report Details & PSD Export Policy
+
+- **Report Details group**: project name is typed once at the bottom of the mix form and printed in the HTML preview and PDF report header; the report date is stamped fresh on every export.
+- **PSD table CSV exports only band-required sieves**: sieves with no grading requirement in the selected band (dash/blank/unlisted) stay available for input and mass balance but are stripped from the export, with a traceability note row; Pan/Total always cover the full stack.
+
+### 📖 User Manual
+
+- **New `docs/USER_MANUAL.md`** with fresh UI screenshots, plus regenerated `docs_out` manual builds (PDF/DOCX).
+
+### 📦 Platform & Testing
+
+- **Version**: `1.0.12` (`app/version.py`)
+- **Test Suite**: 861 automated unit and integration tests passing, including new strength-grade dropdown and PSD export tests.
+
+---
+
 # CivilQntify v1.0.11 Release Notes
 
 ## 🚀 What's New in v1.0.11

@@ -287,6 +287,13 @@ def _generate_pdf_via_fpdf(result: MixDesignResult, input_params: dict[str, Any]
         pdf.body_text(f"The total volume requested is {result.volume_m3:.1f} m\u00b3. All quantities below are shown per cubic metre and as total batch amounts.")
     pdf.section_title("2. Input Parameters")
     if input_params:
+        _proj = str(input_params.get("project_name", "") or "").strip()
+        if _proj and _proj != "N/A":
+            pdf.subsection_title("Project")
+            pdf.key_value_row("Project Name", _proj)
+            _d = str(input_params.get("date", "") or "").strip()
+            if _d and _d != "N/A":
+                pdf.key_value_row("Report Date", _d)
         is_aci = input_params.get("code") == "aci211"
         is_doe = input_params.get("code") == "doe"
         pdf.subsection_title("Design Standard")
@@ -517,6 +524,8 @@ def generate_latex_source(
 
     # Input param helpers
     ip = input_params or {}
+    _proj_name = str(ip.get("project_name", "") or "").strip()
+    _report_date = str(ip.get("date", "") or "").strip()
     target_strength = ip.get("target_strength_mpa", result.target_mean_strength_mpa)
     slump = ip.get("slump_mm", "-")
     nmsa = ip.get("nmsa", "-")
@@ -742,7 +751,12 @@ This report presents a concrete mix design performed in accordance with {code_la
 \\toprule
 \\textbf{{Parameter}} & \\textbf{{Value}} \\\\
 \\midrule
-Code & {code_label} \\\\
+"""
+        if _proj_name and _proj_name != "N/A":
+            latex += f"Project & {_sanitize_latex(_proj_name)} \\\\\n"
+        if _report_date and _report_date != "N/A":
+            latex += f"Report date & {_sanitize_latex(_report_date)} \\\\\n"
+        latex += f"""Code & {code_label} \\\\
 Target strength ($f'_c$/$f_{{ck}}$) & { _sanitize_latex(str(target_strength)) } MPa \\\\
 Slump & { _sanitize_latex(str(slump)) } mm \\\\
 NMSA & { _sanitize_latex(str(nmsa)) } mm \\\\
