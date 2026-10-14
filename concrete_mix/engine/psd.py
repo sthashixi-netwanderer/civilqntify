@@ -23,6 +23,7 @@ Reference standards (per AGENTS.md):
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import math
 
 # ---------------------------------------------------------------------------
 # Standard-specific sieve sets (mm), coarsest → finest.
@@ -134,11 +135,13 @@ class PSDResult:
     coefficient_of_curvature: float | None
     # Per-sieve band conformance: True where %passing is inside the band.
     conforms: list[bool] = field(default_factory=list)
+    # A partial stack or empty reference cannot establish band conformance.
+    conformance_complete: bool = False
 
     @property
     def all_conform(self) -> bool:
-        """True if every checked sieve is inside its band limit."""
-        return bool(self.conforms) and all(self.conforms)
+        """True only with every required control present and in band."""
+        return self.conformance_complete and bool(self.conforms) and all(self.conforms)
 
     @property
     def pct_passing_600um(self) -> float | None:
@@ -162,8 +165,8 @@ def compute_psd(
 
     Args:
         mass_retained: Mass (g) retained on each sieve, aligned with
-            *sieve_sizes* (coarsest → finest). Zero/empty entries are treated
-            as 0.0 g.
+            *sieve_sizes* (coarsest → finest). Values must be finite and
+            nonnegative; zero is an explicit measured zero.
         sieve_sizes: Sieve opening sizes in mm (coarsest → finest), e.g.
             ``FINE_SIEVES`` or ``COARSE_SIEVES``.
         pan_mass: Mass (g) passing the finest sieve (the pan catch).
@@ -179,20 +182,32 @@ def compute_psd(
         quantities are zero/``None``.
 
     Raises:
-        ValueError: if ``len(mass_retained) != len(sieve_sizes)`` or if any
-            mass is negative.
+        ValueError: for mismatched lengths, malformed/nonfinite or negative
+            masses, nonfinite totals, or invalid/unordered sieve sizes.
     """
     if len(mass_retained) != len(sieve_sizes):
         raise ValueError(
             f"mass_retained ({len(mass_retained)}) must match sieve_sizes "
             f"({len(sieve_sizes)})"
         )
-    if any(m < 0 for m in mass_retained) or pan_mass < 0:
+    try:
+        masses = [float(m) for m in mass_retained]
+        pan = float(pan_mass)
+        sizes = [float(s) for s in sieve_sizes]
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError("Masses and sieve sizes must be finite numbers") from exc
+    if not all(math.isfinite(m) for m in [*masses, pan]):
+        raise ValueError("Mass values must be finite")
+    if any(m < 0 for m in masses) or pan < 0:
         raise ValueError("Mass values cannot be negative")
-
-    masses = [float(m) for m in mass_retained]
-    pan = float(pan_mass)
+    if not all(math.isfinite(s) and s > 0 for s in sizes):
+        raise ValueError("Sieve sizes must be finite and positive")
+    if any(a <= b for a, b in zip(sizes, sizes[1:])):
+        raise ValueError("Sieve sizes must be unique, coarsest to finest")
+    sieve_sizes = sizes
     total = sum(masses) + pan
+    if not math.isfinite(total):
+        raise ValueError("Total mass must be finite")
 
     if total <= 0:
         return PSDResult(
@@ -285,8 +300,11 @@ def check_conformance(
         List of bools aligned with ``result.sieve_sizes``. ``True`` where the
         %passing lies inside (inclusive) the band, or where the sieve is not
         in the band (unchecked sieves are treated as conforming). The list is
-        also written to ``result.conforms``.
+        also written to ``result.conforms``. These unchecked placeholders
+        are not passing evidence: ``all_conform`` additionally requires a
+        nonempty band, a positive sample and every required control.
     """
+    result.conformance_complete = bool(band) and not grading_evidence_issues(result, band)
     conforms: list[bool] = []
     for s, p in zip(result.sieve_sizes, result.percent_passing):
         if s in band:
@@ -296,6 +314,36 @@ def check_conformance(
             conforms.append(True)
     result.conforms = conforms
     return conforms
+
+
+def grading_evidence_issues(
+    result: PSDResult,
+    band: dict[float, tuple[float, float]],
+) -> list[str]:
+    """Require actual, finite controls, not inferred passes (IS/ASTM tables).
+
+    Unspecified table cells remain unchecked; only the selected band's
+    stated controls must be present. Incomplete evidence is not assessed.
+    """
+    issues: list[str] = []
+    if not math.isfinite(result.total_mass) or result.total_mass <= 0:
+        issues.append("No finite positive sample mass")
+    if len(result.sieve_sizes) != len(result.percent_passing):
+        issues.append("Sieve and passing-value lengths do not match")
+    if len(set(result.sieve_sizes)) != len(result.sieve_sizes):
+        issues.append("Duplicate sieve results")
+    if any(not math.isfinite(s) or s <= 0 for s in result.sieve_sizes):
+        issues.append("Invalid sieve sizes")
+    if any(not math.isfinite(p) or not 0 <= p <= 100 for p in result.percent_passing):
+        issues.append("Invalid percentage-passing values")
+    passing = dict(zip(result.sieve_sizes, result.percent_passing))
+    for sieve in band:
+        value = passing.get(sieve)
+        if value is None:
+            issues.append(f"Missing {sieve:g} mm sieve result")
+        elif not math.isfinite(value) or not 0 <= value <= 100:
+            issues.append(f"Invalid {sieve:g} mm percentage passing")
+    return issues
 
 
 def _interpolate_size(

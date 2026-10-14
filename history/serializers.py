@@ -7,321 +7,121 @@ SQLite storage and retrieval.
 from __future__ import annotations
 
 import json
+from dataclasses import asdict, fields
+from enum import Enum
+import warnings
 from datetime import datetime, timezone
 from typing import Any
 
 
+INPUT_SCHEMA_VERSION = 2
+
+
+def _json_value(value: Any) -> Any:
+    if isinstance(value, Enum):
+        return value.value
+    if isinstance(value, dict):
+        return {str(k): _json_value(v) for k, v in value.items()}
+    if isinstance(value, (tuple, list)):
+        return [_json_value(v) for v in value]
+    return value
+
+
+def _model_dict(model: Any) -> dict:
+    """Follow dataclass fields so newly added behavior is not silently lost."""
+    return _json_value(asdict(model))
+
+
+def _model_kwargs(cls: Any, data: dict) -> dict:
+    return {f.name: data[f.name] for f in fields(cls) if f.init and f.name in data}
+
+
+def mix_input_defaulted_fields(data: dict) -> list[str]:
+    """Identify missing saved inputs before restoring model defaults."""
+    from concrete_mix.models.mix_input import MixDesignInput
+    return [f.name for f in fields(MixDesignInput) if f.init and f.name not in data]
+
+
 def serialize_mix_input(inp: Any) -> str:
-    """Serialize a MixDesignInput to JSON string."""
-    d = {
-        "code": inp.code,
-        "target_strength_mpa": inp.target_strength_mpa,
-        "characteristic_strength_mpa": inp.characteristic_strength_mpa,
-        "slump_mm": inp.slump_mm,
-        "cement": _cement_dict(inp.cement),
-        "fine_aggregate": _fine_agg_dict(inp.fine_aggregate),
-        "coarse_aggregate": _coarse_agg_dict(inp.coarse_aggregate),
-        "scms": [_scm_dict(s) for s in inp.scms],
-        "admixture": _admixture_dict(inp.admixture) if inp.admixture else None,
-        "exposure_class": inp.exposure_class,
-        "concrete_type": inp.concrete_type,
-        "air_entrained": inp.air_entrained,
-        "w_c_ratio": inp.w_c_ratio,
-        "volume_m3": inp.volume_m3,
-        "has_production_data": inp.has_production_data,
-        "sulfate_exposure_class": inp.sulfate_exposure_class,
-        "freezing_exposure_class": getattr(inp, "freezing_exposure_class", "F0"),
-        "water_exposure_class": getattr(inp, "water_exposure_class", "W0"),
-        "corrosion_exposure_class": getattr(inp, "corrosion_exposure_class", "C0"),
-        "form_width_mm": getattr(inp, "form_width_mm", None),
-        "slab_depth_mm": getattr(inp, "slab_depth_mm", None),
-        "bar_spacing_mm": getattr(inp, "bar_spacing_mm", None),
-        "concrete_temp_c": getattr(inp, "concrete_temp_c", 22.5),
-        "manufactured_sand": getattr(inp, "manufactured_sand", False),
-        "prestressed": getattr(inp, "prestressed", False),
-        "trial_density_kg_m3": getattr(inp, "trial_density_kg_m3", None),
-        "trial_slump_mm": getattr(inp, "trial_slump_mm", None),
-        "trial_air_pct": getattr(inp, "trial_air_pct", None),
-        "trial_strength_mpa": getattr(inp, "trial_strength_mpa", None),
-        "air_pct": getattr(inp, "air_pct", 0.0),
-        "vebe_s": getattr(inp, "vebe_s", None),
-        "ca_split": getattr(inp, "ca_split", None),
-        "placing_method": getattr(inp, "placing_method", "chute"),
-        "site_control": getattr(inp, "site_control", "good"),
-        "admixture_water_kg": getattr(inp, "admixture_water_kg", 0.0),
-        "mass_concrete": getattr(inp, "mass_concrete", False),
-        "scc_class": getattr(inp, "scc_class", None),
-        "scc_slump_flow_mm": getattr(inp, "scc_slump_flow_mm", None),
-        "scc_lbox_ratio": getattr(inp, "scc_lbox_ratio", None),
-        "scc_segregation_pct": getattr(inp, "scc_segregation_pct", None),
-        "scc_vfunnel_s": getattr(inp, "scc_vfunnel_s", None),
-        "defective_percent": getattr(inp, "defective_percent", 5.0),
-        "age_days": getattr(inp, "age_days", 28),
-        "min_cement_kg": getattr(inp, "min_cement_kg", None),
-        "max_cement_kg": getattr(inp, "max_cement_kg", None),
-        "std_deviation": getattr(inp, "std_deviation", None),
-        "margin_mpa": getattr(inp, "margin_mpa", None),
-        "num_test_cubes": getattr(inp, "num_test_cubes", None),
-        "aggregate_relative_density_ssd": getattr(
-            inp, "aggregate_relative_density_ssd", None
-        ),
-    }
-    return json.dumps(d, default=str)
+    data = _model_dict(inp)
+    data["schema_version"] = INPUT_SCHEMA_VERSION
+    return json.dumps(data, allow_nan=False)
 
 
 def deserialize_mix_input(data: dict) -> Any:
-    """Deserialize a dict back to MixDesignInput."""
     from concrete_mix.models.mix_input import MixDesignInput
     from concrete_mix.models.materials import (
         Cement, FineAggregate, CoarseAggregate, SCM, Admixture,
+        CementType, AggregateShape, SCMType, AdmixtureType,
     )
 
-    cement = Cement(
-        type=data["cement"]["type"],
-        specific_gravity=data["cement"]["specific_gravity"],
-    )
-    fa = data["fine_aggregate"]
-    from concrete_mix.models.materials import AggregateShape as _AggShape
-    _fa_shape_val = fa.get("shape", "gravel")
-    try:
-        _fa_shape = _AggShape(_fa_shape_val)
-    except Exception:
-        _fa_shape = _AggShape.GRAVEL
-    fine_agg = FineAggregate(
-        specific_gravity=fa["specific_gravity"],
-        fineness_modulus=fa.get("fineness_modulus", 2.7),
-        absorption_percent=fa.get("absorption_percent", 1.0),
-        moisture_content_percent=fa.get("moisture_content_percent", 0.0),
-        grading_zone=fa.get("grading_zone"),
-        pct_passing_600um=fa.get("pct_passing_600um"),
-        shape=_fa_shape,
-    )
-    ca = data["coarse_aggregate"]
-    from concrete_mix.models.materials import AggregateShape as _AggShape2
-    _ca_shape_val = ca.get("shape", "gravel")
-    try:
-        _ca_shape = _AggShape2(_ca_shape_val)
-    except Exception:
-        _ca_shape = _AggShape2.GRAVEL
-    coarse_agg = CoarseAggregate(
-        specific_gravity=ca["specific_gravity"],
-        nominal_max_size_mm=ca["nominal_max_size_mm"],
-        absorption_percent=ca.get("absorption_percent", 1.0),
-        moisture_content_percent=ca.get("moisture_content_percent", 0.0),
-        shape=_ca_shape,
-        bulk_density_kg_m3=ca.get("bulk_density_kg_m3", 1600),
-    )
-    scms = []
-    for s in data.get("scms", []):
-        scms.append(SCM(type=s["type"], specific_gravity=s["specific_gravity"],
-                         replacement_percent=s["replacement_percent"]))
-    adm = None
-    if data.get("admixture"):
-        a = data["admixture"]
-        adm = Admixture(type=a["type"], dosage_percent=a["dosage_percent"],
-                         water_reduction_percent=a.get("water_reduction_percent", 0.0),
-                         specific_gravity=a.get("specific_gravity", 1.1))
+    def material(cls, saved):
+        kwargs = _model_kwargs(cls, saved)
+        enums = {Cement: ("type", CementType), FineAggregate: ("shape", AggregateShape),
+                 CoarseAggregate: ("shape", AggregateShape), SCM: ("type", SCMType),
+                 Admixture: ("type", AdmixtureType)}
+        name, enum = enums[cls]
+        if name in kwargs:
+            try:
+                kwargs[name] = enum(kwargs[name])
+            except ValueError:
+                pass  # Preserve supported free-text types, including DOE shapes.
+        return cls(**kwargs)
 
-    return MixDesignInput(
-        code=data["code"],
-        target_strength_mpa=data["target_strength_mpa"],
-        characteristic_strength_mpa=data.get("characteristic_strength_mpa"),
-        slump_mm=data["slump_mm"],
-        cement=cement,
-        fine_aggregate=fine_agg,
-        coarse_aggregate=coarse_agg,
-        scms=tuple(scms),
-        admixture=adm,
-        exposure_class=data.get("exposure_class"),
-        concrete_type=data.get("concrete_type", "reinforced"),
-        air_entrained=data.get("air_entrained", False),
-        w_c_ratio=data.get("w_c_ratio"),
-        volume_m3=data.get("volume_m3", 1.0),
-        has_production_data=data.get("has_production_data", True),
-        sulfate_exposure_class=data.get("sulfate_exposure_class", "S0"),
-        freezing_exposure_class=data.get("freezing_exposure_class", "F0"),
-        water_exposure_class=data.get("water_exposure_class", "W0"),
-        corrosion_exposure_class=data.get("corrosion_exposure_class", "C0"),
-        form_width_mm=data.get("form_width_mm"),
-        slab_depth_mm=data.get("slab_depth_mm"),
-        bar_spacing_mm=data.get("bar_spacing_mm"),
-        concrete_temp_c=data.get("concrete_temp_c", 22.5),
-        manufactured_sand=data.get("manufactured_sand", False),
-        prestressed=data.get("prestressed", False),
-        trial_density_kg_m3=data.get("trial_density_kg_m3"),
-        trial_slump_mm=data.get("trial_slump_mm"),
-        trial_air_pct=data.get("trial_air_pct"),
-        trial_strength_mpa=data.get("trial_strength_mpa"),
-        air_pct=data.get("air_pct", 0.0),
-        vebe_s=data.get("vebe_s"),
-        ca_split=data.get("ca_split"),
-        placing_method=data.get("placing_method", "chute"),
-        site_control=data.get("site_control", "good"),
-        admixture_water_kg=data.get("admixture_water_kg", 0.0),
-        mass_concrete=data.get("mass_concrete", False),
-        scc_class=data.get("scc_class"),
-        scc_slump_flow_mm=data.get("scc_slump_flow_mm"),
-        scc_lbox_ratio=data.get("scc_lbox_ratio"),
-        scc_segregation_pct=data.get("scc_segregation_pct"),
-        scc_vfunnel_s=data.get("scc_vfunnel_s"),
-        defective_percent=data.get("defective_percent", 5.0),
-        age_days=data.get("age_days", 28),
-        min_cement_kg=data.get("min_cement_kg"),
-        max_cement_kg=data.get("max_cement_kg"),
-        std_deviation=data.get("std_deviation"),
-        margin_mpa=data.get("margin_mpa"),
-        num_test_cubes=data.get("num_test_cubes"),
-        aggregate_relative_density_ssd=data.get(
-            "aggregate_relative_density_ssd", None
-        ),
-    )
+    version = data.get("schema_version", 1)
+    if type(version) is not int or version not in (1, INPUT_SCHEMA_VERSION):
+        raise ValueError(f"Unsupported mix input schema version: {version}")
+    missing = mix_input_defaulted_fields(data)
+    if missing:
+        warnings.warn("Saved mix inputs are incomplete; model defaults used for: "
+                      + ", ".join(missing), UserWarning, stacklevel=2)
+    kwargs = _model_kwargs(MixDesignInput, data)
+    for name, cls in (("cement", Cement), ("fine_aggregate", FineAggregate),
+                      ("coarse_aggregate", CoarseAggregate)):
+        if name in data:
+            kwargs[name] = material(cls, data[name])
+    kwargs["scms"] = tuple(material(SCM, s) for s in data.get("scms", []))
+    kwargs["admixture"] = (material(Admixture, data["admixture"])
+                           if data.get("admixture") else None)
+    return MixDesignInput(**kwargs)
 
 
 def serialize_mix_result(result: Any) -> str:
-    """Serialize a MixDesignResult to JSON string."""
-    steps = []
-    for s in result.steps:
-        steps.append({
-            "step_number": s.step_number,
-            "description": s.description,
-            "formula": s.formula,
-            "inputs": _safe_inputs(s.inputs),
-            "result": s.result,
-            "unit": s.unit,
-            "clause_ref": s.clause_ref,
-        })
-    d = {
-        "code_used": result.code_used,
-        "target_mean_strength_mpa": result.target_mean_strength_mpa,
-        "w_c_ratio": result.w_c_ratio,
-        "water_kg": result.water_kg,
-        "cement_kg": result.cement_kg,
-        "scm_kg": result.scm_kg,
-        "fine_aggregate_kg": result.fine_aggregate_kg,
-        "coarse_aggregate_kg": result.coarse_aggregate_kg,
-        "air_volume_percent": result.air_volume_percent,
-        "volume_m3": result.volume_m3,
-        "steps": steps,
-        "warnings": list(result.warnings),
-        "cost_per_m3": result.cost_per_m3,
-        "carbon_kg_co2_per_m3": result.carbon_kg_co2_per_m3,
-        "adjusted_water_kg": result.adjusted_water_kg,
-        "field_fine_aggregate_kg": result.field_fine_aggregate_kg,
-        "field_coarse_aggregate_kg": result.field_coarse_aggregate_kg,
-        "admixture_kg": result.admixture_kg,
-        "admixture_type": result.admixture_type,
-        "admixture_dosage_percent": result.admixture_dosage_percent,
-        "water_reduction_percent": result.water_reduction_percent,
-        "ca_split_kg": dict(result.ca_split_kg) if result.ca_split_kg else None,
-    }
-    return json.dumps(d, default=str)
+    return json.dumps(_model_dict(result), allow_nan=False)
 
 
 def deserialize_mix_result(data: dict) -> Any:
-    """Deserialize a dict back to MixDesignResult."""
     from concrete_mix.models.mix_result import MixDesignResult, CalculationStep
-
-    steps = []
-    for s in data.get("steps", []):
-        steps.append(CalculationStep(
-            step_number=s["step_number"],
-            description=s["description"],
-            formula=s["formula"],
-            inputs=s.get("inputs", {}),
-            result=s["result"],
-            unit=s["unit"],
-            clause_ref=s.get("clause_ref", ""),
-        ))
-    return MixDesignResult(
-        code_used=data["code_used"],
-        target_mean_strength_mpa=data["target_mean_strength_mpa"],
-        w_c_ratio=data["w_c_ratio"],
-        water_kg=data["water_kg"],
-        cement_kg=data["cement_kg"],
-        scm_kg=data.get("scm_kg", 0.0),
-        fine_aggregate_kg=data.get("fine_aggregate_kg", 0.0),
-        coarse_aggregate_kg=data.get("coarse_aggregate_kg", 0.0),
-        air_volume_percent=data.get("air_volume_percent", 0.0),
-        volume_m3=data.get("volume_m3", 1.0),
-        steps=tuple(steps),
-        warnings=tuple(data.get("warnings", [])),
-        cost_per_m3=data.get("cost_per_m3"),
-        carbon_kg_co2_per_m3=data.get("carbon_kg_co2_per_m3"),
-        adjusted_water_kg=data.get("adjusted_water_kg"),
-        field_fine_aggregate_kg=data.get("field_fine_aggregate_kg"),
-        field_coarse_aggregate_kg=data.get("field_coarse_aggregate_kg"),
-        admixture_kg=data.get("admixture_kg"),
-        admixture_type=data.get("admixture_type"),
-        admixture_dosage_percent=data.get("admixture_dosage_percent"),
-        water_reduction_percent=data.get("water_reduction_percent"),
-        ca_split_kg=data.get("ca_split_kg"),
-    )
+    kwargs = _model_kwargs(MixDesignResult, data)
+    kwargs["steps"] = tuple(CalculationStep(**_model_kwargs(CalculationStep, s))
+                            for s in data.get("steps", []))
+    kwargs["warnings"] = tuple(data.get("warnings", []))
+    return MixDesignResult(**kwargs)
 
 
 def serialize_bill(bill: Any) -> str:
-    """Serialize a MaterialBill to JSON string."""
-    d = {
-        "net_concrete_volume_m3": bill.net_concrete_volume_m3,
-        "wastage_percent": bill.wastage_percent,
-        "gross_concrete_volume_m3": bill.gross_concrete_volume_m3,
-        "total_cement_kg": bill.total_cement_kg,
-        "total_cement_bags": bill.total_cement_bags,
-        "cement_bag_weight_kg": bill.cement_bag_weight_kg,
-        "total_water_kg": bill.total_water_kg,
-        "total_water_liters": bill.total_water_liters,
-        "total_fine_aggregate_kg": bill.total_fine_aggregate_kg,
-        "total_fine_aggregate_bulk_m3": bill.total_fine_aggregate_bulk_m3,
-        "total_coarse_aggregate_kg": bill.total_coarse_aggregate_kg,
-        "total_coarse_aggregate_bulk_m3": bill.total_coarse_aggregate_bulk_m3,
-        "total_scm_kg": bill.total_scm_kg,
-        "total_admixture_kg": bill.total_admixture_kg,
-        "transfer_data": _transfer_data_dict(bill.transfer_data),
-    }
-    return json.dumps(d, default=str)
+    return json.dumps(_model_dict(bill), allow_nan=False)
 
 
 def deserialize_bill(data: dict) -> Any:
-    """Deserialize a dict back to MaterialBill."""
     from material_quantify.models.bill import MaterialBill
     from material_quantify.models.transfer_data import MixDesignTransferData
 
-    td_data = data.get("transfer_data", {})
-    td = MixDesignTransferData(
-        code_used=td_data.get("code_used", "Manual"),
-        cement_kg_per_m3=td_data.get("cement_kg_per_m3", 350),
-        water_kg_per_m3=td_data.get("water_kg_per_m3", 175),
-        fine_aggregate_kg_per_m3=td_data.get("fine_aggregate_kg_per_m3", 700),
-        coarse_aggregate_kg_per_m3=td_data.get("coarse_aggregate_kg_per_m3", 1200),
-        scm_kg_per_m3=td_data.get("scm_kg_per_m3", 0.0),
-        admixture_kg_per_m3=td_data.get("admixture_kg_per_m3", 0.0),
-        air_volume_percent=td_data.get("air_volume_percent", 2.0),
-        w_c_ratio=td_data.get("w_c_ratio", 0.5),
-        target_mean_strength_mpa=td_data.get("target_mean_strength_mpa", 25.0),
-        field_water_kg_per_m3=td_data.get("field_water_kg_per_m3", 0.0),
-        field_fine_aggregate_kg_per_m3=td_data.get("field_fine_aggregate_kg_per_m3", 0.0),
-        field_coarse_aggregate_kg_per_m3=td_data.get("field_coarse_aggregate_kg_per_m3", 0.0),
-        cement_bag_weight_kg=td_data.get("cement_bag_weight_kg", 50.0),
-        coarse_agg_bulk_density_kg_m3=td_data.get("coarse_agg_bulk_density_kg_m3", 1600.0),
-        fine_agg_specific_gravity=td_data.get("fine_agg_specific_gravity", 2.65),
-        coarse_agg_specific_gravity=td_data.get("coarse_agg_specific_gravity", 2.70),
-    )
-    return MaterialBill(
-        net_concrete_volume_m3=data["net_concrete_volume_m3"],
-        wastage_percent=data["wastage_percent"],
-        gross_concrete_volume_m3=data["gross_concrete_volume_m3"],
-        total_cement_kg=data["total_cement_kg"],
-        total_cement_bags=data["total_cement_bags"],
-        cement_bag_weight_kg=data["cement_bag_weight_kg"],
-        total_water_kg=data["total_water_kg"],
-        total_water_liters=data["total_water_liters"],
-        total_fine_aggregate_kg=data["total_fine_aggregate_kg"],
-        total_fine_aggregate_bulk_m3=data["total_fine_aggregate_bulk_m3"],
-        total_coarse_aggregate_kg=data["total_coarse_aggregate_kg"],
-        total_coarse_aggregate_bulk_m3=data["total_coarse_aggregate_bulk_m3"],
-        total_scm_kg=data.get("total_scm_kg", 0.0),
-        total_admixture_kg=data.get("total_admixture_kg", 0.0),
-        transfer_data=td,
-    )
+    # Compatibility for historical bills whose transfer blob was partial.
+    defaults = dict(code_used="Manual", cement_kg_per_m3=350, water_kg_per_m3=175,
+                    fine_aggregate_kg_per_m3=700, coarse_aggregate_kg_per_m3=1200,
+                    scm_kg_per_m3=0.0, admixture_kg_per_m3=0.0, air_volume_percent=2.0,
+                    w_c_ratio=0.5, target_mean_strength_mpa=25.0,
+                    field_water_kg_per_m3=0.0, field_fine_aggregate_kg_per_m3=0.0,
+                    field_coarse_aggregate_kg_per_m3=0.0, cement_bag_weight_kg=50.0,
+                    coarse_agg_bulk_density_kg_m3=1600.0, fine_agg_specific_gravity=2.65,
+                    coarse_agg_specific_gravity=2.70)
+    defaults.update(data.get("transfer_data", {}))
+    kwargs = _model_kwargs(MaterialBill, data)
+    kwargs.setdefault("total_scm_kg", 0.0)
+    kwargs.setdefault("total_admixture_kg", 0.0)
+    kwargs["transfer_data"] = MixDesignTransferData(**_model_kwargs(MixDesignTransferData, defaults))
+    return MaterialBill(**kwargs)
 
 
 def serialize_cost_data(data: dict) -> str:
@@ -392,65 +192,9 @@ def now_iso() -> str:
 # Private helpers
 # ---------------------------------------------------------------------------
 
-def _cement_dict(c) -> dict:
-    return {"type": c.type.value if hasattr(c.type, "value") else str(c.type),
-            "specific_gravity": c.specific_gravity}
-
-def _fine_agg_dict(fa) -> dict:
-    d = {
-        "specific_gravity": fa.specific_gravity,
-        "fineness_modulus": fa.fineness_modulus,
-        "absorption_percent": fa.absorption_percent,
-        "moisture_content_percent": fa.moisture_content_percent,
-        "grading_zone": fa.grading_zone,
-    }
-    if hasattr(fa, "pct_passing_600um"):
-        d["pct_passing_600um"] = fa.pct_passing_600um
-    if hasattr(fa, "shape"):
-        d["shape"] = fa.shape.value if hasattr(fa.shape, "value") else str(fa.shape)
-    return d
-
-def _coarse_agg_dict(ca) -> dict:
-    return {
-        "specific_gravity": ca.specific_gravity,
-        "nominal_max_size_mm": ca.nominal_max_size_mm,
-        "absorption_percent": ca.absorption_percent,
-        "moisture_content_percent": ca.moisture_content_percent,
-        "shape": ca.shape.value if hasattr(ca.shape, "value") else str(ca.shape),
-        "bulk_density_kg_m3": ca.bulk_density_kg_m3,
-    }
-
-def _scm_dict(s) -> dict:
-    return {"type": s.type.value if hasattr(s.type, "value") else str(s.type),
-            "specific_gravity": s.specific_gravity,
-            "replacement_percent": s.replacement_percent}
-
-def _admixture_dict(a) -> dict:
-    return {"type": a.type.value if hasattr(a.type, "value") else str(a.type),
-            "dosage_percent": a.dosage_percent,
-            "water_reduction_percent": a.water_reduction_percent,
-            "specific_gravity": a.specific_gravity}
-
 def _transfer_data_dict(td) -> dict:
-    return {
-        "code_used": td.code_used,
-        "cement_kg_per_m3": td.cement_kg_per_m3,
-        "water_kg_per_m3": td.water_kg_per_m3,
-        "fine_aggregate_kg_per_m3": td.fine_aggregate_kg_per_m3,
-        "coarse_aggregate_kg_per_m3": td.coarse_aggregate_kg_per_m3,
-        "scm_kg_per_m3": td.scm_kg_per_m3,
-        "admixture_kg_per_m3": td.admixture_kg_per_m3,
-        "air_volume_percent": td.air_volume_percent,
-        "w_c_ratio": td.w_c_ratio,
-        "target_mean_strength_mpa": td.target_mean_strength_mpa,
-        "field_water_kg_per_m3": td.field_water_kg_per_m3,
-        "field_fine_aggregate_kg_per_m3": td.field_fine_aggregate_kg_per_m3,
-        "field_coarse_aggregate_kg_per_m3": td.field_coarse_aggregate_kg_per_m3,
-        "cement_bag_weight_kg": td.cement_bag_weight_kg,
-        "coarse_agg_bulk_density_kg_m3": td.coarse_agg_bulk_density_kg_m3,
-        "fine_agg_specific_gravity": td.fine_agg_specific_gravity,
-        "coarse_agg_specific_gravity": td.coarse_agg_specific_gravity,
-    }
+    return _model_dict(td)
+
 
 def _safe_inputs(inputs: dict) -> dict:
     """Make inputs JSON-safe by converting non-serializable values."""

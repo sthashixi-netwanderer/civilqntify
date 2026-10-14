@@ -9,6 +9,7 @@ appropriate tab for editing.
 from __future__ import annotations
 
 import json
+import sqlite3
 
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QBrush, QColor, QFont
@@ -383,6 +384,15 @@ class HistoryTab(QWidget):
             return
         tt = rec["tab_type"]
         if tt == "mix_design":
+            from history.serializers import mix_input_defaulted_fields
+            missing = mix_input_defaulted_fields(json.loads(rec["input_json"]))
+            if missing:
+                QMessageBox.warning(
+                    self, "Incomplete Saved Inputs",
+                    "This older record did not save these inputs; current model defaults "
+                    "will be used: " + ", ".join(missing)
+                    + ". Recalculate before relying on the saved result.",
+                )
             self.load_mix_design.emit(calc_id)
         elif tt == "quantification":
             self.load_quantification.emit(calc_id)
@@ -424,11 +434,11 @@ class HistoryTab(QWidget):
         )
         if not path:
             return
-        with open(path, "r") as f:
-            data = f.read()
         try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = f.read()
             count = self._db.import_records(data)
-        except (json.JSONDecodeError, OSError, ValueError) as e:
+        except (OSError, ValueError, sqlite3.Error) as e:
             QMessageBox.critical(
                 self, "Import Failed", f"Could not import '{path}': {e}"
             )

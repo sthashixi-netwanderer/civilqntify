@@ -42,9 +42,6 @@ class _StatCard(QFrame):
         self._label.setObjectName("result-label")
         self._value = QLabel("\u2014")
         self._value.setObjectName("result-value")
-        self._value.setStyleSheet(
-            "font-family: 'JetBrains Mono', 'Consolas', monospace;"
-        )
         self._unit = QLabel("")
         self._unit.setObjectName("result-unit")
 
@@ -221,6 +218,12 @@ class QuantResultPanel(QWidget):
         self._mat_cards["wc_ratio"].set_value(
             bill.transfer_data.w_c_ratio, unit="", fmt=".3f")
 
+        self._warning_banner.setText(
+            f"Sand purchasing volume uses {bill.transfer_data.fine_agg_bulk_density_kg_m3:g} kg/m³. "
+            f"{bill.fine_aggregate_volume_basis}. Not particle absolute volume."
+        )
+        self._warning_banner.setVisible(True)
+
         # Detailed table
         self._table.clear()
         td = bill.transfer_data
@@ -239,7 +242,7 @@ class QuantResultPanel(QWidget):
             ("Fine Aggregate (SSD)",
              self._per_volume_mass(td.fine_aggregate_kg_per_m3, up),
              up.convert_mass_kg(bill.total_fine_aggregate_kg), up.mass_per_volume_unit(),
-             f"{up.convert_volume_m3(bill.total_fine_aggregate_bulk_m3):.3f} {vu}"),
+             f"{up.convert_volume_m3(bill.total_fine_aggregate_bulk_m3):.3f} {vu} bulk (purchase)"),
             ("Fine Aggregate (field)",
              self._per_volume_mass(td.field_fine_aggregate_kg_per_m3, up),
              up.convert_mass_kg(bill.total_fine_aggregate_kg), up.mass_per_volume_unit(), ""),
@@ -251,6 +254,10 @@ class QuantResultPanel(QWidget):
              self._per_volume_mass(td.field_coarse_aggregate_kg_per_m3, up),
              up.convert_mass_kg(bill.total_coarse_aggregate_kg), up.mass_per_volume_unit(), ""),
         ]
+
+        if bill.total_fine_aggregate_absolute_m3 is not None:
+            rows.append(("Sand SSD particle volume (not purchased)", 0.0, 0.0, "",
+                         f"{up.convert_volume_m3(bill.total_fine_aggregate_absolute_m3):.4f} {vu}"))
 
         if bill.total_scm_kg > 0:
             rows.append(("SCM",

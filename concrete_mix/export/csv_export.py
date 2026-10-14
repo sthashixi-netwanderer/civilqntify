@@ -6,6 +6,7 @@ import csv
 import io
 
 from concrete_mix.models.mix_result import MixDesignResult
+from concrete_mix.export.batching import batching_schedule
 
 
 def export_to_csv(result: MixDesignResult) -> str:
@@ -35,4 +36,18 @@ def export_to_csv(result: MixDesignResult) -> str:
     if result.carbon_kg_co2_per_m3 is not None:
         writer.writerow(["Embodied Carbon", f"{result.carbon_kg_co2_per_m3:.1f}", "kg CO₂/m³"])
 
+    schedule = batching_schedule(result)
+    writer.writerow(["Requested batch volume", result.volume_m3, "m³"])
+    for section, unit in (("design_ssd_per_m3", "kg/m³"), ("field_per_m3", "kg/m³"),
+                          ("design_ssd_batch_kg", "kg"), ("field_batch_kg", "kg")):
+        for key, value in schedule[section].items():
+            writer.writerow([f"{section}: {key}", value if value is not None else "Not assessed", unit])
+    for section in ("design_ca_split_kg_per_m3", "design_ca_split_batch_kg"):
+        for key, value in (schedule[section] or {}).items():
+            writer.writerow([f"{section}: {key}", value, "kg/m³" if section.endswith("per_m3") else "kg"])
+    for key, value in schedule["admixture"].items():
+        writer.writerow([f"Admixture {key}", value if value is not None else "Not assessed", ""])
+    for warning in result.warnings:
+        writer.writerow(["Warning", warning, ""])
+    writer.writerow(["Field batching note", schedule["missing_field_values"], ""])
     return output.getvalue()

@@ -18,9 +18,12 @@ class QuantificationWorker(QThread):
 
     result_ready = pyqtSignal(object)  # MaterialBill
     error = pyqtSignal(str)
+    revisioned_result = pyqtSignal(int, object)
+    revisioned_error = pyqtSignal(int, str)
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
+        self.request_revision = 0
         self._method: str = "design_mix"  # "design_mix" or "mix_ratio"
         self._transfer_data: MixDesignTransferData | None = None
         self._overrides: dict[str, float] = {}
@@ -77,9 +80,13 @@ class QuantificationWorker(QThread):
         self._wastage = wastage
 
     def run(self) -> None:
+        # Capture before calculation: queued delivery must identify this request,
+        # even when the reusable QThread has already been configured again.
+        revision = self.request_revision
         try:
             if self._method == "mix_ratio":
                 if self._ratio_quantifier is None:
+                    self.revisioned_error.emit(revision, "No mix ratio quantifier configured.")
                     self.error.emit("No mix ratio quantifier configured.")
                     return
                 if self._mode == "volume":
@@ -90,10 +97,12 @@ class QuantificationWorker(QThread):
                     bill = self._ratio_quantifier.quantify_by_elements(
                         self._elements, self._wastage
                     )
+                self.revisioned_result.emit(revision, bill)
                 self.result_ready.emit(bill)
                 return
 
             if self._transfer_data is None:
+                self.revisioned_error.emit(revision, "No mix design data available.")
                 self.error.emit("No mix design data available.")
                 return
 
@@ -111,6 +120,8 @@ class QuantificationWorker(QThread):
                     self._elements, self._wastage
                 )
 
+            self.revisioned_result.emit(revision, bill)
             self.result_ready.emit(bill)
         except Exception as e:
+            self.revisioned_error.emit(revision, str(e))
             self.error.emit(str(e))

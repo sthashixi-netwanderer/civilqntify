@@ -29,6 +29,10 @@ class MaterialBill:
         total_scm_kg: Total supplementary cementitious material (kg)
         total_admixture_kg: Total chemical admixture (kg)
         transfer_data: Reference to the mix design data used
+        coarse_aggregate_split_kg: Per-size coarse aggregate totals (kg) when
+            the design subdivides the stock into single sizes (DOE / BRE 331
+            §5.5), e.g. ``{"10 mm": 4600.0, "20 mm": 9250.0}``. Sums to
+            ``total_coarse_aggregate_kg``. None for a single graded stock.
     """
 
     net_concrete_volume_m3: float
@@ -52,6 +56,12 @@ class MaterialBill:
     total_admixture_kg: float
 
     transfer_data: MixDesignTransferData
+
+    # SSD particle volume is not purchasing bulk volume (ACI §4.7.7.2).
+    total_fine_aggregate_absolute_m3: float | None = None
+    fine_aggregate_volume_basis: str = "Legacy bulk volume: density basis unverified"
+    # None unless the design subdivided the coarse aggregate into single sizes.
+    coarse_aggregate_split_kg: dict[str, float] | None = None
 
     def format_report(self) -> str:
         """Generate a human-readable material bill report."""
@@ -104,8 +114,22 @@ class MaterialBill:
             lines.append(
                 f"  {'Admixture':<25} {self.total_admixture_kg:<14.3f} {'--':<14} {'--':<10}"
             )
+            lines.append(f"    type: {td.admixture_type}")
         lines.append("")
 
+        if self.coarse_aggregate_split_kg:
+            lines.append("")
+            lines.append(
+                "  Coarse aggregate by single size (BRE 331:1997 5.5):"
+            )
+            for size, kg in self.coarse_aggregate_split_kg.items():
+                lines.append(
+                    f"    {size:<23} {kg:<14.1f} {'--':<14} {'--':<10}"
+                )
+        lines.append(f"  Sand purchasing basis: {self.fine_aggregate_volume_basis}")
+        if self.total_fine_aggregate_absolute_m3 is not None:
+            lines.append(f"  Sand SSD absolute volume (not purchased): {self.total_fine_aggregate_absolute_m3:.4f} m³")
+        lines.append("")
         lines.append("CEMENT BAG SUMMARY")
         lines.append("-" * 40)
         lines.append(f"  Bag weight:            {self.cement_bag_weight_kg:.1f} kg")

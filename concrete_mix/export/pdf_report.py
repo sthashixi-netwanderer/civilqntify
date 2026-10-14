@@ -27,6 +27,7 @@ from typing import Any
 from fpdf import FPDF
 
 from concrete_mix.models.mix_result import MixDesignResult
+from concrete_mix.export.batching import batching_schedule, MATERIAL_LABELS
 from concrete_mix.utils.display import display_name
 
 # ── Logo resolution ─────────────────────────────────────────────────
@@ -102,40 +103,18 @@ _LATEX_UNICODE = {
 
 
 def _escape_latex(text: str) -> str:
-    """Escape text for LaTeX, handling Unicode and special chars."""
-    # First handle Unicode math symbols
-    for char, repl in _LATEX_UNICODE.items():
-        text = text.replace(char, repl)
-    # Then escape LaTeX specials, but avoid double-escaping already inserted commands
-    # We need to be careful: only escape raw specials not part of inserted LaTeX commands
-    # Simple approach: escape & % $ # _ { } ~ ^ \ that are not already part of \$ etc.
-    # First protect existing LaTeX commands by placeholder
-    # For now, just escape the remaining specials that are not in math mode
-    # We will escape &, %, #, _, {, }, ~, ^, \  but not $ (since we use math)
-    # To avoid breaking math we inserted, we temporarily replace them
-    placeholders = {}
-    for i, (k, v) in enumerate(_LATEX_UNICODE.items()):
-        ph = f"__LATEXUNI{i}__"
-        if v in text:
-            placeholders[ph] = v
-            text = text.replace(v, ph)
-    # Now escape specials except $ and \
-    for char in ["&", "%", "#", "_", "{", "}", "~", "^"]:
-        esc = _LATEX_ESCAPES[char]
-        text = text.replace(char, esc)
-    # Restore placeholders
-    for ph, v in placeholders.items():
-        text = text.replace(ph, v)
-    return text
+    """Escape untrusted text once, never recognize caller-supplied TeX.
+
+    Only our fixed Unicode replacements contain trusted math. Insert them
+    character-by-character so their commands are neither re-escaped nor
+    confused with user-controlled placeholder strings.
+    """
+    return "".join(_LATEX_UNICODE.get(char, _LATEX_ESCAPES.get(char, char))
+                   if ord(char) >= 32 else " " for char in str(text))
 
 
 def _sanitize_latex(text: str) -> str:
-    """Sanitize text for LaTeX: escape and handle non-ASCII."""
-    if not text:
-        return ""
-    text = _escape_latex(str(text))
-    # Replace any remaining non-ASCII with ?
-    return text.encode("ascii", errors="replace").decode("ascii")
+    return _escape_latex(text) if text is not None else ""
 
 
 # ── fpdf2 fallback (original implementation, kept for portability) ──
@@ -352,34 +331,34 @@ def _generate_pdf_via_fpdf(result: MixDesignResult, input_params: dict[str, Any]
         pdf.note_text("(Input parameters were not recorded for this calculation.)")
     pdf.add_page()
     pdf.section_title("3. Material Quantities")
-    pdf.subsection_title("Proportions per Cubic Metre")
-    pdf.key_value_row("Cement", f"{result.cement_kg:.1f} kg/m\u00b3")
-    if result.scm_kg > 0:
-        pdf.key_value_row("SCM", f"{result.scm_kg:.1f} kg/m\u00b3")
-        pdf.key_value_row("Total Cementitious", f"{result.total_cementitious_kg:.1f} kg/m\u00b3")
-    pdf.key_value_row("Water", f"{result.water_kg:.1f} kg/m\u00b3")
-    pdf.key_value_row("Fine Aggregate (Sand)", f"{result.fine_aggregate_kg:.1f} kg/m\u00b3")
-    pdf.key_value_row("Coarse Aggregate", f"{result.coarse_aggregate_kg:.1f} kg/m\u00b3")
-    pdf.key_value_row("Total Aggregate", f"{result.total_aggregate_kg:.1f} kg/m\u00b3")
-    pdf.ln(2)
+    schedule = batching_schedule(result)
+    pdf.key_value_row("Requested batch volume", f"{result.volume_m3:g} m³")
+    for key, title, unit in (
+        ("design_ssd_per_m3", "Design/SSD Proportions per Cubic Metre", "kg/m³"),
+        ("field_per_m3", "Moisture-Adjusted Field Proportions", "kg/m³"),
+        ("design_ssd_batch_kg", "Total Design/SSD Batch", "kg"),
+        ("field_batch_kg", "Total Field Batch", "kg"),
+    ):
+        pdf.check_page_space(65)
+        pdf.subsection_title(title)
+        for material, value in schedule[key].items():
+            display = f"{value:.2f} {unit}" if value is not None else "Not assessed"
+            pdf.key_value_row(MATERIAL_LABELS[material], display)
+    for key, unit in (("design_ca_split_kg_per_m3", "kg/m³"),
+                      ("design_ca_split_batch_kg", "kg/batch")):
+        for size, value in (schedule[key] or {}).items():
+            pdf.key_value_row(f"Design/SSD CA split: {size}", f"{value:.2f} {unit}")
+    pdf.note_text(schedule["missing_field_values"])
+    for key, value in schedule["admixture"].items():
+        pdf.key_value_row(f"Admixture {key}", str(value) if value is not None else "Not assessed")
     pdf.key_value_row("Water/Cement Ratio", f"{result.w_c_ratio:.3f}")
-    pdf.key_value_row("Target Mean Strength (f'cr/ftm)", f"{result.target_mean_strength_mpa:.1f} MPa")
+    pdf.key_value_row("Target Mean Strength", f"{result.target_mean_strength_mpa:.1f} MPa")
     pdf.key_value_row("Air Content", f"{result.air_volume_percent:.1f}%")
     ratio = result.mix_ratio
     pdf.ln(4)
     pdf.subsection_title("Mix Ratio (Cement : Fine Aggregate : Coarse Aggregate)")
     pdf.body_text("The mix ratio shows the proportion of each solid material relative to cement = 1, with the water-cement ratio in parentheses.")
     pdf.key_value_row("Cement : Fine Agg : Coarse Agg (W/C)", f"{ratio['cement']:.1f} : {ratio['fine_aggregate']:.1f} : {ratio['coarse_aggregate']:.1f} ({result.w_c_ratio:.3f})")
-    if result.volume_m3 != 1.0:
-        v = result.volume_m3
-        pdf.ln(4)
-        pdf.subsection_title(f"Total Batch Quantities ({v:.1f} m\u00b3)")
-        pdf.key_value_row("Cement", f"{result.cement_kg * v:.1f} kg")
-        if result.scm_kg > 0:
-            pdf.key_value_row("SCM", f"{result.scm_kg * v:.1f} kg")
-        pdf.key_value_row("Water", f"{result.water_kg * v:.1f} kg")
-        pdf.key_value_row("Fine Aggregate", f"{result.fine_aggregate_kg * v:.1f} kg")
-        pdf.key_value_row("Coarse Aggregate", f"{result.coarse_aggregate_kg * v:.1f} kg")
     pdf.add_page()
     pdf.section_title("4. Calculation Steps (Detailed)")
     pdf.note_text("Each step below shows the formula used, the input values, and the result. Clause references point to the relevant section of the design code.")
@@ -565,7 +544,7 @@ def generate_latex_source(
         formula = _sanitize_latex(step.formula)
         # Keep formulas readable; if they contain math, wrap in \( \)
         steps_latex += f"""
-\\noindent\\textbf{{Step {step.step_number}: {_sanitize_latex(step.description)}}}\\hfill\\textsf{{\\footnotesize [{_sanitize_latex(step.clause_ref)}]}}\\\\
+\\noindent\\textbf{{Step {_sanitize_latex(str(step.step_number))}: {_sanitize_latex(step.description)}}}\\hfill\\textsf{{\\footnotesize [{_sanitize_latex(step.clause_ref)}]}}\\\\
 \\texttt{{Formula: {formula}}}\\\\
 {inputs_line}
 \\textcolor{{accentblue}}{{\\textbf{{Result: {step.result:.2f} { _sanitize_latex(step.unit)}}}}}\\\\[0.8em]
@@ -841,6 +820,30 @@ Coarse aggregate & {result.coarse_aggregate_kg * v:.1f} kg \\\\
 \\end{{center}}
 """
 
+    schedule = batching_schedule(result)
+    latex += r"\subsection*{Complete Batching Schedule}" + "\n"
+    latex += f"Requested volume: {result.volume_m3:g} m\\textsuperscript{{3}}.\n"
+    for key, title, unit in (
+        ("design_ssd_per_m3", "Design/SSD per cubic metre", "kg/m³"),
+        ("field_per_m3", "Moisture-adjusted field per cubic metre", "kg/m³"),
+        ("design_ssd_batch_kg", "Total design/SSD batch", "kg"),
+        ("field_batch_kg", "Total field batch", "kg"),
+    ):
+        latex += "\\subsubsection*{" + _sanitize_latex(title) + "}\n"
+        latex += r"\begin{tabular}{lr}" + "\n"
+        for material, value in schedule[key].items():
+            display = f"{value:.2f} {unit}" if value is not None else "Not assessed"
+            latex += (_sanitize_latex(MATERIAL_LABELS[material]) + " & "
+                      + _sanitize_latex(display) + r" \\" + "\n")
+        latex += r"\end{tabular}" + "\n"
+    for key, unit in (("design_ca_split_kg_per_m3", "kg/m³"),
+                      ("design_ca_split_batch_kg", "kg/batch")):
+        for size, value in (schedule[key] or {}).items():
+            latex += _sanitize_latex(f"Design/SSD CA split {size}: {value:.2f} {unit}") + r"\par" + "\n"
+    for key, value in schedule["admixture"].items():
+        latex += _sanitize_latex(f"Admixture {key}: {value if value is not None else 'Not assessed'}") + r"\par" + "\n"
+    latex += _sanitize_latex(schedule["missing_field_values"]) + "\n"
+
     latex += f"""
 % ── 4. Calculation Steps ───────────────────────────────────────────
 \\section{{Calculation Steps}}
@@ -873,9 +876,10 @@ Aggregate quantities are in saturated surface-dry (SSD) condition. In practice t
 
 def _find_latex_engine() -> str | None:
     """Return the first available LaTeX engine, or None."""
-    for engine in ("pdflatex", "xelatex", "lualatex"):
-        if shutil.which(engine):
-            return engine
+    for engine in ("xelatex", "lualatex", "pdflatex"):
+        path = shutil.which(engine)
+        if path:
+            return path
     return None
 
 
@@ -917,11 +921,20 @@ def generate_pdf_report(
                 tex_path = os.path.join(tmpdir, "report.tex")
                 with open(tex_path, "w", encoding="utf-8") as f:
                     f.write(latex_src)
+                # Defense in depth: private working directory, no stdin or shell
+                # escape, and paranoid kpathsea file-access policy. Untrusted
+                # values have already been rendered as text, not TeX commands.
+                env = {k: v for k, v in os.environ.items()
+                       if not k.upper().startswith(("TEX", "LUAINPUTS", "BIBINPUTS"))}
+                env.update(openin_any="p", openout_any="p", shell_escape="f",
+                           HOME=tmpdir, TMPDIR=tmpdir, TEXMFOUTPUT=tmpdir)
                 # Run twice for references
                 for _ in range(2):
                     proc = subprocess.run(
-                        [engine, "-interaction=nonstopmode", "-halt-on-error", "report.tex"],
+                        [engine, "-no-shell-escape", "-interaction=nonstopmode",
+                         "-halt-on-error", "-file-line-error", "report.tex"],
                         cwd=tmpdir,
+                        env=env, stdin=subprocess.DEVNULL, shell=False, close_fds=True,
                         stdout=subprocess.PIPE,
                         stderr=subprocess.PIPE,
                         timeout=30,

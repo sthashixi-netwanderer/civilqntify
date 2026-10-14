@@ -99,9 +99,13 @@ class MaterialQuantifyTab(QWidget):
         self._transfer_data: MixDesignTransferData | None = None
         self._last_bill: MaterialBill | None = None
         self.unit_prefs = None  # Set by MainWindow
+        self._input_revision = 0
+        self._running_revision = -1
+        self._pending_quantification = False
         self._worker = QuantificationWorker(self)
-        self._worker.result_ready.connect(self._on_result)
-        self._worker.error.connect(self._on_error)
+        self._worker.revisioned_result.connect(self._on_request_result)
+        self._worker.revisioned_error.connect(self._on_worker_error)
+        self._worker.finished.connect(self._on_worker_finished)
 
         # Debounce timer — triggers recalculation 300ms after last input change
         self._debounce = QTimer(self)
@@ -220,11 +224,6 @@ class MaterialQuantifyTab(QWidget):
         self._status_banner = QLabel("Standalone mode — enter mix parameters manually.")
         self._status_banner.setObjectName("info-banner")
         self._status_banner.setWordWrap(True)
-        self._status_banner.setStyleSheet(
-            "background-color: #dbeafe; color: #1e40af; "
-            "border: 1px solid #3b82f6; border-radius: 4px; "
-            "padding: 10px 14px; font-weight: 600;"
-        )
         self._form.addWidget(self._status_banner)
 
         # ── Quantification Mode ──
@@ -308,9 +307,7 @@ class MaterialQuantifyTab(QWidget):
         )
         self._btn_del_elem.clicked.connect(self._remove_element)
         self._elem_total_label = QLabel("Total: 0.000 m\u00b3")
-        self._elem_total_label.setStyleSheet(
-            "font-weight: 700; font-family: 'JetBrains Mono', monospace;"
-        )
+        self._elem_total_label.setObjectName("stat-highlight")
         elem_btn_row.addWidget(self._btn_add_elem)
         elem_btn_row.addWidget(self._btn_del_elem)
         elem_btn_row.addStretch()
@@ -440,7 +437,7 @@ class MaterialQuantifyTab(QWidget):
                 "scm",
                 "SCM (kg/m\u00b3)",
                 0.0,
-                200.0,
+                9999.0,
                 0.0,
                 1,
                 "Supplementary Cementitious Material per m³.\n"
@@ -481,7 +478,7 @@ class MaterialQuantifyTab(QWidget):
         info_form.setContentsMargins(12, 16, 12, 12)
 
         self._code_combo = self._combo(
-            [("IS 10262", "is10262"), ("ACI 211.1", "aci211"), ("Manual", "manual")],
+            [("IS 10262", "is10262"), ("ACI 211.1", "aci211"), ("DOE / BRE 331", "doe"), ("Manual", "manual")],
             default="manual",
         )
         self._code_combo.currentIndexChanged.connect(self._on_input_changed)
@@ -552,6 +549,21 @@ class MaterialQuantifyTab(QWidget):
             self._bag_weight_spin,
         )
 
+        self._sand_density_spin = UnitSpinBox("density", 1600.0, 1.0, 4000.0, 50.0, 1)
+        self._sand_density_spin.valueChanged.connect(self._on_input_changed)
+        info_form.addRow(self._label_with_info(
+            "Sand Purchasing Bulk Density",
+            "Project assumption: 1600 kg/m³, NOT a standard density. Replace with a measured "
+            "as-delivered loose bulk density on the same moisture basis as the field sand mass. "
+            "Purchasing volume = field mass / bulk density. ACI §4.7.7.2: SG gives particle "
+            "absolute volume, not purchasing volume."), self._sand_density_spin)
+        self._sand_basis_combo = self._combo([
+            ("Project assumption (verify on site)", "Project assumption: as-delivered bulk density; verify on site"),
+            ("Measured as-delivered loose bulk density", "Measured as-delivered loose bulk density"),
+        ], default="Project assumption: as-delivered bulk density; verify on site")
+        self._sand_basis_combo.currentIndexChanged.connect(self._on_input_changed)
+        info_form.addRow(self._label("Sand Density Basis"), self._sand_basis_combo)
+
         grp_info.setLayout(info_form)
         self._form.addWidget(grp_info)
 
@@ -572,7 +584,7 @@ class MaterialQuantifyTab(QWidget):
         for attr, label_text, default in _OVERRIDE_FIELDS:
             spin = self._spin(0.0, 0.0, 9999.0, 1.0, 1)
             spin.setReadOnly(True)
-            spin.setStyleSheet("background-color: #f8fafc; color: #94a3b8;")
+            spin.valueChanged.connect(self._on_input_changed)
             spin.setToolTip("Enable by double-clicking, then edit the value")
             spin.setProperty("attr_name", attr)
             spin.installEventFilter(self)
@@ -614,11 +626,6 @@ class MaterialQuantifyTab(QWidget):
         )
         self._ratio_status_banner.setObjectName("info-banner")
         self._ratio_status_banner.setWordWrap(True)
-        self._ratio_status_banner.setStyleSheet(
-            "background-color: #dbeafe; color: #1e40af; "
-            "border: 1px solid #3b82f6; border-radius: 4px; "
-            "padding: 10px 14px; font-weight: 600;"
-        )
         self._ratio_form.addWidget(self._ratio_status_banner)
 
         # ── Volume Scope — moved to top so user sees the calculation volume immediately ──
@@ -699,9 +706,7 @@ class MaterialQuantifyTab(QWidget):
         )
         self._btn_del_ratio_elem.clicked.connect(self._remove_ratio_element)
         self._ratio_elem_total_label = QLabel("Total: 0.000 m\u00b3")
-        self._ratio_elem_total_label.setStyleSheet(
-            "font-weight: 700; font-family: 'JetBrains Mono', monospace;"
-        )
+        self._ratio_elem_total_label.setObjectName("stat-highlight")
         elem_btn_row.addWidget(self._btn_add_ratio_elem)
         elem_btn_row.addWidget(self._btn_del_ratio_elem)
         elem_btn_row.addStretch()
@@ -798,9 +803,7 @@ class MaterialQuantifyTab(QWidget):
 
         # Ratio summary label
         self.ratio_summary_lbl = QLabel("Proportion: 1 : 1.5 : 3  (Total Parts = 5.50)")
-        self.ratio_summary_lbl.setStyleSheet(
-            "font-weight: 700; color: #1e40af; font-family: 'JetBrains Mono', monospace; padding: 4px 0;"
-        )
+        self.ratio_summary_lbl.setObjectName("stat-highlight")
         ratio_form.addRow(self.ratio_summary_lbl)
 
         grp_ratio.setLayout(ratio_form)
@@ -869,9 +872,9 @@ class MaterialQuantifyTab(QWidget):
         self.ratio_sand_density_spin.valueChanged.connect(self._on_input_changed)
         fact_form.addRow(
             self._label_with_info(
-                "Sand Bulk Density",
-                "Bulk density of dry sand (typically 1450–1650 kg/m³).\n"
-                "Used to calculate total sand mass from volume.",
+                "Sand Bulk Density (project input/assumption)",
+                "1600 kg/m³ is a project assumption, not a standard density.\n"
+                "Replace with measured dry loose bulk density. Used for nominal dry bulk volume to mass.",
             ),
             self.ratio_sand_density_spin,
         )
@@ -913,10 +916,7 @@ class MaterialQuantifyTab(QWidget):
 
     def _label(self, text: str) -> QLabel:
         lbl = QLabel(text)
-        lbl.setStyleSheet(
-            "font-size: 11px; font-weight: 700; text-transform: uppercase; "
-            "letter-spacing: 0.05em; color: #444653;"
-        )
+        lbl.setObjectName("form-label")
         lbl.setWordWrap(True)
         lbl.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
         return lbl
@@ -1176,6 +1176,7 @@ class MaterialQuantifyTab(QWidget):
         self._left_tabs.setCurrentIndex(0)
         self._transfer_data = td
         self._populate_data_from_transfer(td)
+        self._reset_overrides()
         up = self.unit_prefs or get_unit_prefs()
         pvu = up.mass_per_volume_unit()
         cement_pv = (
@@ -1188,14 +1189,13 @@ class MaterialQuantifyTab(QWidget):
             f"W/C={td.w_c_ratio:.3f}  |  "
             f"Cement={cement_pv:.1f} {pvu}"
         )
-        self._status_banner.setStyleSheet(
-            "background-color: #d1fae5; color: #065f46; "
-            "border: 1px solid #10b981; border-radius: 4px; "
-            "padding: 10px 14px; font-weight: 600;"
-        )
+        self._status_banner.setObjectName("success-banner")
+        self._status_banner.style().unpolish(self._status_banner)
+        self._status_banner.style().polish(self._status_banner)
         self._grp_over.setVisible(True)
 
-        # Auto-run initial quantification
+        # Programmatic UnitSpinBox writes do not emit valueChanged.
+        self._on_input_changed()
         self._run_quantification()
 
     def _populate_data_from_transfer(self, td: MixDesignTransferData) -> None:
@@ -1214,12 +1214,33 @@ class MaterialQuantifyTab(QWidget):
         self._strength_spin.setValue(td.target_mean_strength_mpa)
         self._wc_spin.setValue(td.w_c_ratio)
         self._bag_weight_spin.setValue(td.cement_bag_weight_kg)
+        self._sand_density_spin.setValue(td.fine_agg_bulk_density_kg_m3)
+        basis_idx = self._sand_basis_combo.findData(td.fine_agg_bulk_density_basis)
+        if basis_idx < 0:
+            self._sand_basis_combo.addItem(td.fine_agg_bulk_density_basis, td.fine_agg_bulk_density_basis)
+            basis_idx = self._sand_basis_combo.count() - 1
+        self._sand_basis_combo.setCurrentIndex(basis_idx)
+        code = self._code_key(td.code_used)
+        self._code_combo.setCurrentIndex(self._code_combo.findData(code))
+
+    @staticmethod
+    def _code_key(code: str) -> str:
+        code = code.upper()
+        if "ACI" in code:
+            return "aci211"
+        if "IS" in code:
+            return "is10262"
+        if "DOE" in code or "BRE" in code:
+            return "doe"
+        return "manual"
 
     def _build_transfer_data_from_inputs(self) -> MixDesignTransferData:
         """Create a MixDesignTransferData from current spinbox values."""
         m = self._data_spins
         return MixDesignTransferData(
-            code_used=self._code_combo.currentData(),
+            code_used=(self._transfer_data.code_used if self._transfer_data is not None
+                       and self._code_key(self._transfer_data.code_used) == self._code_combo.currentData()
+                       else self._code_combo.currentData()),
             target_mean_strength_mpa=self._strength_spin.value(),
             w_c_ratio=self._wc_spin.value(),
             cement_kg_per_m3=m["cement"].value(),
@@ -1231,11 +1252,14 @@ class MaterialQuantifyTab(QWidget):
             field_coarse_aggregate_kg_per_m3=m["ca_field"].value(),
             scm_kg_per_m3=m["scm"].value(),
             admixture_kg_per_m3=m["admixture"].value(),
-            air_volume_percent=1.0,
-            fine_agg_specific_gravity=2.65,
-            coarse_agg_specific_gravity=2.70,
+            air_volume_percent=self._transfer_data.air_volume_percent if self._transfer_data else 1.0,
+            fine_agg_specific_gravity=self._transfer_data.fine_agg_specific_gravity if self._transfer_data else 2.65,
+            coarse_agg_specific_gravity=self._transfer_data.coarse_agg_specific_gravity if self._transfer_data else 2.70,
             cement_bag_weight_kg=self._bag_weight_spin.value(),
-            coarse_agg_bulk_density_kg_m3=1600.0,
+            coarse_agg_bulk_density_kg_m3=self._transfer_data.coarse_agg_bulk_density_kg_m3 if self._transfer_data else 1600.0,
+            fine_agg_bulk_density_kg_m3=self._sand_density_spin.value(),
+            fine_agg_bulk_density_basis=self._sand_basis_combo.currentData(),
+            scm_type=self._transfer_data.scm_type if self._transfer_data else "SCM (unspecified)",
         )
 
     def _populate_override_defaults(self, td: MixDesignTransferData) -> None:
@@ -1261,7 +1285,6 @@ class MaterialQuantifyTab(QWidget):
             spin = obj
             if spin.isReadOnly():
                 spin.setReadOnly(False)
-                spin.setStyleSheet("")  # clear grey style
             return False
         return super().eventFilter(obj, event)
 
@@ -1287,7 +1310,6 @@ class MaterialQuantifyTab(QWidget):
         self._populate_override_defaults(self._transfer_data)
         for spin in self._override_spins.values():
             spin.setReadOnly(True)
-            spin.setStyleSheet("background-color: #f8fafc; color: #94a3b8;")
         self._on_input_changed()
 
     # ── Mode Switching ───────────────────────────────────────────────
@@ -1452,7 +1474,14 @@ class MaterialQuantifyTab(QWidget):
     # ── Input Change → Debounced Recalculation ───────────────────────
 
     def _on_input_changed(self, *_args) -> None:
-        """Debounce: restart 300ms timer on any input change."""
+        """Invalidate immediately; coalesce edits into the latest worker request."""
+        self._input_revision += 1
+        self._last_bill = None
+        if hasattr(self, "_result_panel"):
+            self._result_panel.clear()
+            self._result_panel._warning_banner.setText("Inputs changed. Recalculate material quantities.")
+            self._result_panel._warning_banner.setVisible(True)
+        self._pending_quantification = True
         self._debounce.start()
 
     # ── Quantification ───────────────────────────────────────────────
@@ -1460,9 +1489,15 @@ class MaterialQuantifyTab(QWidget):
     def _run_quantification(self) -> None:
         """Trigger async quantification via worker thread."""
         if self._worker.isRunning():
+            self._pending_quantification = True
             return
 
         self._debounce.stop()
+        self._pending_quantification = False
+        self._running_revision = self._input_revision
+        self._worker.request_revision = self._running_revision
+        self._last_bill = None
+        self._result_panel.clear()
         self.calc_btn.setEnabled(False)
         self.calc_btn.setText("  Calculating...")
         self.ratio_calc_btn.setEnabled(False)
@@ -1528,8 +1563,14 @@ class MaterialQuantifyTab(QWidget):
 
         self._worker.start()
 
+    def _on_request_result(self, revision: int, bill: MaterialBill) -> None:
+        if revision == self._input_revision:
+            self._on_result(bill)
+
     def _on_result(self, bill: MaterialBill) -> None:
-        """Handle quantification result."""
+        """Handle only the result of the currently displayed inputs."""
+        if self._running_revision != self._input_revision:
+            return
         self._last_bill = bill
         self._result_panel.display_bill(bill)
         self.calc_btn.setEnabled(True)
@@ -1550,8 +1591,25 @@ class MaterialQuantifyTab(QWidget):
         # Auto-save to history
         self._auto_save_history(bill)
 
+    def _on_worker_error(self, revision: int, msg: str) -> None:
+        if revision == self._input_revision:
+            self._on_error(msg)
+
+    def _on_worker_finished(self) -> None:
+        if self._pending_quantification:
+            self._run_quantification()
+        elif not self._worker.isRunning():
+            self.calc_btn.setEnabled(True)
+            self.calc_btn.setText("  Calculate Material Quantities")
+            self.ratio_calc_btn.setEnabled(True)
+            self.ratio_calc_btn.setText("  Calculate Material Quantities")
+
     def _on_error(self, msg: str) -> None:
         """Handle quantification error."""
+        self._last_bill = None
+        self._result_panel.clear()
+        self._result_panel._warning_banner.setText(msg)
+        self._result_panel._warning_banner.setVisible(True)
         self.calc_btn.setEnabled(True)
         self.calc_btn.setText("  Calculate Material Quantities")
         self.ratio_calc_btn.setEnabled(True)
@@ -1719,7 +1777,7 @@ class MaterialQuantifyTab(QWidget):
 
                 # Show group override and populate override values
                 self._grp_over.setVisible(True)
-                self._populate_override_defaults(td)
+                self._reset_overrides()
 
                 up = self.unit_prefs or get_unit_prefs()
                 cement_pv = (
@@ -1734,11 +1792,19 @@ class MaterialQuantifyTab(QWidget):
                     f"W/C={td.w_c_ratio:.3f}  |  "
                     f"Cement={cement_pv:.1f} {up.mass_per_volume_unit()}"
                 )
-                self._status_banner.setStyleSheet(
-                    "background-color: #d1fae5; color: #065f46; "
-                    "border: 1px solid #10b981; border-radius: 4px; "
-                    "padding: 10px 14px; font-weight: 600;"
-                )
+                self._status_banner.setObjectName("success-banner")
+                self._status_banner.style().unpolish(self._status_banner)
+                self._status_banner.style().polish(self._status_banner)
+
+        # Restoring suppressed input signals must still refresh derived labels.
+        self._update_element_volumes()
+        self._update_ratio_element_volumes()
+        self._update_ratio_summary()
+        self._debounce.stop()
+        self._pending_quantification = False
+        self._input_revision += 1
+        self._last_bill = bill
+        self._result_panel.display_bill(bill)
 
     @staticmethod
     def _restore_element_rows(table, add_row_fn, elements: list[dict]) -> None:
@@ -1787,6 +1853,11 @@ class MaterialQuantifyTab(QWidget):
 
             output = io.StringIO()
             writer = csv.writer(output)
+            writer.writerow(["Sand purchasing basis", bill.fine_aggregate_volume_basis])
+            writer.writerow(["Sand bulk density (kg/m³)", td.fine_agg_bulk_density_kg_m3])
+            writer.writerow([f"Sand purchasing bulk volume ({vu})", up.convert_volume_m3(bill.total_fine_aggregate_bulk_m3)])
+            if bill.total_fine_aggregate_absolute_m3 is not None:
+                writer.writerow([f"Sand SSD particle volume, not purchased ({vu})", up.convert_volume_m3(bill.total_fine_aggregate_absolute_m3)])
             writer.writerow(["Material", f"Per {vu} ({pvu})", "Total", "Unit"])
             writer.writerow(
                 [
@@ -2086,7 +2157,11 @@ class MaterialQuantifyTab(QWidget):
     </main>
 </body>
 </html>"""
-        return html
+        from html import escape
+        basis = (f"<p>Sand purchasing bulk density: {td.fine_agg_bulk_density_kg_m3:g} kg/m³. "
+                 f"{escape(bill.fine_aggregate_volume_basis)}. "
+                 "Bulk purchasing volume includes voids; it is not SSD particle absolute volume.</p>")
+        return html.replace("</header>", "</header>" + basis, 1)
 
     def _show_preview(self) -> None:
         """Show the report preview dialog."""

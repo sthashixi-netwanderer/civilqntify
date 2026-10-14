@@ -76,25 +76,15 @@ class ASTM_C33ComplianceDialog(QDialog):
             f"⚠ {len(failures)} requirement(s) NOT met — the {kind_label} "
             f"analysis does not conform to {standard_name}."
         )
+        header.setObjectName("compliance-failure-banner")
         header.setWordWrap(True)
-        header.setStyleSheet(
-            "QLabel {"
-            "  background-color: #fef2f2;"
-            "  color: #7f1d1d;"
-            "  border: 1px solid #dc2626;"
-            "  border-radius: 6px;"
-            "  padding: 10px 14px;"
-            "  font-size: 13px;"
-            "  font-weight: 700;"
-            "}"
-        )
         layout.addWidget(header)
 
         # Detailed failure paragraphs — one per unmet clause.
         details = QLabel(self._failure_html(failures))
+        details.setObjectName("dialog-desc")
         details.setWordWrap(True)
         details.setTextFormat(Qt.TextFormat.RichText)
-        details.setStyleSheet("QLabel { color: #1f2937; font-size: 12px; }")
         layout.addWidget(details)
 
         # Full checklist table.
@@ -150,8 +140,8 @@ class ASTM_C33ComplianceDialog(QDialog):
                 "entered and were not evaluated."
             )
         note = QLabel(note_text)
+        note.setObjectName("dialog-note")
         note.setWordWrap(True)
-        note.setStyleSheet("color: #64748b; font-size: 11px;")
         layout.addWidget(note)
 
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok)

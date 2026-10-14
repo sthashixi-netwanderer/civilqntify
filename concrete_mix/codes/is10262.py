@@ -7,6 +7,7 @@ per IS 10262:2019 and IS 456:2000.
 from __future__ import annotations
 
 import math
+from typing import Any
 
 from concrete_mix.codes.base import MixDesignCode
 from concrete_mix.codes.tables.is_tables import (
@@ -37,7 +38,7 @@ from concrete_mix.engine.moisture_correction import (
     adjust_water_for_aggregate_moisture,
     correct_for_moisture,
 )
-from concrete_mix.engine.volume_calculator import absolute_volume, total_volume
+from concrete_mix.engine.volume_calculator import absolute_volume
 from concrete_mix.utils.display import display_name
 from concrete_mix.models.mix_input import MixDesignInput
 from concrete_mix.models.mix_result import CalculationStep, MixDesignResult
@@ -402,7 +403,6 @@ class IS10262MixDesign(MixDesignCode):
             wc = self.get_w_c_ratio(ftm, cement_type=cement_type_str)
 
         # Apply exposure class limits (IS 456:2000)
-        durability_governed = False
         if inp.exposure_class:
             limits = get_exposure_limits(inp.exposure_class, inp.concrete_type)
             if wc > limits["max_wc"]:
@@ -411,7 +411,6 @@ class IS10262MixDesign(MixDesignCode):
                     f"for '{display_name(inp.exposure_class)}' exposure per IS 456:2000"
                 )
                 wc = limits["max_wc"]
-                durability_governed = True
 
         steps.append(
             self._make_step(
@@ -576,10 +575,11 @@ class IS10262MixDesign(MixDesignCode):
                 f"design for drying-shrinkage, early thermal cracking and ASR risk"
             )
 
-        # Cl. 5.1 note: water contributed by liquid admixtures counts in the
-        # water-cement ratio at durability upper limits.
+        # §§5.1.1–5.1.2 and §6.2.4 note: check the final effective ratio
+        # against durability, even if the initial selection was below/equal
+        # to the cap. Use the final binder after preliminary/minimum raises.
+        w_eff = (water_kg + inp.admixture_water_kg) / cementitious_total
         if inp.admixture_water_kg > 0:
-            w_eff = (water_kg + inp.admixture_water_kg) / cementitious_total
             steps.append(
                 self._make_step(
                     3.1,
@@ -594,13 +594,13 @@ class IS10262MixDesign(MixDesignCode):
                     "IS 10262:2019 Cl. 5.1 note",
                 )
             )
-            if durability_governed and w_eff > limits["max_wc"] + 1e-9:
-                raise ValueError(
-                    f"Effective water-cement ratio {w_eff:.2f} (including "
-                    f"{inp.admixture_water_kg:.1f} kg/m³ admixture water) exceeds "
-                    f"the durability maximum {limits['max_wc']:.2f} per IS 456:2000 "
-                    f"Table 5 — reduce mixing water or admixture liquid"
-                )
+        if inp.exposure_class and w_eff > limits["max_wc"] + 1e-9:
+            raise ValueError(
+                f"Effective water-cement ratio {w_eff:.2f} (including "
+                f"{inp.admixture_water_kg:.1f} kg/m³ admixture water) exceeds "
+                f"the durability maximum {limits['max_wc']:.2f} per IS 456:2000 "
+                f"Table 5 — reduce mixing water or admixture liquid"
+            )
 
         steps.append(
             self._make_step(
@@ -769,9 +769,7 @@ class IS10262MixDesign(MixDesignCode):
         _air_class = "high_strength" if is_hs else ("mass" if is_mass else "ordinary")
         air_percent = self.get_air_content(nmsa, concrete_class=_air_class)
         vol_cement = absolute_volume(cement_kg, inp.cement.specific_gravity)
-        vol_scm = (
-            absolute_volume(scm_kg, inp.scms[0].specific_gravity) if inp.scms else 0.0
-        )
+        vol_scm = _scm_absolute_volume(scm_kg, inp)
         vol_water = absolute_volume(water_kg, SG_WATER)
         vol_air = air_percent / 100.0
 
@@ -895,17 +893,10 @@ class IS10262MixDesign(MixDesignCode):
         field_water = adjusted_water
 
         # Verify total volume
-        actual_vol = total_volume(
-            cement_kg,
-            water_kg,
-            fa_kg,
-            ca_kg,
-            inp.cement.specific_gravity,
-            inp.fine_aggregate.specific_gravity,
-            inp.coarse_aggregate.specific_gravity,
-            air_percent,
-            scm_kg,
-            inp.scms[0].specific_gravity if inp.scms else 3.15,
+        actual_vol = (
+            vol_cement + vol_scm + vol_water + vol_air + vol_admixture
+            + absolute_volume(fa_kg, inp.fine_aggregate.specific_gravity)
+            + absolute_volume(ca_kg, inp.coarse_aggregate.specific_gravity)
         )
         if abs(actual_vol - 1.0) > 0.02:
             warnings.append(
@@ -1081,6 +1072,7 @@ class IS10262MixDesign(MixDesignCode):
             water_kg=_round_whole_kg(water_kg),
             cement_kg=_round_whole_kg(cement_kg),
             scm_kg=_round_whole_kg(scm_kg),
+            scm_type=inp.scm_type_label,
             fine_aggregate_kg=_round_whole_kg(fa_kg),
             coarse_aggregate_kg=_round_whole_kg(ca_kg),
             air_volume_percent=round(air_percent, 1),
@@ -1128,7 +1120,6 @@ def calculate_is10262_trial_mixes(
 
     if inp is not None:
         sg_c = inp.cement.specific_gravity
-        sg_scm = inp.scms[0].specific_gravity if inp.scms else 3.15
         sg_fa = inp.fine_aggregate.specific_gravity
         sg_ca = inp.coarse_aggregate.specific_gravity
         sg_adm = inp.admixture.specific_gravity if inp.admixture else 1.15
@@ -1138,29 +1129,31 @@ def calculate_is10262_trial_mixes(
         grading_zone = inp.fine_aggregate.grading_zone or "II"
         _is_hs = inp.target_strength_mpa >= 65.0
         _is_mass = bool(getattr(inp, "mass_concrete", False)) or nmsa in (80, 150)
-        if _is_hs:
+        if inp.ca_volume_fraction_override is not None:
+            ca_frac_base = float(inp.ca_volume_fraction_override)
+        elif _is_hs:
             ca_frac_base = hs_ca_volume_fraction(nmsa, grading_zone)
         elif _is_mass:
             ca_frac_base = mass_ca_volume_fraction(nmsa, grading_zone)
         else:
             ca_frac_base = get_ca_volume_fraction(nmsa, grading_zone)
-        # Preliminary-trial bump mirrors design(): ordinary ≥20% any SCM,
-        # mass fly ash ≥20% or GGBS ≥30%, high-strength any fly ash/GGBS
-        # (§6.2.5 / Annex D-7).
-        _scm_types = [
-            (s.type.value if hasattr(s.type, "value") else str(s.type))
-            for s in inp.scms
-        ]
-        _fa_pct = sum(p for t, p in zip(_scm_types, [s.replacement_percent for s in inp.scms])
-                      if t in ("fly_ash", "fly_ash_c"))
-        _ggbs_pct = sum(p for t, p in zip(_scm_types, [s.replacement_percent for s in inp.scms])
-                        if t == "ggbfs")
-        if _is_hs:
-            bump = _fa_pct > 0.0 or _ggbs_pct > 0.0
-        elif _is_mass:
-            bump = _fa_pct >= 20.0 or _ggbs_pct >= 30.0
-        else:
-            bump = scm_pct >= 20.0
+        # Keep the design's placing assumptions in every variant (§5.5.2,
+        # §6.2.7): ordinary defaults to 10%, high-strength to 5%, mass to
+        # no tabulated cut. Explicit reductions (including zero) take priority.
+        pump_reduction = 0.0
+        if inp.placing_method == "pump":
+            route_max = 5.0 if _is_hs else (None if _is_mass else 10.0)
+            explicit = inp.pump_ca_reduction_percent
+            if explicit is not None:
+                if route_max is not None and explicit > route_max:
+                    raise ValueError(
+                        f"Pump CA reduction {explicit:g}% exceeds the "
+                        f"{route_max:g}% maximum for this route "
+                        f"(IS 10262:2019 {'§6.2.7' if _is_hs else '§5.5.2'})"
+                    )
+                pump_reduction = explicit
+            elif route_max is not None:
+                pump_reduction = route_max
     else:
         sg_c = 3.15
         sg_scm = 2.20 if scm1 > 0 else 3.15
@@ -1173,8 +1166,7 @@ def calculate_is10262_trial_mixes(
         vol_ca = ca1 / (sg_ca * 1000.0)
         vol_fa = fa1 / (sg_fa * 1000.0)
         ca_frac_base = vol_ca / (vol_ca + vol_fa) if (vol_ca + vol_fa) > 0 else 0.62
-        # No input record: fall back to the ordinary preliminary-trial rule.
-        bump = scm_pct >= 20.0
+        pump_reduction = 0.0
         _is_hs = False
         _is_mass = False
 
@@ -1208,17 +1200,21 @@ def calculate_is10262_trial_mixes(
         "action": "Establish confirmed baseline water content for Trials 3 and 4.",
     }
 
+    # §5.4.1's preliminary increase is already reflected in wc1. Trials
+    # 3/4 target actual w/cm (§5.8 / §6.2.9 / §9.11), not a new preliminary
+    # selection: derive binder directly, without a second SCM increase.
     # Trial 3: W/C -10%
     wc3 = round(wc1 * 0.90, 2)
     cm3 = w1 / wc3
-    if bump:
-        cm3 *= 1.10
     scm3 = cm3 * (scm_pct / 100.0)
     c3 = cm3 - scm3
     adm3 = cm3 * (dosage_pct / 100.0) if dosage_pct > 0 else 0.0
 
     vol_c3 = c3 / (sg_c * 1000.0)
-    vol_scm3 = scm3 / (sg_scm * 1000.0) if scm3 > 0 else 0.0
+    vol_scm3 = (
+        _scm_absolute_volume(scm3, inp) if inp is not None
+        else scm3 / (sg_scm * 1000.0)
+    )
     vol_w3 = w1 / 1000.0
     vol_air3 = air_pct / 100.0
     vol_adm3 = (adm3 / (sg_adm * 1000.0)) if adm3 > 0 else 0.0
@@ -1226,6 +1222,8 @@ def calculate_is10262_trial_mixes(
 
     ca_frac3 = adjust_ca_volume_for_wcr(
         ca_frac_base, wc3, base_wcr=0.30 if _is_hs else 0.50)
+    if pump_reduction:
+        ca_frac3 = round(ca_frac3 * (1.0 - pump_reduction / 100.0), 3)
     vol_ca3 = vol_agg3 * ca_frac3
     vol_fa3 = vol_agg3 - vol_ca3
     ca3 = vol_ca3 * sg_ca * 1000.0
@@ -1248,14 +1246,15 @@ def calculate_is10262_trial_mixes(
     # Trial 4: W/C +10%
     wc4 = round(wc1 * 1.10, 2)
     cm4 = w1 / wc4
-    if bump:
-        cm4 *= 1.10
     scm4 = cm4 * (scm_pct / 100.0)
     c4 = cm4 - scm4
     adm4 = cm4 * (dosage_pct / 100.0) if dosage_pct > 0 else 0.0
 
     vol_c4 = c4 / (sg_c * 1000.0)
-    vol_scm4 = scm4 / (sg_scm * 1000.0) if scm4 > 0 else 0.0
+    vol_scm4 = (
+        _scm_absolute_volume(scm4, inp) if inp is not None
+        else scm4 / (sg_scm * 1000.0)
+    )
     vol_w4 = w1 / 1000.0
     vol_air4 = air_pct / 100.0
     vol_adm4 = (adm4 / (sg_adm * 1000.0)) if adm4 > 0 else 0.0
@@ -1263,6 +1262,8 @@ def calculate_is10262_trial_mixes(
 
     ca_frac4 = adjust_ca_volume_for_wcr(
         ca_frac_base, wc4, base_wcr=0.30 if _is_hs else 0.50)
+    if pump_reduction:
+        ca_frac4 = round(ca_frac4 * (1.0 - pump_reduction / 100.0), 3)
     vol_ca4 = vol_agg4 * ca_frac4
     vol_fa4 = vol_agg4 - vol_ca4
     ca4 = vol_ca4 * sg_ca * 1000.0
@@ -1302,6 +1303,24 @@ def calculate_is10262_trial_mixes(
         ],
     }
 
+
+
+def _scm_absolute_volume(scm_kg: float, inp: MixDesignInput) -> float:
+    """Sum constituent volumes at their own SG (§5.7 / §6.2.8).
+
+    The result model stores combined SCM mass. Split that mass by the
+    declared replacement shares; using the first SG makes yield depend
+    on input order when multiple SCMs have different densities.
+    """
+    replacement = inp.total_scm_replacement_percent
+    if replacement <= 0:
+        return 0.0
+    return sum(
+        absolute_volume(
+            scm_kg * scm.replacement_percent / replacement, scm.specific_gravity
+        )
+        for scm in inp.scms
+    )
 
 
 def _round_whole_kg(value: float) -> float:

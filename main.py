@@ -40,6 +40,7 @@ from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import QApplication
 
 from app.main import MainWindow, _resource_path
+from app.styles import STYLESHEET
 
 # Explicit imports to force PyInstaller to bundle all widget modules.
 # PyInstaller's static analysis can miss modules imported only inside
@@ -76,6 +77,7 @@ def main() -> None:
     except Exception:
         pass
     app.setWindowIcon(QIcon(str(_resource_path("icon.png"))))
+    app.setStyleSheet(STYLESHEET)
     window = MainWindow()
     window.show()
     # X11 only: force the logo pixels into _NET_WM_ICON so the taskbar

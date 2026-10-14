@@ -5,6 +5,7 @@ from __future__ import annotations
 from concrete_mix.models.materials import GHANA_CEMENT_EQUIVALENTS, GRADING_ZONE_DESCRIPTIONS
 from concrete_mix.models.mix_input import MixDesignInput
 from concrete_mix.models.mix_result import MixDesignResult
+from concrete_mix.export.batching import batching_schedule, MATERIAL_LABELS
 from concrete_mix.utils.display import display_name
 
 
@@ -107,38 +108,24 @@ def generate_report(
             lines.append(f"  Typical Use:         {ghana_info['use']}")
             lines.append("")
 
-    # Moisture Adjustment Report
-    if result.adjusted_water_kg is not None:
-        lines.append("MOISTURE ADJUSTMENT & FIELD BATCH WEIGHTS")
-        lines.append("-" * 60)
-        lines.append(f"  {'Material':<20} {'SSD (kg)':<12} {'Absorb %':<12} {'Moisture %':<12} {'Field (kg)':<12}")
-        lines.append(f"  {'-'*20} {'-'*12} {'-'*12} {'-'*12} {'-'*12}")
-        lines.append(f"  {'Cement':<20} {result.cement_kg:<12.1f} {'--':<12} {'--':<12} {result.cement_kg:<12.1f}")
-        lines.append(f"  {'Water':<20} {result.water_kg:<12.1f} {'--':<12} {'--':<12} {result.adjusted_water_kg:<12.1f}")
-        if inp:
-            fa_abs = inp.fine_aggregate.absorption_percent
-            fa_moist = inp.fine_aggregate.moisture_content_percent
-            ca_abs = inp.coarse_aggregate.absorption_percent
-            ca_moist = inp.coarse_aggregate.moisture_content_percent
-        else:
-            fa_abs = fa_moist = ca_abs = ca_moist = 0.0
-        lines.append(
-            f"  {'Fine Aggregate':<20} {result.fine_aggregate_kg:<12.1f} "
-            f"{fa_abs:<12.1f} {fa_moist:<12.1f} {result.field_fine_aggregate_kg:<12.1f}"
-        )
-        lines.append(
-            f"  {'Coarse Aggregate':<20} {result.coarse_aggregate_kg:<12.1f} "
-            f"{ca_abs:<12.1f} {ca_moist:<12.1f} {result.field_coarse_aggregate_kg:<12.1f}"
-        )
-        lines.append("")
-        water_diff = result.adjusted_water_kg - result.water_kg
-        if water_diff > 0:
-            lines.append(f"  Note: Water increased by {water_diff:.1f} kg (aggregates drier than SSD)")
-        elif water_diff < 0:
-            lines.append(f"  Note: Water reduced by {abs(water_diff):.1f} kg (aggregates wetter than SSD)")
-        else:
-            lines.append("  Note: Aggregates at SSD condition — no water adjustment needed")
-        lines.append("")
+    schedule = batching_schedule(result)
+    lines.append(f"BATCHING SCHEDULE (requested volume {result.volume_m3:g} m³)")
+    for key, title, unit in (
+        ("design_ssd_per_m3", "DESIGN/SSD PROPORTIONS", "kg/m³"),
+        ("field_per_m3", "MOISTURE-ADJUSTED FIELD PROPORTIONS", "kg/m³"),
+        ("design_ssd_batch_kg", "TOTAL DESIGN/SSD BATCH", "kg"),
+        ("field_batch_kg", "TOTAL FIELD BATCH", "kg"),
+    ):
+        lines.append(title)
+        for material, value in schedule[key].items():
+            display = f"{value:.2f} {unit}" if value is not None else "Not assessed"
+            lines.append(f"  {MATERIAL_LABELS[material]}: {display}")
+    for key in ("design_ca_split_kg_per_m3", "design_ca_split_batch_kg"):
+        if schedule[key] is not None:
+            lines.append(f"  {key}: {schedule[key]}")
+    lines.append(f"  Admixture details: {schedule['admixture']}")
+    lines.append(schedule["missing_field_values"])
+    lines.append("")
 
     # Cost and carbon estimates
     if result.cost_per_m3 is not None:

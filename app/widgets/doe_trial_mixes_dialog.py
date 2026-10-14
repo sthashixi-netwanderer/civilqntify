@@ -47,6 +47,7 @@ from PyQt6.QtWidgets import (
 
 from concrete_mix.codes.doe_trial import (
     MINOR_ADJUSTMENT_WC_LIMIT,
+    available_moisture_conditions,
     calculate_doe_trial_batches,
     evaluate_doe_trial,
 )
@@ -105,17 +106,13 @@ class DOETrialMixesDialog(QDialog):
 
     def _build_header(self) -> QFrame:
         header = QFrame()
-        header.setObjectName("result-card")
-        header.setStyleSheet(
-            "background-color: #eff6ff; border: 1px solid #bfdbfe; "
-            "border-radius: 6px; padding: 10px;"
-        )
+        header.setObjectName("dialog-header")
         h_layout = QVBoxLayout(header)
-        h_layout.setContentsMargins(10, 8, 10, 8)
+        h_layout.setContentsMargins(12, 10, 12, 10)
         h_layout.setSpacing(4)
 
         title = QLabel("BRE 331:1997 §6 — Trial Mixes")
-        title.setStyleSheet("font-size: 15px; font-weight: 700; color: #1e3a8a;")
+        title.setObjectName("dialog-title")
         h_layout.addWidget(title)
 
         desc = QLabel(
@@ -126,8 +123,8 @@ class DOETrialMixesDialog(QDialog):
             "results to obtain the §6.3 adjustments: workability (Table 3), density correction "
             "of the unit proportions, and the Figure 7 water/cement adjustment."
         )
+        desc.setObjectName("dialog-desc")
         desc.setWordWrap(True)
-        desc.setStyleSheet("font-size: 12px; color: #1e293b; line-height: 1.4;")
         h_layout.addWidget(desc)
         return header
 
@@ -182,6 +179,7 @@ class DOETrialMixesDialog(QDialog):
         self._moisture_combo.addItem("Oven-dry", "oven_dry")
         self._moisture_combo.addItem("Air-dried", "air_dried")
         self._moisture_combo.addItem("Surface-wet / saturated", "surface_wet")
+        self._refresh_moisture_choices()
         self._moisture_combo.currentIndexChanged.connect(self._update_schedule)
         controls2.addWidget(self._moisture_combo)
         controls2.addStretch()
@@ -209,8 +207,8 @@ class DOETrialMixesDialog(QDialog):
         layout.addWidget(self._table)
 
         self._schedule_note = QLabel()
+        self._schedule_note.setObjectName("dialog-note")
         self._schedule_note.setWordWrap(True)
-        self._schedule_note.setStyleSheet("font-size: 11px; color: #64748b;")
         layout.addWidget(self._schedule_note)
         return group
 
@@ -272,9 +270,9 @@ class DOETrialMixesDialog(QDialog):
         layout.addLayout(form_row2)
 
         self._eval_result = QLabel()
+        self._eval_result.setObjectName("callout-panel")
         self._eval_result.setWordWrap(True)
         self._eval_result.setTextFormat(Qt.TextFormat.RichText)
-        self._eval_result.setStyleSheet("font-size: 12px; color: #334155; line-height: 1.45;")
         self._eval_result.setVisible(False)
         layout.addWidget(self._eval_result)
         return group
@@ -289,7 +287,7 @@ class DOETrialMixesDialog(QDialog):
             "Tests on the fresh concrete, specimen making, curing and testing follow BS 1881. "
             "Record the actual water/cement ratio used, the fresh density and all cube results."
         )
-        intro.setStyleSheet("font-size: 11px; color: #64748b; font-weight: 600;")
+        intro.setObjectName("dialog-note")
         intro.setWordWrap(True)
         layout.addWidget(intro)
 
@@ -298,7 +296,6 @@ class DOETrialMixesDialog(QDialog):
         for test, standard in TEST_CHECKLIST:
             chk = QCheckBox(f"{test} — {standard}")  # QCheckBox is plain-text: no rich-text tags
             chk.setChecked(True)
-            chk.setStyleSheet("QCheckBox { font-size: 12px; color: #1e293b; }")
             layout.addWidget(chk)
             self._checklist_boxes.append(chk)
         return group
@@ -335,6 +332,40 @@ class DOETrialMixesDialog(QDialog):
     # ------------------------------------------------------------------
     # Schedule
     # ------------------------------------------------------------------
+
+    def _refresh_moisture_choices(self) -> None:
+        """Disable moisture conditions the design inputs cannot support.
+
+        BS 1881 Part 125 conditions (d) surface-wet and (c) air-dried are
+        mutually exclusive against the aggregate absorption: one needs
+        free water present, the other its absence. Offering both
+        unconditionally meant a user could pick one and meet a modal
+        error, so the unavailable ones are shown disabled with the reason
+        as their tooltip.
+        """
+        from PyQt6.QtCore import Qt
+
+        available = available_moisture_conditions(self._inp)
+        model = self._moisture_combo.model()
+        previous = self._moisture_combo.currentData()
+        self._moisture_combo.blockSignals(True)
+        try:
+            for index in range(self._moisture_combo.count()):
+                key = self._moisture_combo.itemData(index)
+                ok, reason = available.get(key, (True, ""))
+                item = model.item(index)
+                item.setEnabled(ok)
+                self._moisture_combo.setItemData(
+                    index, reason, Qt.ItemDataRole.ToolTipRole
+                )
+            if not available.get(previous, (True, ""))[0]:
+                # Never leave an unusable selection in place.
+                for index in range(self._moisture_combo.count()):
+                    if self._moisture_combo.model().item(index).isEnabled():
+                        self._moisture_combo.setCurrentIndex(index)
+                        break
+        finally:
+            self._moisture_combo.blockSignals(False)
 
     def _update_schedule(self) -> None:
         try:

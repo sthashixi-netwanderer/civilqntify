@@ -1,207 +1,125 @@
-"""QThread worker for non-blocking weather data fetching.
-
-Fetches weather data from Open-Meteo or WeatherAPI in a background thread
-to avoid blocking the UI.
-"""
-
+"""Single-request weather workers with immutable inputs and explicit ownership."""
 from __future__ import annotations
 
-from PyQt6.QtCore import QThread, pyqtSignal
+from PyQt6.QtCore import QObject, QThread, pyqtSignal, pyqtSlot
 
-from app.weather.weather_service import WeatherService, WeatherServiceError
-from app.weather.weatherapi_service import WeatherAPIService, WeatherAPIError
+from app.weather.weather_service import WeatherService
+from app.weather.weatherapi_service import WeatherAPIService
 
 
-class WeatherWorker(QThread):
-    """Worker thread for fetching current weather from Open-Meteo API."""
+class WeatherWorkerGroup(QObject):
+    """Keep threads alive and join them before their Qt owner is destroyed.
 
+    Network calls have service-level timeouts. Interruption is cooperative;
+    never terminate a thread in the middle of an HTTP/Python operation.
+    """
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.workers: set[QThread] = set()
+
+    def add(self, worker: QThread) -> None:
+        self.workers.add(worker)
+        worker.finished.connect(self._retire)
+
+    @pyqtSlot()
+    def _retire(self) -> None:
+        worker = self.sender()
+        if worker in self.workers:
+            self.workers.remove(worker)
+            worker.deleteLater()
+
+    @pyqtSlot()
+    def shutdown(self) -> None:
+        for worker in self.workers:
+            worker.requestInterruption()
+        for worker in self.workers:
+            worker.wait()
+            worker.deleteLater()
+        self.workers.clear()
+
+
+class _RequestWorker(QThread):
     weather_ready = pyqtSignal(dict)
+    forecast_ready = pyqtSignal(dict)
     error = pyqtSignal(str)
 
-    def __init__(self, parent=None) -> None:
+    def __init__(self, parent=None, *, request_id: int = 0) -> None:
         super().__init__(parent)
-        self._latitude: float = 0.0
-        self._longitude: float = 0.0
-        self._city_name: str = ""
+        self.request_id = request_id
+        self._params: tuple | None = None
 
+    def _configure(self, **params) -> None:
+        if self._params is not None:
+            raise RuntimeError("Weather workers are single-request; create a new worker")
+        self._params = tuple(params.items())
+
+    def _fetch(self, params: dict) -> dict:
+        raise NotImplementedError
+
+    def run(self) -> None:
+        try:
+            if self._params is None:
+                raise RuntimeError("Weather request has no parameters")
+            params = dict(self._params)
+            city = params.pop("city_name", None)
+            if self.isInterruptionRequested():
+                return
+            data = dict(self._fetch(params))
+            if city is not None:
+                data["city_name"] = city
+            if not self.isInterruptionRequested():
+                self.weather_ready.emit(data)
+                self.forecast_ready.emit(data)
+        except Exception as exc:
+            if not self.isInterruptionRequested():
+                self.error.emit(str(exc))
+
+
+class WeatherWorker(_RequestWorker):
     def set_params(self, latitude: float, longitude: float, city_name: str = "") -> None:
-        self._latitude = latitude
-        self._longitude = longitude
-        self._city_name = city_name
+        self._configure(latitude=latitude, longitude=longitude, city_name=city_name)
 
-    def run(self) -> None:
-        try:
-            data = WeatherService.get_current_weather(
-                latitude=self._latitude,
-                longitude=self._longitude,
-            )
-            data["city_name"] = self._city_name
-            self.weather_ready.emit(data)
-        except WeatherServiceError as e:
-            self.error.emit(str(e))
-        except Exception as e:
-            self.error.emit(f"Unexpected error: {e}")
+    def _fetch(self, params: dict) -> dict:
+        return WeatherService.get_current_weather(**params)
 
 
-class WeatherAPIWorker(QThread):
-    """Worker thread for fetching current weather from WeatherAPI.com."""
-
-    weather_ready = pyqtSignal(dict)
-    error = pyqtSignal(str)
-
-    def __init__(self, parent=None) -> None:
-        super().__init__(parent)
-        self._api_key: str = ""
-        self._query: str = ""
-        self._city_name: str = ""
-
+class WeatherAPIWorker(_RequestWorker):
     def set_params(self, api_key: str, query: str, city_name: str = "") -> None:
-        self._api_key = api_key
-        self._query = query
-        self._city_name = city_name
+        self._configure(api_key=api_key, query=query, city_name=city_name)
 
-    def run(self) -> None:
-        try:
-            data = WeatherAPIService.get_current_weather(
-                api_key=self._api_key,
-                query=self._query,
-            )
-            data["city_name"] = self._city_name
-            self.weather_ready.emit(data)
-        except WeatherAPIError as e:
-            self.error.emit(str(e))
-        except Exception as e:
-            self.error.emit(f"Unexpected error: {e}")
+    def _fetch(self, params: dict) -> dict:
+        return WeatherAPIService.get_current_weather(**params)
 
 
-class HourlyForecastWorker(QThread):
-    """Worker thread for fetching hourly forecast from Open-Meteo API."""
+class HourlyForecastWorker(_RequestWorker):
+    def set_params(self, latitude: float, longitude: float, hours: int = 24,
+                   forecast_days: int = 1) -> None:
+        self._configure(latitude=latitude, longitude=longitude, hours=hours,
+                        forecast_days=forecast_days)
 
-    forecast_ready = pyqtSignal(dict)
-    error = pyqtSignal(str)
-
-    def __init__(self, parent=None) -> None:
-        super().__init__(parent)
-        self._latitude: float = 0.0
-        self._longitude: float = 0.0
-        self._hours: int = 24
-        self._forecast_days: int = 1
-
-    def set_params(
-        self,
-        latitude: float,
-        longitude: float,
-        hours: int = 24,
-        forecast_days: int = 1,
-    ) -> None:
-        self._latitude = latitude
-        self._longitude = longitude
-        self._hours = hours
-        self._forecast_days = forecast_days
-
-    def run(self) -> None:
-        try:
-            data = WeatherService.get_hourly_forecast(
-                latitude=self._latitude,
-                longitude=self._longitude,
-                hours=self._hours,
-                forecast_days=self._forecast_days,
-            )
-            self.forecast_ready.emit(data)
-        except WeatherServiceError as e:
-            self.error.emit(str(e))
-        except Exception as e:
-            self.error.emit(f"Unexpected error: {e}")
+    def _fetch(self, params: dict) -> dict:
+        return WeatherService.get_hourly_forecast(**params)
 
 
-class DailyForecastWorker(QThread):
-    """Worker thread for fetching daily forecast from Open-Meteo API."""
-
-    forecast_ready = pyqtSignal(dict)
-    error = pyqtSignal(str)
-
-    def __init__(self, parent=None) -> None:
-        super().__init__(parent)
-        self._latitude: float = 0.0
-        self._longitude: float = 0.0
-        self._days: int = 5
-
+class DailyForecastWorker(_RequestWorker):
     def set_params(self, latitude: float, longitude: float, days: int = 5) -> None:
-        self._latitude = latitude
-        self._longitude = longitude
-        self._days = days
+        self._configure(latitude=latitude, longitude=longitude, days=days)
 
-    def run(self) -> None:
-        try:
-            data = WeatherService.get_forecast(
-                latitude=self._latitude,
-                longitude=self._longitude,
-                days=self._days,
-            )
-            self.forecast_ready.emit(data)
-        except WeatherServiceError as e:
-            self.error.emit(str(e))
-        except Exception as e:
-            self.error.emit(f"Unexpected error: {e}")
+    def _fetch(self, params: dict) -> dict:
+        return WeatherService.get_forecast(**params)
 
 
-class WeatherAPIDailyForecastWorker(QThread):
-    """Worker thread for fetching daily forecast from WeatherAPI.com."""
-
-    forecast_ready = pyqtSignal(dict)
-    error = pyqtSignal(str)
-
-    def __init__(self, parent=None) -> None:
-        super().__init__(parent)
-        self._api_key: str = ""
-        self._query: str = ""
-        self._days: int = 5
-
+class WeatherAPIDailyForecastWorker(_RequestWorker):
     def set_params(self, api_key: str, query: str, days: int = 5) -> None:
-        self._api_key = api_key
-        self._query = query
-        self._days = days
+        self._configure(api_key=api_key, query=query, days=days)
 
-    def run(self) -> None:
-        try:
-            data = WeatherAPIService.get_daily_forecast(
-                api_key=self._api_key,
-                query=self._query,
-                days=self._days,
-            )
-            self.forecast_ready.emit(data)
-        except WeatherAPIError as e:
-            self.error.emit(str(e))
-        except Exception as e:
-            self.error.emit(f"Unexpected error: {e}")
+    def _fetch(self, params: dict) -> dict:
+        return WeatherAPIService.get_daily_forecast(**params)
 
 
-class WeatherAPIForecastWorker(QThread):
-    """Worker thread for fetching hourly forecast from WeatherAPI.com."""
-
-    forecast_ready = pyqtSignal(dict)
-    error = pyqtSignal(str)
-
-    def __init__(self, parent=None) -> None:
-        super().__init__(parent)
-        self._api_key: str = ""
-        self._query: str = ""
-        self._days: int = 2
-
+class WeatherAPIForecastWorker(_RequestWorker):
     def set_params(self, api_key: str, query: str, days: int = 2) -> None:
-        self._api_key = api_key
-        self._query = query
-        self._days = days
+        self._configure(api_key=api_key, query=query, days=days)
 
-    def run(self) -> None:
-        try:
-            data = WeatherAPIService.get_hourly_forecast(
-                api_key=self._api_key,
-                query=self._query,
-                days=self._days,
-            )
-            self.forecast_ready.emit(data)
-        except WeatherAPIError as e:
-            self.error.emit(str(e))
-        except Exception as e:
-            self.error.emit(f"Unexpected error: {e}")
+    def _fetch(self, params: dict) -> dict:
+        return WeatherAPIService.get_hourly_forecast(**params)

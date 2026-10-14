@@ -1096,10 +1096,7 @@ class ConcreteMixTab(QWidget):
         # Max Free W/C display — uses warning palette from design system
         self.max_wc_label = QLabel("—")
         self.max_wc_label.setWordWrap(True)
-        self.max_wc_label.setStyleSheet(
-            "font-weight: 600; color: #92400e; font-size: 12px; padding: 6px 10px; "
-            "background: #fef3c7; border: 1px solid #f59e0b; border-radius: 4px;"
-        )
+        self.max_wc_label.setObjectName("callout-warning")
         self._lbl_max_wc = self._label("Max Free W/C Ratio")
         f1.addRow(self._lbl_max_wc, self.max_wc_label)
 
@@ -1433,10 +1430,7 @@ class ConcreteMixTab(QWidget):
         # per the Figure 3 piecewise lines). NOT editable.
         self.std_dev_display = QLabel("—")
         self.std_dev_display.setWordWrap(True)
-        self.std_dev_display.setStyleSheet(
-            "font-weight: 600; color: #1e40af; font-size: 13px; padding: 6px 10px; "
-            "background: #eff4ff; border: 1px solid #dbeafe; border-radius: 4px;"
-        )
+        self.std_dev_display.setObjectName("callout-panel")
         # Shrinkable like every other sidebar field (v1.0.9 pattern): without
         # a zero minimum the label's full single-line width becomes the row
         # minimum and the value clips at narrow sidebar widths instead of
@@ -1567,11 +1561,7 @@ class ConcreteMixTab(QWidget):
             "the exposure selection."
         )
         self.doe_design_note_label.setWordWrap(True)
-        self.doe_design_note_label.setStyleSheet(
-            "font-size: 11px; color: #92400e; padding: 8px 10px; "
-            "background: #fef3c7; border: 1px solid #f59e0b; border-radius: 4px; "
-            "margin-top: 4px;"
-        )
+        self.doe_design_note_label.setObjectName("callout-warning")
         f1.addRow(self.doe_design_note_label)
 
         # Characteristic strength is a closed set per code, not a free
@@ -1594,7 +1584,7 @@ class ConcreteMixTab(QWidget):
         self.nmsa_combo.currentIndexChanged.connect(self._on_nmsa_changed)
         self.water_content_label = QLabel("—")
         self.water_content_label.setWordWrap(True)
-        self.water_content_label.setStyleSheet("font-weight: 600; color: #1e40af; font-size: 13px;")
+        self.water_content_label.setObjectName("stat-highlight")
         self.volume_spin = UnitSpinBox("volume", 1.0, 0.01, 1000.0, 0.1, 3)
 
         self._lbl_strength = self._label_with_info(
@@ -1903,8 +1893,7 @@ class ConcreteMixTab(QWidget):
         # panel selected by NMSA and the slump/Vebe workability class.
         self.fig6_prop_label = QLabel("—")
         self.fig6_prop_label.setWordWrap(True)
-        self.fig6_prop_label.setStyleSheet(
-            "font-weight: 600; color: #1e40af; font-size: 13px;")
+        self.fig6_prop_label.setObjectName("stat-highlight")
         self._lbl_fig6_prop = self._label_with_info(
             "Figure 6 Fine Agg. (%)",
             "Proportion of fine aggregate in the total aggregate, read live "
@@ -2215,15 +2204,7 @@ class ConcreteMixTab(QWidget):
 
         self.reduced_water_label = QLabel("—")
         self.reduced_water_label.setWordWrap(True)
-        self.reduced_water_label.setStyleSheet(
-            "QLabel {"
-            "  font-weight: 600; color: #1e40af; font-size: 12px; padding: 6px 10px; "
-            "  background: #eff4ff; border: 1px solid #dbeafe; border-radius: 4px;"
-            "}\n"
-            "QLabel:disabled {"
-            "  font-weight: normal; color: #94a3b8; background-color: #f1f5f9; border: 1px solid #e2e8f0;"
-            "}"
-        )
+        self.reduced_water_label.setObjectName("callout-panel")
         self._lbl_reduced_water = self._label_with_info(
             "Reduced Water (kg/m\u00b3)",
             "Mixing water after applying admixture water reduction.\n\n"
@@ -2516,10 +2497,7 @@ class ConcreteMixTab(QWidget):
         "FA Passing 600 µm (%)" keep their micro symbol.
         """
         lbl = QLabel(uppercase_preserving_si_units(text))
-        lbl.setStyleSheet(
-            "font-size: 11px; font-weight: 600; "
-            "letter-spacing: 0.03em; color: #444653;"
-        )
+        lbl.setObjectName("form-label")
         lbl.setWordWrap(True)
         lbl.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
         return lbl
@@ -3347,7 +3325,10 @@ class ConcreteMixTab(QWidget):
         self.nmsa_combo.clear()
         _nmsa_items = [("10 mm", 10), ("20 mm", 20), ("40 mm", 40)]
         if is_is:
-            _nmsa_items += [("80 mm (mass)", 80), ("150 mm (mass)", 150)]
+            # 12.5 mm is an IS 10262 high-strength size only (Tables 6/7/8/10,
+            # §6.2.2); keep it offered under IS so a PSD-locked 12.5 mm can be
+            # restored after a code switch (cf. constructor list, §3223 guard).
+            _nmsa_items += [("12.5 mm", 12.5), ("80 mm (mass)", 80), ("150 mm (mass)", 150)]
         for _lbl, _val in _nmsa_items:
             self.nmsa_combo.addItem(_lbl, _val)
         _restored = False
@@ -3993,7 +3974,7 @@ class ConcreteMixTab(QWidget):
 
         if kind == "coarse":
             if nominal is not None:
-                if self._lock_nmsa(int(nominal)):
+                if self._lock_nmsa(float(nominal)):
                     applied.append(
                         f"Nominal maximum size set to {nominal} mm "
                         f"(band reference: {band_standard or '—'})"

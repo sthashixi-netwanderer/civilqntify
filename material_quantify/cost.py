@@ -21,6 +21,8 @@ class ProjectMaterialPrices:
     coarse_aggregate_per_m3: float = 400.0
     water_per_1000_liters: float = 15.0
     admixture_per_kg: float = 12.0
+    # None means unpriced, not free. Zero is an explicitly supplied free rate.
+    scm_per_kg: float | None = None
 
 
 @dataclass(frozen=True)
@@ -67,16 +69,58 @@ def estimate_project_cost(
     coarse_aggregate_cost = (
         float(bill.total_coarse_aggregate_bulk_m3) * prices.coarse_aggregate_per_m3
     )
+    # A DOE/BRE 331 §5.5 single-size split is ordered as separate stockpile
+    # deliveries. A single "Coarse Aggregate" line tells the supplier nothing
+    # about what to deliver, so the invoice is split per size. One quoted
+    # rate still applies to every size -- see the warning below.
+    split_rows: list[dict[str, Any]] = []
+    split = getattr(bill, "coarse_aggregate_split_kg", None)
+    if split:
+        density = float(bill.transfer_data.coarse_agg_bulk_density_kg_m3)
+        for size, kg in split.items():
+            bulk = float(kg) / density if density > 0 else 0.0
+            split_rows.append(
+                {
+                    "name": f"Coarse Aggregate {size}",
+                    "material_type": size,
+                    "qty": bulk,
+                    "unit": "m³",
+                    "kind": "volume",
+                    "unit_price": prices.coarse_aggregate_per_m3,
+                    "total": bulk * prices.coarse_aggregate_per_m3,
+                }
+            )
+        coarse_aggregate_cost = sum(row["total"] for row in split_rows)
     water_cost = (
         float(bill.total_water_liters) / 1000.0 * prices.water_per_1000_liters
     )
     admixture_cost = float(bill.total_admixture_kg) * prices.admixture_per_kg
+    scm_qty = float(getattr(bill, "total_scm_kg", 0.0))
+    scm_cost = scm_qty * prices.scm_per_kg if prices.scm_per_kg is not None else 0.0
+    warnings = []
+    if scm_qty > 0 and prices.scm_per_kg is None:
+        warnings.append("INCOMPLETE ESTIMATE: SCM has no price; totals exclude SCM.")
+    if split_rows:
+        warnings.append(
+            "Coarse aggregate is a single-size split (BRE 331:1997 §5.5) and is "
+            "ordered as "
+            + ", ".join(
+                f"{row['material_type']} ({row['qty']:.2f} m³)" for row in split_rows
+            )
+            + f". Each size is priced at the single coarse aggregate rate of "
+            f"GH₵ {prices.coarse_aggregate_per_m3:.2f}/m³; no separate per-size "
+            "rate was supplied."
+        )
+    basis = getattr(bill, "fine_aggregate_volume_basis", "")
+    if basis and bill.total_fine_aggregate_bulk_m3 > 0:
+        warnings.append(f"Sand purchasing basis: {basis}")
     total_material = (
         cement_cost
         + fine_aggregate_cost
         + coarse_aggregate_cost
         + water_cost
         + admixture_cost
+        + scm_cost
     )
 
     material_cost_per_m3 = total_material / gross_volume
@@ -96,6 +140,12 @@ def estimate_project_cost(
     )
 
     return {
+        "gross_concrete_volume_m3": gross_volume,
+        "wastage_percent": float(getattr(bill, "wastage_percent", 0.0)),
+        "cement_bag_weight_kg": float(getattr(bill, "cement_bag_weight_kg", 50.0)),
+        "fine_aggregate_volume_basis": basis,
+        "is_complete": not (scm_qty > 0 and prices.scm_per_kg is None),
+        "warnings": warnings,
         "material_cost_per_m3": material_cost_per_m3,
         "total_material_cost": total_material,
         "total_project_cost": grand_total,
@@ -117,14 +167,19 @@ def estimate_project_cost(
                 "unit_price": prices.fine_aggregate_per_m3,
                 "total": fine_aggregate_cost,
             },
-            {
-                "name": "Coarse Aggregate",
-                "qty": float(bill.total_coarse_aggregate_bulk_m3),
-                "unit": "m³",
-                "kind": "volume",
-                "unit_price": prices.coarse_aggregate_per_m3,
-                "total": coarse_aggregate_cost,
-            },
+            *(
+                split_rows
+                or [
+                    {
+                        "name": "Coarse Aggregate",
+                        "qty": float(bill.total_coarse_aggregate_bulk_m3),
+                        "unit": "m³",
+                        "kind": "volume",
+                        "unit_price": prices.coarse_aggregate_per_m3,
+                        "total": coarse_aggregate_cost,
+                    }
+                ]
+            ),
             {
                 "name": "Water",
                 "qty": float(bill.total_water_liters),
@@ -135,11 +190,26 @@ def estimate_project_cost(
             },
             {
                 "name": "Admixture",
+                "material_type": getattr(
+                    getattr(bill, "transfer_data", None),
+                    "admixture_type",
+                    getattr(bill, "admixture_type", "Admixture (unspecified)"),
+                ),
                 "qty": float(bill.total_admixture_kg),
                 "unit": "kg",
                 "kind": "mass",
                 "unit_price": prices.admixture_per_kg,
                 "total": admixture_cost,
+            },
+            {
+                "name": "SCM",
+                "material_type": getattr(getattr(bill, "transfer_data", None), "scm_type", getattr(bill, "scm_type", "SCM (unspecified)")),
+                "qty": scm_qty,
+                "unit": "kg",
+                "kind": "mass",
+                "unit_price": prices.scm_per_kg if prices.scm_per_kg is not None else 0.0,
+                "total": scm_cost,
+                "priced": prices.scm_per_kg is not None,
             },
         ],
         "summary_rows": [
@@ -154,7 +224,7 @@ def estimate_project_cost(
                 "label": f"Contingency ({options.contingency_percent:.0f}%)",
                 "amount": contingency,
             },
-            {"label": "GRAND TOTAL", "amount": grand_total, "is_total": True},
+            {"label": "PARTIAL TOTAL (SCM UNPRICED)" if scm_qty > 0 and prices.scm_per_kg is None else "GRAND TOTAL", "amount": grand_total, "is_total": True},
         ],
         "project_info": dict(project_info or {}),
     }

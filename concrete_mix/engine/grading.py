@@ -8,6 +8,7 @@ Supports:
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 
 from concrete_mix.codes.tables.is_tables import GRADING_ZONE_LIMITS
 
@@ -128,12 +129,16 @@ class ZoneClassification:
 def classify_is383_zone(
     passing_percent: dict[float, float],
     crushed_sand: bool = False,
+    *,
+    zone: str | None = None,
 ) -> ZoneClassification:
     """Classify a fine-aggregate grading per IS 383:2016 Clause 6.3.
 
     Args:
         passing_percent: ``{sieve_mm: percent_passing}`` — the IS 383 fine
-            stack (10 mm … 150 µm); missing sieves are simply skipped.
+            stack (10 mm … 150 µm); missing controls prevent conformance.
+        zone: Optional selected zone to assess independently of automatic
+            classification. No reporting-rounding allowance is applied.
         crushed_sand: the sample is a crushed stone sand, for which the
             permissible limit on the 150 µm sieve is increased to 20 %
             (Table 9 Note 1).
@@ -156,19 +161,18 @@ def classify_is383_zone(
             "be determined (IS 383:2016 Table 9)",
         ))
 
-    zone = None
-    for candidate, limits in GRADING_ZONE_LIMITS.items():
-        lo, hi = limits[ZONE_TOLERANCE_EXEMPT_SIEVE_MM]
-        if lo <= p600 <= hi:
-            zone = candidate
-            break
+    if zone is not None and zone not in GRADING_ZONE_LIMITS:
+        raise ValueError(f"Unknown grading zone '{zone}'")
     if zone is None:
-        # Non-integer 600 µm results can land in the 34–35 / 59–60 / 79–80
-        # gaps between the published integer ranges; assign the nearest
-        # range (sieve percentages are reported to whole percent per
-        # IS 2 : 1960 rounding). Exact ties (e.g. 34.5) resolve to the
-        # coarser zone by GRADING_ZONE_LIMITS order (I first) — deterministic;
-        # at whole-percent reporting the gap values never occur.
+        for candidate, limits in GRADING_ZONE_LIMITS.items():
+            lo, hi = limits[ZONE_TOLERANCE_EXEMPT_SIEVE_MM]
+            if lo <= p600 <= hi:
+                zone = candidate
+                break
+    if zone is None:
+        # Keep a nearest-zone diagnostic for fractional gaps (app policy),
+        # but assess the unrounded value below. Clause 6.3 expressly forbids
+        # tolerance at 600 µm; this label is NOT evidence of conformance.
         def _dist(limits):
             lo, hi = limits[ZONE_TOLERANCE_EXEMPT_SIEVE_MM]
             return 0 if lo <= p600 <= hi else min(abs(p600 - lo), abs(p600 - hi))
@@ -181,7 +185,8 @@ def classify_is383_zone(
 
     for sieve_mm, (lo, hi) in GRADING_ZONE_LIMITS[zone].items():
         p = passing_percent.get(sieve_mm)
-        if p is None:
+        if p is None or not math.isfinite(p) or not 0 <= p <= 100:
+            violations.append(f"{sieve_mm:g} mm sieve result missing or invalid")
             continue
 
         hi_eff = hi
@@ -212,7 +217,8 @@ def classify_is383_zone(
             (zone == "I" and not too_fine) or (zone == "IV" and too_fine)
         )
         if (
-            not relief_here
+            sieve_mm != ZONE_TOLERANCE_EXEMPT_SIEVE_MM
+            and not relief_here
             and tolerable_side
             and amount <= ZONE_TOLERANCE_SINGLE_SIEVE_PCT + 1e-9
         ):
@@ -224,7 +230,7 @@ def classify_is383_zone(
                 )
                 continue
 
-        bound = f"{hi:g}" if too_fine else f"{lo:g}"
+        bound = f"{hi_eff:g}" if too_fine else f"{lo:g}"
         which = "above" if too_fine else "below"
         violations.append(
             f"{label} {p:.1f} % passing is {which} the Zone {zone} limit "

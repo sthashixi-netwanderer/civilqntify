@@ -31,7 +31,7 @@ from concrete_mix.codes.tables.aci_tables import (
     water_adjustment_531,
 )
 from concrete_mix.engine.moisture_correction import adjust_water_for_aggregate_moisture, correct_for_moisture
-from concrete_mix.engine.volume_calculator import absolute_volume, total_volume
+from concrete_mix.engine.volume_calculator import absolute_volume
 from concrete_mix.models.mix_input import MixDesignInput
 from concrete_mix.models.mix_result import CalculationStep, MixDesignResult
 from concrete_mix.utils.constants import SG_WATER
@@ -508,6 +508,13 @@ class ACI211MixDesign(MixDesignCode):
             wc = inp.w_c_ratio
         else:
             wc = self.get_w_c_ratio(fcr, air_entrained=inp.air_entrained)
+        if inp.w_c_ratio is None and fcr > 48.3:
+            warnings.append(
+                f"Required average strength {fcr:.1f} MPa exceeds the 48.3 MPa "
+                "maximum of Table 5.3.4; boundary w/cm is only a preliminary "
+                "estimate. Material-specific strength data and trial batches "
+                "are required; attainable strength is not established."
+            )
         # Table 5.3.4 Note 1: air-entrained concrete above 6000 psi reads
         # w/cm < 0.33 (stored as the 0.33 boundary) and "may require the
         # addition of chemical admixtures, SCMs and higher cementitious
@@ -639,7 +646,11 @@ class ACI211MixDesign(MixDesignCode):
 
         # Step 8: Fine aggregate volume (by absolute volume method)
         vol_cement = absolute_volume(cement_kg, inp.cement.specific_gravity)
-        vol_scm = absolute_volume(scm_kg, inp.scms[0].specific_gravity) if inp.scms else 0.0
+        # §4.7.7.3: sum constituent volumes, independent of SCM order.
+        vol_scm = sum(
+            absolute_volume(cementitious_total * s.replacement_percent / 100.0, s.specific_gravity)
+            for s in inp.scms
+        )
         vol_water = absolute_volume(water_kg, SG_WATER)
         vol_ca = absolute_volume(ca_kg, inp.coarse_aggregate.specific_gravity)
         vol_air = air_percent / 100.0
@@ -649,9 +660,9 @@ class ACI211MixDesign(MixDesignCode):
 
         steps.append(self._make_step(
             8, "Fine aggregate content (absolute volume method)",
-            "FA vol = 1.0 - (cement + water + CA(SSD) + air + admixture) volumes; "
+            "FA vol = 1.0 - (cement + SCM + water + CA(SSD) + air + admixture) volumes; "
             "FA mass = vol × SG × 1000",
-            {"vol_cement": vol_cement, "vol_water": vol_water, "vol_ca": vol_ca, "vol_air": vol_air, "vol_admixture": vol_admixture},
+            {"vol_cement": vol_cement, "vol_scm": vol_scm, "vol_water": vol_water, "vol_ca": vol_ca, "vol_air": vol_air, "vol_admixture": vol_admixture},
             fa_kg, "kg/m³",
             "ACI PRC-211.1-22 §5.3.7"
         ))
@@ -660,11 +671,9 @@ class ACI211MixDesign(MixDesignCode):
         # a percentage of the concrete volume (§9.5 Step 1). Reported for
         # every design; a target PV (Example 4 / AASHTO PP 84, e.g. 25%)
         # triggers the redesign below.
-        _scm_sg_eff = (
-            sum(s.specific_gravity * s.replacement_percent for s in inp.scms)
-            / sum(s.replacement_percent for s in inp.scms)
-            if inp.scms else 2.20
-        )
+        # Harmonic SG is the exact single-density restatement of the
+        # summed SCM absolute volumes, also used by the §9.5 paste solver.
+        _scm_sg_eff = scm_kg / (vol_scm * 1000.0) if vol_scm > 0 else 2.20
         _pv = paste_volume_percent(
             cement_kg, scm_kg, water_kg,
             inp.cement.specific_gravity, _scm_sg_eff,
@@ -827,7 +836,7 @@ class ACI211MixDesign(MixDesignCode):
         if inp.trial_air_pct is not None and inp.air_entrained:
             # ∓5 lb/yd³ (2.97 kg/m³) per 1% air change; re-estimate
             # air-entrainer dosage for the target air content.
-            _air_corr = 2.97 * (air_percent - inp.trial_air_pct)
+            _air_corr = 2.97 * (inp.trial_air_pct - air_percent)
             steps.append(self._make_step(
                 10.3, "Trial air re-estimate",
                 f"Water {_air_corr:+.1f} kg/m³ per 1% air "
@@ -861,7 +870,7 @@ class ACI211MixDesign(MixDesignCode):
                     warnings.append(
                         f"Trial strength suggests {'adding' if _d_cem > 0 else 'removing'} "
                         f"{abs(_d_cem):.0f} kg/m³ cementitious "
-                        f"(+{abs(_d_water):.1f} kg/m³ water, sand rebalanced) — "
+                        f"({_d_water:+.1f} kg/m³ water at constant w/cm, sand rebalanced) — "
                         f"verify with a second trial batch (§5.3.10.3)"
                     )
 
@@ -872,15 +881,8 @@ class ACI211MixDesign(MixDesignCode):
             )
 
         # Verify total volume
-        actual_vol = total_volume(
-            cement_kg, water_kg, fa_kg, ca_kg,
-            inp.cement.specific_gravity,
-            inp.fine_aggregate.specific_gravity,
-            inp.coarse_aggregate.specific_gravity,
-            air_percent,
-            scm_kg,
-            inp.scms[0].specific_gravity if inp.scms else 3.15,
-        )
+        actual_vol = (vol_cement + vol_scm + vol_water + vol_fa
+                      + vol_ca + vol_air + vol_admixture)
         if abs(actual_vol - 1.0) > 0.02:
             warnings.append(
                 f"Total absolute volume {actual_vol:.4f} m³ deviates from 1.0 m³"
@@ -893,6 +895,7 @@ class ACI211MixDesign(MixDesignCode):
             water_kg=round(water_kg, 1),
             cement_kg=round(cement_kg, 1),
             scm_kg=round(scm_kg, 1),
+            scm_type=inp.scm_type_label,
             fine_aggregate_kg=round(fa_kg, 1),
             coarse_aggregate_kg=round(ca_kg, 1),
             air_volume_percent=round(air_percent, 1),

@@ -101,7 +101,7 @@ class TestDOEMarginAndDeviation:
         assert get_k_value(1.0) == 2.33
 
     def test_user_provided_std_deviation(self):
-        """Test that user-provided standard deviation overrides Figure 3."""
+        """An established deviation above Line B is usable (§5.1)."""
         designer = DOEMixDesign()
 
         cement = Cement(type=CementType.OPC_43)
@@ -116,9 +116,10 @@ class TestDOEMarginAndDeviation:
             cement=cement,
             coarse_aggregate=coarse_agg,
             fine_aggregate=fine_agg,
-            has_production_data=False,  # Would normally use 8.0 MPa from Figure 3
+            has_production_data=True,
+            num_test_cubes=30,  # Established record required by BRE §5.1.
             defective_percent=5.0,  # k = 1.64
-            std_deviation=5.0,  # User-provided value
+            std_deviation=5.0,  # Above the Line B minimum
         )
 
         result = designer.design(inp)
@@ -436,6 +437,7 @@ class TestDOEAirEntrained:
                 nominal_max_size_mm=20, specific_gravity=2.65,
                 shape=AggregateShape.ANGULAR),
             defective_percent=1.0,
+            num_test_cubes=30,  # Established s=5 record (§8.6).
             std_deviation=5.0,
             air_pct=4.5,
             w_c_ratio=0.55,  # Item 1.8 durability cap (not binding here)
@@ -653,6 +655,7 @@ class TestDOEPfaGgbs:
         inp = MixDesignInput(
             code="doe", target_strength_mpa=30.0, slump_mm=20.0,
             scms=(SCM(type=SCMType.GGBFS, replacement_percent=40.0),),
+            num_test_cubes=30,  # Explicit Line B record basis.
             fine_aggregate=FineAggregate(pct_passing_600um=70.0),
         )
         result = designer.design(inp)
@@ -899,13 +902,13 @@ class TestDOEItem41RelativeDensity:
             self._input(2.65, 2.70, rd=1.50)
 
     def test_low_grade_full_design_no_structural_floor(self):
-        """fc = 10 MPa designs end-to-end (Line B default: s = 0.2×10)."""
+        """fc = 10 MPa designs end-to-end (unknown count: Line A)."""
         designer = DOEMixDesign()
         result = designer.design(MixDesignInput(
             code="doe", target_strength_mpa=10.0, slump_mm=20.0,
             fine_aggregate=FineAggregate(pct_passing_600um=70.0)))
-        # s = 0.2×10 = 2.0 → M = 1.64×2.0 = 3.28 → fm = ceil(13.28) = 14
-        assert result.target_mean_strength_mpa == pytest.approx(14.0)
+        # s = 0.4×10 = 4.0 → M = 6.56 → fm = ceil(16.56) = 17.
+        assert result.target_mean_strength_mpa == pytest.approx(17.0)
         assert result.cement_kg > 0 and result.water_kg > 0
 
     def test_item41_ignored_by_aci_and_is(self):

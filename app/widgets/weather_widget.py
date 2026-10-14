@@ -9,8 +9,9 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Optional
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, pyqtSlot
 from PyQt6.QtWidgets import (
+    QApplication,
     QComboBox,
     QFrame,
     QGridLayout,
@@ -28,6 +29,7 @@ from app.weather.ghana_cities import GHANA_CITIES, get_city_coordinates
 from app.weather.weather_service import WeatherService
 from app.weather.weatherapi_service import WeatherAPIService
 from app.weather.weather_worker import (
+    WeatherWorkerGroup,
     WeatherWorker,
     WeatherAPIWorker,
     HourlyForecastWorker,
@@ -42,32 +44,25 @@ class StatCard(QFrame):
 
     def __init__(self, title: str, parent=None) -> None:
         super().__init__(parent)
-        self.setObjectName("weather-stat-card")
+        self.setObjectName("weather-metric-card")
         self.setFrameShape(QFrame.Shape.StyledPanel)
         self.setMinimumWidth(120)
-        self.setStyleSheet("""
-            QFrame#weather-stat-card {
-                background-color: #f8fafc;
-                border: 1px solid #e2e8f0;
-                border-radius: 6px;
-                padding: 10px;
-            }
-        """)
 
         layout = QVBoxLayout(self)
         layout.setSpacing(4)
+        layout.setContentsMargins(10, 8, 10, 8)
 
         self._title = QLabel(title)
-        self._title.setStyleSheet("font-size: 11px; color: #64748b; font-weight: 500;")
+        self._title.setObjectName("stat-label")
         layout.addWidget(self._title)
 
         self._value = QLabel("—")
-        self._value.setStyleSheet("font-size: 20px; font-weight: 700; color: #1e293b;")
+        self._value.setObjectName("stat-value")
         self._value.setWordWrap(False)
         layout.addWidget(self._value)
 
         self._subtitle = QLabel("")
-        self._subtitle.setStyleSheet("font-size: 11px; color: #64748b;")
+        self._subtitle.setObjectName("stat-unit")
         self._subtitle.setWordWrap(True)
         layout.addWidget(self._subtitle)
 
@@ -83,48 +78,37 @@ class HourlyForecastCard(QFrame):
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
-        self.setObjectName("hourly-card")
+        self.setObjectName("weather-hourly-card")
         self.setFrameShape(QFrame.Shape.StyledPanel)
         self.setFixedWidth(80)
-        self.setStyleSheet("""
-            QFrame#hourly-card {
-                background-color: #f8fafc;
-                border: 1px solid #e2e8f0;
-                border-radius: 6px;
-                padding: 6px;
-            }
-            QFrame#hourly-card:selected {
-                background-color: #e0f2fe;
-                border-color: #0ea5e9;
-            }
-        """)
 
         layout = QVBoxLayout(self)
         layout.setSpacing(2)
+        layout.setContentsMargins(6, 6, 6, 6)
         layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         # Hour
         self._hour = QLabel("—")
-        self._hour.setStyleSheet("font-size: 10px; color: #64748b; font-weight: 500;")
+        self._hour.setObjectName("dialog-note")
         self._hour.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self._hour)
 
         # Temperature
         self._temp = QLabel("—")
-        self._temp.setStyleSheet("font-size: 14px; font-weight: 700; color: #1e293b;")
+        self._temp.setObjectName("stat-highlight")
         self._temp.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self._temp)
 
         # Weather icon/description (short)
         self._weather = QLabel("—")
-        self._weather.setStyleSheet("font-size: 9px; color: #475569;")
+        self._weather.setObjectName("dialog-desc")
         self._weather.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._weather.setWordWrap(True)
         layout.addWidget(self._weather)
 
         # Precipitation probability
         self._precip = QLabel("")
-        self._precip.setStyleSheet("font-size: 9px; color: #0ea5e9;")
+        self._precip.setObjectName("stat-unit")
         self._precip.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self._precip)
 
@@ -179,9 +163,7 @@ class DailyForecastDayWidget(QWidget):
 
         # Hourly forecast label
         hourly_label = QLabel("Hourly")
-        hourly_label.setStyleSheet(
-            "font-size: 11px; font-weight: 600; color: #64748b; margin-top: 4px;"
-        )
+        hourly_label.setObjectName("section-title")
         layout.addWidget(hourly_label)
 
         # Scrollable hourly cards
@@ -194,25 +176,6 @@ class DailyForecastDayWidget(QWidget):
             Qt.ScrollBarPolicy.ScrollBarAlwaysOff
         )
         scroll_area.setFixedHeight(140)
-        scroll_area.setStyleSheet("""
-            QScrollArea {
-                border: 1px solid #e2e8f0;
-                border-radius: 6px;
-                background: white;
-            }
-            QScrollBar:horizontal {
-                height: 8px;
-                background: #f1f5f9;
-            }
-            QScrollBar::handle:horizontal {
-                background: #94a3b8;
-                border-radius: 4px;
-                min-width: 40px;
-            }
-            QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
-                width: 0;
-            }
-        """)
 
         self._hourly_container = QWidget()
         self._hourly_layout = QHBoxLayout(self._hourly_container)
@@ -276,33 +239,14 @@ class WeatherWidget(QWidget):
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
 
-        # Open-Meteo workers
-        self._openmeteo_worker = WeatherWorker(self)
-        self._openmeteo_worker.weather_ready.connect(self._on_weather_ready)
-        self._openmeteo_worker.error.connect(self._on_error)
-
-        self._openmeteo_forecast_worker = HourlyForecastWorker(self)
-        self._openmeteo_forecast_worker.forecast_ready.connect(self._on_forecast_ready)
-        self._openmeteo_forecast_worker.error.connect(self._on_forecast_error)
-
-        # WeatherAPI workers
-        self._weatherapi_worker = WeatherAPIWorker(self)
-        self._weatherapi_worker.weather_ready.connect(self._on_weather_ready)
-        self._weatherapi_worker.error.connect(self._on_error)
-
-        self._weatherapi_forecast_worker = WeatherAPIForecastWorker(self)
-        self._weatherapi_forecast_worker.forecast_ready.connect(self._on_forecast_ready)
-        self._weatherapi_forecast_worker.forecast_ready.connect(self._on_5day_hourly_ready)
-        self._weatherapi_forecast_worker.error.connect(self._on_forecast_error)
-
-        # Daily forecast workers (both APIs)
-        self._daily_forecast_worker = DailyForecastWorker(self)
-        self._daily_forecast_worker.forecast_ready.connect(self._on_daily_forecast_ready)
-        self._daily_forecast_worker.error.connect(self._on_daily_forecast_error)
-
-        self._weatherapi_daily_worker = WeatherAPIDailyForecastWorker(self)
-        self._weatherapi_daily_worker.forecast_ready.connect(self._on_daily_forecast_ready)
-        self._weatherapi_daily_worker.error.connect(self._on_daily_forecast_error)
+        self._request_id = 0
+        self._shutting_down = False
+        # The group belongs to the application, not the disposable widget.
+        # Its slot is still valid when QWidget.destroyed is emitted.
+        self._worker_group = WeatherWorkerGroup(QApplication.instance())
+        self.destroyed.connect(self._worker_group.shutdown)
+        self.destroyed.connect(self._worker_group.deleteLater)
+        QApplication.instance().aboutToQuit.connect(self.shutdown)
 
         self._current_api: str = "openmeteo"
         self._api_key: str = ""
@@ -312,14 +256,15 @@ class WeatherWidget(QWidget):
 
     def set_api_key(self, api_key: str) -> None:
         """Set the WeatherAPI.com API key."""
+        changed = self._api_key != api_key
         self._api_key = api_key
+        if changed and self._current_api == "weatherapi":
+            self._on_city_changed()
         if hasattr(self, '_api_key_label'):
             if api_key:
-                self._api_key_label.setText("API Key: ✓ Set")
-                self._api_key_label.setStyleSheet("font-size: 10px; color: #16a34a;")
+                self._api_key_label.setText("API Key: Set")
             else:
                 self._api_key_label.setText("API Key: Not set (get free key at weatherapi.com)")
-                self._api_key_label.setStyleSheet("font-size: 10px; color: #94a3b8;")
 
     def _setup_ui(self) -> None:
         """Set up the widget UI."""
@@ -330,30 +275,6 @@ class WeatherWidget(QWidget):
         # API Source tabs
         self._api_tabs = QTabWidget()
         self._api_tabs.setTabPosition(QTabWidget.TabPosition.North)
-        self._api_tabs.setStyleSheet("""
-            QTabWidget::pane {
-                border: 1px solid #e2e8f0;
-                border-radius: 6px;
-                background: white;
-            }
-            QTabBar::tab {
-                padding: 6px 16px;
-                margin-right: 2px;
-                border: 1px solid #e2e8f0;
-                border-bottom: none;
-                border-radius: 6px 6px 0 0;
-                background: #f8fafc;
-                font-size: 11px;
-                font-weight: 500;
-                color: #64748b;
-            }
-            QTabBar::tab:selected {
-                background: white;
-                color: #1e293b;
-                border-bottom: 1px solid white;
-            }
-            QTabBar::tab:hover { background: #e2e8f0; }
-        """)
 
         openmeteo_tab = self._create_openmeteo_tab()
         self._api_tabs.addTab(openmeteo_tab, "Open-Meteo (Free)")
@@ -382,62 +303,32 @@ class WeatherWidget(QWidget):
 
         # Weather conditions
         conditions_frame = QFrame()
-        conditions_frame.setStyleSheet("""
-            QFrame {
-                background-color: #f0f9ff;
-                border: 1px solid #bae6fd;
-                border-radius: 6px;
-                padding: 10px;
-            }
-        """)
+        conditions_frame.setObjectName("weather-conditions-card")
         conditions_layout = QVBoxLayout(conditions_frame)
         conditions_layout.setSpacing(4)
+        conditions_layout.setContentsMargins(10, 8, 10, 8)
 
         conditions_title = QLabel("Current Conditions")
-        conditions_title.setStyleSheet("font-size: 12px; font-weight: 600; color: #0369a1;")
+        conditions_title.setObjectName("section-title")
         conditions_layout.addWidget(conditions_title)
 
         self._conditions_label = QLabel("—")
-        self._conditions_label.setStyleSheet("font-size: 16px; font-weight: 500; color: #1e293b;")
+        self._conditions_label.setObjectName("stat-highlight")
         conditions_layout.addWidget(self._conditions_label)
 
         self._precipitation_label = QLabel("Precipitation: —")
-        self._precipitation_label.setStyleSheet("font-size: 13px; color: #475569;")
+        self._precipitation_label.setObjectName("dialog-desc")
         conditions_layout.addWidget(self._precipitation_label)
 
         layout.addWidget(conditions_frame)
 
         # 5-Day Forecast section
         daily_header = QLabel("5-Day Forecast")
-        daily_header.setStyleSheet("font-size: 14px; font-weight: 600; color: #1e293b;")
+        daily_header.setObjectName("section-title")
         layout.addWidget(daily_header)
 
         self._day_tabs = QTabWidget()
         self._day_tabs.setTabPosition(QTabWidget.TabPosition.North)
-        self._day_tabs.setStyleSheet("""
-            QTabWidget::pane {
-                border: 1px solid #e2e8f0;
-                border-radius: 6px;
-                background: white;
-            }
-            QTabBar::tab {
-                padding: 6px 14px;
-                margin-right: 2px;
-                border: 1px solid #e2e8f0;
-                border-bottom: none;
-                border-radius: 6px 6px 0 0;
-                background: #f8fafc;
-                font-size: 11px;
-                font-weight: 500;
-                color: #64748b;
-            }
-            QTabBar::tab:selected {
-                background: white;
-                color: #1e293b;
-                border-bottom: 1px solid white;
-            }
-            QTabBar::tab:hover { background: #e2e8f0; }
-        """)
 
         # Pre-create 5 day tabs
         self._day_tab_widgets: list[DailyForecastDayWidget] = []
@@ -450,7 +341,7 @@ class WeatherWidget(QWidget):
 
         # 24-Hour Forecast section
         forecast_header = QLabel("24-Hour Forecast")
-        forecast_header.setStyleSheet("font-size: 14px; font-weight: 600; color: #1e293b;")
+        forecast_header.setObjectName("section-title")
         layout.addWidget(forecast_header)
 
         # Scrollable forecast area
@@ -459,25 +350,6 @@ class WeatherWidget(QWidget):
         scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         scroll_area.setFixedHeight(160)
-        scroll_area.setStyleSheet("""
-            QScrollArea {
-                border: 1px solid #e2e8f0;
-                border-radius: 6px;
-                background: white;
-            }
-            QScrollBar:horizontal {
-                height: 8px;
-                background: #f1f5f9;
-            }
-            QScrollBar::handle:horizontal {
-                background: #94a3b8;
-                border-radius: 4px;
-                min-width: 40px;
-            }
-            QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
-                width: 0;
-            }
-        """)
 
         self._forecast_container = QWidget()
         self._forecast_layout = QHBoxLayout(self._forecast_container)
@@ -498,11 +370,11 @@ class WeatherWidget(QWidget):
         # Status row
         status_row = QHBoxLayout()
         self._status_label = QLabel("Select a city to view weather")
-        self._status_label.setStyleSheet("font-size: 12px; color: #64748b;")
+        self._status_label.setObjectName("dialog-note")
         status_row.addWidget(self._status_label)
         status_row.addStretch()
         self._update_label = QLabel("")
-        self._update_label.setStyleSheet("font-size: 12px; color: #64748b;")
+        self._update_label.setObjectName("dialog-note")
         status_row.addWidget(self._update_label)
         layout.addLayout(status_row)
 
@@ -521,12 +393,11 @@ class WeatherWidget(QWidget):
         search_row.setSpacing(8)
 
         search_label = QLabel("Search:")
-        search_label.setStyleSheet("font-size: 12px; font-weight: 500; color: #475569;")
+        search_label.setObjectName("form-label")
         search_row.addWidget(search_label)
 
         self._openmeteo_search_input = QLineEdit()
         self._openmeteo_search_input.setPlaceholderText("Type city name...")
-        # Uses global QLineEdit style — no inline override to keep dropdown palette consistent
         self._openmeteo_search_input.textChanged.connect(self._on_openmeteo_search_changed)
         search_row.addWidget(self._openmeteo_search_input, stretch=1)
 
@@ -537,12 +408,11 @@ class WeatherWidget(QWidget):
         city_row.setSpacing(8)
 
         city_label = QLabel("City:")
-        city_label.setStyleSheet("font-size: 12px; font-weight: 500; color: #475569;")
+        city_label.setObjectName("form-label")
         city_row.addWidget(city_label)
 
         self._openmeteo_city_combo = QComboBox()
         self._openmeteo_city_combo.setMinimumWidth(180)
-        # Global QComboBox style — ensures dropdown colors match design system (#e2e8f0→#1e40af)
 
         self._populate_city_combo(self._openmeteo_city_combo, None)
 
@@ -550,19 +420,6 @@ class WeatherWidget(QWidget):
         city_row.addWidget(self._openmeteo_city_combo, stretch=1)
 
         refresh_btn = QPushButton("Refresh")
-        refresh_btn.setStyleSheet("""
-            QPushButton {
-                padding: 6px 12px;
-                background-color: #1e40af;
-                color: white;
-                border: none;
-                border-radius: 4px;
-                font-size: 12px;
-                font-weight: 600;
-            }
-            QPushButton:hover { background-color: #1e3a8a; }
-            QPushButton:pressed { background-color: #172554; }
-        """)
         refresh_btn.clicked.connect(self._on_refresh)
         city_row.addWidget(refresh_btn)
 
@@ -582,12 +439,11 @@ class WeatherWidget(QWidget):
         search_row.setSpacing(8)
 
         search_label = QLabel("Search:")
-        search_label.setStyleSheet("font-size: 12px; font-weight: 500; color: #475569;")
+        search_label.setObjectName("form-label")
         search_row.addWidget(search_label)
 
         self._search_input = QLineEdit()
         self._search_input.setPlaceholderText("Type city name...")
-        # Uses global style
         self._search_input.textChanged.connect(self._on_search_changed)
         search_row.addWidget(self._search_input, stretch=1)
 
@@ -598,12 +454,11 @@ class WeatherWidget(QWidget):
         city_row.setSpacing(8)
 
         city_label = QLabel("City:")
-        city_label.setStyleSheet("font-size: 12px; font-weight: 500; color: #475569;")
+        city_label.setObjectName("form-label")
         city_row.addWidget(city_label)
 
         self._weatherapi_city_combo = QComboBox()
         self._weatherapi_city_combo.setMinimumWidth(180)
-        # Global style — no inline override
 
         self._populate_city_combo(self._weatherapi_city_combo, None)
 
@@ -611,19 +466,6 @@ class WeatherWidget(QWidget):
         city_row.addWidget(self._weatherapi_city_combo, stretch=1)
 
         refresh_btn = QPushButton("Refresh")
-        refresh_btn.setStyleSheet("""
-            QPushButton {
-                padding: 6px 12px;
-                background-color: #1e40af;
-                color: white;
-                border: none;
-                border-radius: 4px;
-                font-size: 12px;
-                font-weight: 600;
-            }
-            QPushButton:hover { background-color: #1e3a8a; }
-            QPushButton:pressed { background-color: #172554; }
-        """)
         refresh_btn.clicked.connect(self._on_refresh)
         city_row.addWidget(refresh_btn)
 
@@ -631,7 +473,7 @@ class WeatherWidget(QWidget):
 
         # API key status
         self._api_key_label = QLabel("API Key: Not set (get free key at weatherapi.com)")
-        self._api_key_label.setStyleSheet("font-size: 10px; color: #94a3b8;")
+        self._api_key_label.setObjectName("dialog-note")
         layout.addWidget(self._api_key_label)
 
         return widget
@@ -665,97 +507,99 @@ class WeatherWidget(QWidget):
         """Handle Open-Meteo search input change."""
         self._populate_city_combo(self._openmeteo_city_combo, text if text else None)
 
+    def _start_request(self, cls, attribute, params, ready, error, *, weather=False):
+        worker = cls(self._worker_group, request_id=self._request_id)
+        worker.set_params(**params)
+        signal = worker.weather_ready if weather else worker.forecast_ready
+        for callback in ready:
+            signal.connect(callback)
+        worker.error.connect(error)
+        self._worker_group.add(worker)
+        setattr(self, attribute, worker)
+        worker.start()
+
+    def _accept_response(self) -> bool:
+        worker = self.sender()
+        return (not self._shutting_down and
+                (worker is None or getattr(worker, "request_id", self._request_id) == self._request_id))
+
+    @pyqtSlot()
+    def shutdown(self) -> None:
+        self._shutting_down = True
+        self._request_id += 1
+        self._worker_group.shutdown()
+
+    def closeEvent(self, event) -> None:
+        self.shutdown()
+        super().closeEvent(event)
+
     def _on_city_changed(self) -> None:
-        """Handle city selection change."""
-        if self._current_api == "openmeteo":
-            city_name = self._openmeteo_city_combo.currentData()
-        else:
-            city_name = self._weatherapi_city_combo.currentData()
-
-        if not city_name:
+        """Snapshot inputs for this generation; older responses are discarded."""
+        if self._shutting_down:
             return
-
-        coords = get_city_coordinates(city_name)
+        self._request_id += 1
+        combo = (self._openmeteo_city_combo if self._current_api == "openmeteo"
+                 else self._weatherapi_city_combo)
+        city_name = combo.currentData()
+        coords = get_city_coordinates(city_name) if city_name else None
+        self._daily_forecasts = []
+        self._daily_hourly_data = []
+        self._on_daily_forecast_error("")
+        self._on_forecast_error("")
+        self._temp_card.set_value("—")
+        self._feels_card.set_value("—")
+        self._humidity_card.set_value("—")
+        self._wind_card.set_value("—")
+        self._conditions_label.setText("Awaiting weather data")
+        self._precipitation_label.setText("Precipitation: —")
+        self._update_label.setText("")
         if not coords:
+            self._status_label.setText("Select a city to view weather")
             return
-
-        self._current_coords = coords
-
-        # Fetch current weather
+        self._current_coords = dict(coords)
+        self._status_label.setObjectName("dialog-note")
+        self._status_label.style().unpolish(self._status_label)
+        self._status_label.style().polish(self._status_label)
+        self._status_label.setText(f"Fetching weather for {city_name}...")
         if self._current_api == "openmeteo":
-            self._status_label.setText(f"Fetching weather for {city_name}...")
-            self._openmeteo_worker.set_params(
-                latitude=coords["lat"],
-                longitude=coords["lon"],
-                city_name=city_name,
-            )
-            self._openmeteo_worker.start()
-
-            # Fetch hourly forecast
-            self._openmeteo_forecast_worker.set_params(
-                latitude=coords["lat"],
-                longitude=coords["lon"],
-                hours=24,
-            )
-            self._openmeteo_forecast_worker.start()
-
-            # Fetch 5-day daily forecast
-            self._daily_forecast_worker.set_params(
-                latitude=coords["lat"],
-                longitude=coords["lon"],
-                days=5,
-            )
-            self._daily_forecast_worker.start()
-
-            # Fetch 5-day hourly forecast (for per-day hourly breakdown)
-            self._openmeteo_5day_hourly_worker = HourlyForecastWorker(self)
-            self._openmeteo_5day_hourly_worker.forecast_ready.connect(
-                self._on_5day_hourly_ready
-            )
-            self._openmeteo_5day_hourly_worker.error.connect(
-                self._on_daily_forecast_error
-            )
-            self._openmeteo_5day_hourly_worker.set_params(
-                latitude=coords["lat"],
-                longitude=coords["lon"],
-                forecast_days=5,
-            )
-            self._openmeteo_5day_hourly_worker.start()
+            location = dict(latitude=coords["lat"], longitude=coords["lon"])
+            self._start_request(WeatherWorker, "_openmeteo_worker",
+                                dict(location, city_name=city_name),
+                                [self._on_weather_ready], self._on_error, weather=True)
+            self._start_request(HourlyForecastWorker, "_openmeteo_forecast_worker",
+                                dict(location, hours=24),
+                                [self._on_forecast_ready], self._on_forecast_error)
+            self._start_request(DailyForecastWorker, "_daily_forecast_worker",
+                                dict(location, days=5),
+                                [self._on_daily_forecast_ready], self._on_daily_forecast_error)
+            self._start_request(HourlyForecastWorker, "_openmeteo_5day_hourly_worker",
+                                dict(location, forecast_days=5),
+                                [self._on_5day_hourly_ready], self._on_daily_forecast_error)
         else:
             if not self._api_key:
                 self._status_label.setText("API key required. Set in Settings.")
                 return
-            self._status_label.setText(f"Fetching weather for {city_name}...")
-            query = f"{coords['lat']},{coords['lon']}"
-            self._weatherapi_worker.set_params(
-                api_key=self._api_key,
-                query=query,
-                city_name=city_name,
-            )
-            self._weatherapi_worker.start()
-
-            # Fetch 5-day daily forecast
-            self._weatherapi_daily_worker.set_params(
-                api_key=self._api_key,
-                query=query,
-                days=5,
-            )
-            self._weatherapi_daily_worker.start()
-
-            # Fetch 5-day hourly forecast
-            self._weatherapi_forecast_worker.set_params(
-                api_key=self._api_key,
-                query=query,
-                days=5,
-            )
-            self._weatherapi_forecast_worker.start()
+            location = dict(api_key=self._api_key, query=f"{coords['lat']},{coords['lon']}")
+            self._start_request(WeatherAPIWorker, "_weatherapi_worker",
+                                dict(location, city_name=city_name),
+                                [self._on_weather_ready], self._on_error, weather=True)
+            self._start_request(WeatherAPIDailyForecastWorker, "_weatherapi_daily_worker",
+                                dict(location, days=5),
+                                [self._on_daily_forecast_ready], self._on_daily_forecast_error)
+            self._start_request(WeatherAPIForecastWorker, "_weatherapi_forecast_worker",
+                                dict(location, days=5),
+                                [self._on_forecast_ready, self._on_5day_hourly_ready],
+                                self._on_forecast_error)
 
     def _on_refresh(self) -> None:
         """Handle refresh button click."""
         self._on_city_changed()
 
+    @pyqtSlot(dict)
     def _on_weather_ready(self, data: dict) -> None:
         """Handle successful weather data fetch."""
+        if not self._accept_response():
+            return
         temp = data.get("temperature", 0.0)
         self._temp_card.set_value(f"{temp:.1f}°C")
 
@@ -779,8 +623,11 @@ class WeatherWidget(QWidget):
         self._status_label.setText("Weather data loaded")
         self._update_label.setText(datetime.now().strftime("%H:%M:%S"))
 
+    @pyqtSlot(dict)
     def _on_forecast_ready(self, data: dict) -> None:
         """Handle successful forecast data fetch."""
+        if not self._accept_response():
+            return
         hourly = data.get("hourly", [])
 
         # Update forecast cards
@@ -791,10 +638,15 @@ class WeatherWidget(QWidget):
             else:
                 card.setVisible(False)
 
+    @pyqtSlot(str)
     def _on_error(self, message: str) -> None:
         """Handle weather fetch error."""
+        if not self._accept_response():
+            return
         self._status_label.setText(f"Error: {message}")
-        self._status_label.setStyleSheet("font-size: 12px; color: #dc2626;")
+        self._status_label.setObjectName("danger-banner")
+        self._status_label.style().unpolish(self._status_label)
+        self._status_label.style().polish(self._status_label)
         self._temp_card.set_value("—")
         self._feels_card.set_value("—")
         self._humidity_card.set_value("—")
@@ -802,14 +654,20 @@ class WeatherWidget(QWidget):
         self._conditions_label.setText("Unable to load weather data")
         self._precipitation_label.setText("Precipitation: —")
 
+    @pyqtSlot(str)
     def _on_forecast_error(self, message: str) -> None:
         """Handle forecast fetch error."""
+        if not self._accept_response():
+            return
         # Silently fail for forecast - current weather is more important
         for card in self._forecast_cards:
             card.setVisible(False)
 
+    @pyqtSlot(dict)
     def _on_daily_forecast_ready(self, data: dict) -> None:
         """Handle successful daily forecast data fetch."""
+        if not self._accept_response():
+            return
         from datetime import datetime
 
         self._daily_forecasts = data.get("forecasts", [])
@@ -838,8 +696,11 @@ class WeatherWidget(QWidget):
         if hasattr(self, "_daily_hourly_data"):
             self._populate_day_tabs()
 
+    @pyqtSlot(dict)
     def _on_5day_hourly_ready(self, data: dict) -> None:
         """Handle successful 5-day hourly forecast fetch."""
+        if not self._accept_response():
+            return
         self._daily_hourly_data = data.get("hourly", [])
 
         # If we already have daily forecasts, populate the day tabs
@@ -867,7 +728,10 @@ class WeatherWidget(QWidget):
             else:
                 day_widget.clear()
 
+    @pyqtSlot(str)
     def _on_daily_forecast_error(self, message: str) -> None:
         """Handle daily forecast fetch error."""
+        if not self._accept_response():
+            return
         for tab in self._day_tab_widgets:
             tab.clear()

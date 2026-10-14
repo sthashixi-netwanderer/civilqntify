@@ -40,10 +40,7 @@ class StatCard(QFrame):
 
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         self.setMinimumWidth(132)
-        self.setMinimumHeight(86)
-        self.setStyleSheet(
-            "QFrame#result-card { background: #ffffff; border: 1px solid #e2e8f0; border-radius: 6px; }"
-        )
+        self.setMinimumHeight(76)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(10, 8, 10, 8)
@@ -55,18 +52,12 @@ class StatCard(QFrame):
         self._label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
         # Allow label to shrink and wrap instead of eliding
         self._label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
-        self._label.setStyleSheet(
-            "color:#757684; font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:0.04em;"
-        )
 
         self._value = QLabel("\u2014")
         self._value.setObjectName("result-value")
         self._value.setWordWrap(True)
         self._value.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         self._value.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
-        self._value.setStyleSheet(
-            "color:#1e40af; font-family:'JetBrains Mono','Consolas',monospace; font-size:17px; font-weight:700;"
-        )
         # Ensure long numbers can wrap or shrink without clipping
         self._value.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         self._value.setMinimumWidth(0)
@@ -76,7 +67,6 @@ class StatCard(QFrame):
         self._unit.setWordWrap(True)
         self._unit.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
         self._unit.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
-        self._unit.setStyleSheet("color:#757684; font-size:10px;")
 
         layout.addWidget(self._label)
         layout.addWidget(self._value, stretch=1)
@@ -134,8 +124,8 @@ class TargetStrengthResultPanel(QWidget):
         subtitle = QLabel(
             "Standard-based target mean strength. Mix proportions are not calculated in this mode."
         )
+        subtitle.setObjectName("dialog-desc")
         subtitle.setWordWrap(True)
-        subtitle.setStyleSheet("font-size: 12px; color: #444653; padding-bottom: 4px;")
         subtitle.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.MinimumExpanding)
         outer.addWidget(subtitle)
 
@@ -162,19 +152,16 @@ class TargetStrengthResultPanel(QWidget):
         outer.addWidget(self._ts_grid_container)
 
         self._formula_label = QLabel()
+        self._formula_label.setObjectName("callout-panel")
         self._formula_label.setWordWrap(True)
         self._formula_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         self._formula_label.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.MinimumExpanding)
-        self._formula_label.setStyleSheet(
-            "font-size: 13px; padding: 12px; background: #eff4ff; "
-            "border: 1px solid #dbeafe; border-radius: 4px;"
-        )
         outer.addWidget(self._formula_label)
 
         self._reference_label = QLabel()
+        self._reference_label.setObjectName("dialog-note")
         self._reference_label.setWordWrap(True)
         self._reference_label.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.MinimumExpanding)
-        self._reference_label.setStyleSheet("font-size: 12px; color: #444653; padding: 4px 0;")
         outer.addWidget(self._reference_label)
         outer.addStretch()
         scroll.setWidget(container)
@@ -290,14 +277,8 @@ class ResultPanel(QWidget):
     # the result's design standard gets an accent border + "active"
     # marker so it is unmistakable which protocol applies
     # (IS 10262:2019 Cl. 5.8 / BRE 331:1997 §6 / ACI PRC-211.1-22 Ch. 8).
-    _TRIAL_FRAME_BASE_STYLE = (
-        "background-color: #f8fafc; border: 1px solid #cbd5e1; "
-        "border-radius: 6px; padding: 4px;"
-    )
-    _TRIAL_FRAME_ACTIVE_STYLE = (
-        "background-color: #eff6ff; border: 2px solid #1d4ed8; "
-        "border-radius: 6px; padding: 4px;"
-    )
+    _TRIAL_FRAME_BASE_STYLE = ""
+    _TRIAL_FRAME_ACTIVE_STYLE = ""
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -347,10 +328,7 @@ class ResultPanel(QWidget):
 
         # IS 10262:2019 Clause 5.8 Trial Mixes Prompt (hidden by default)
         self._is_trial_frame = QFrame()
-        self._is_trial_frame.setObjectName("result-card")
-        self._is_trial_frame.setStyleSheet(
-            "background-color: #f8fafc; border: 1px solid #cbd5e1; border-radius: 6px; padding: 4px;"
-        )
+        self._is_trial_frame.setObjectName("trial-frame")
         self._is_trial_frame.setVisible(False)
         self._is_trial_frame.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.MinimumExpanding)
         trial_layout = QVBoxLayout(self._is_trial_frame)
@@ -358,13 +336,10 @@ class ResultPanel(QWidget):
         trial_layout.setSpacing(6)
 
         trial_title = QLabel("IS 10262:2019 Clause 5.8 — Trial Mixes Protocol")
+        trial_title.setObjectName("section-title")
         trial_title.setWordWrap(True)
         trial_title.setMinimumWidth(0)
         trial_title.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.MinimumExpanding)
-        trial_title.setStyleSheet(
-            "font-size: 11px; font-weight: 700; text-transform: uppercase; "
-            "letter-spacing: 0.05em; color: #1e3a8a;"
-        )
         trial_layout.addWidget(trial_title)
         # Base title kept so the active-standard highlight can be
         # applied/restored without losing the clause reference.
@@ -374,13 +349,11 @@ class ResultPanel(QWidget):
         self._is_trial_lbl = QLabel()
         self._is_trial_lbl.setWordWrap(True)
         self._is_trial_lbl.setMinimumWidth(0)
-        self._is_trial_lbl.setStyleSheet("font-size: 12px; color: #334155; line-height: 1.35;")
         self._is_trial_lbl.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.MinimumExpanding)
         trial_layout.addWidget(self._is_trial_lbl)
 
-        self._btn_view_trials = QPushButton("📋 View 4-Trial Batches Protocol & Reporting Guide (Clause 5.8)")
+        self._btn_view_trials = QPushButton("View 4-Trial Batches Protocol & Reporting Guide (Clause 5.8)")
         self._btn_view_trials.setObjectName("secondary")
-        self._btn_view_trials.setStyleSheet("font-size: 12px; font-weight: 600; padding: 6px 10px;")
         self._btn_view_trials.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self._btn_view_trials.clicked.connect(self._on_view_is_trials)
         trial_layout.addWidget(self._btn_view_trials)
@@ -389,10 +362,7 @@ class ResultPanel(QWidget):
 
         # BRE 331:1997 §6 Trial Mixes Prompt (DOE results only, hidden by default)
         self._doe_trial_frame = QFrame()
-        self._doe_trial_frame.setObjectName("result-card")
-        self._doe_trial_frame.setStyleSheet(
-            "background-color: #f8fafc; border: 1px solid #cbd5e1; border-radius: 6px; padding: 4px;"
-        )
+        self._doe_trial_frame.setObjectName("trial-frame")
         self._doe_trial_frame.setVisible(False)
         self._doe_trial_frame.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.MinimumExpanding)
         doe_trial_layout = QVBoxLayout(self._doe_trial_frame)
@@ -400,13 +370,10 @@ class ResultPanel(QWidget):
         doe_trial_layout.setSpacing(6)
 
         doe_trial_title = QLabel("BRE 331:1997 §6 — Trial Mixes")
+        doe_trial_title.setObjectName("section-title")
         doe_trial_title.setWordWrap(True)
         doe_trial_title.setMinimumWidth(0)
         doe_trial_title.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.MinimumExpanding)
-        doe_trial_title.setStyleSheet(
-            "font-size: 11px; font-weight: 700; text-transform: uppercase; "
-            "letter-spacing: 0.05em; color: #1e3a8a;"
-        )
         doe_trial_layout.addWidget(doe_trial_title)
         self._doe_trial_title = doe_trial_title
         self._doe_trial_title_base = "BRE 331:1997 §6 — Trial Mixes"
@@ -414,13 +381,11 @@ class ResultPanel(QWidget):
         self._doe_trial_lbl = QLabel()
         self._doe_trial_lbl.setWordWrap(True)
         self._doe_trial_lbl.setMinimumWidth(0)
-        self._doe_trial_lbl.setStyleSheet("font-size: 12px; color: #334155; line-height: 1.35;")
         self._doe_trial_lbl.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.MinimumExpanding)
         doe_trial_layout.addWidget(self._doe_trial_lbl)
 
-        self._btn_view_doe_trials = QPushButton("🧪 Open Trial Mixes Workbook (§6)")
+        self._btn_view_doe_trials = QPushButton("Open Trial Mixes Workbook (§6)")
         self._btn_view_doe_trials.setObjectName("secondary")
-        self._btn_view_doe_trials.setStyleSheet("font-size: 12px; font-weight: 600; padding: 6px 10px;")
         self._btn_view_doe_trials.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self._btn_view_doe_trials.clicked.connect(self._on_view_doe_trials)
         doe_trial_layout.addWidget(self._btn_view_doe_trials)
@@ -429,10 +394,7 @@ class ResultPanel(QWidget):
 
         # ACI PRC-211.1-22 Trial Batching Prompt (ACI results only, hidden by default)
         self._aci_trial_frame = QFrame()
-        self._aci_trial_frame.setObjectName("result-card")
-        self._aci_trial_frame.setStyleSheet(
-            "background-color: #f8fafc; border: 1px solid #cbd5e1; border-radius: 6px; padding: 4px;"
-        )
+        self._aci_trial_frame.setObjectName("trial-frame")
         self._aci_trial_frame.setVisible(False)
         self._aci_trial_frame.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.MinimumExpanding)
         aci_trial_layout = QVBoxLayout(self._aci_trial_frame)
@@ -440,13 +402,10 @@ class ResultPanel(QWidget):
         aci_trial_layout.setSpacing(6)
 
         aci_trial_title = QLabel("ACI PRC-211.1-22 — Trial Batching")
+        aci_trial_title.setObjectName("section-title")
         aci_trial_title.setWordWrap(True)
         aci_trial_title.setMinimumWidth(0)
         aci_trial_title.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.MinimumExpanding)
-        aci_trial_title.setStyleSheet(
-            "font-size: 11px; font-weight: 700; text-transform: uppercase; "
-            "letter-spacing: 0.05em; color: #1e3a8a;"
-        )
         aci_trial_layout.addWidget(aci_trial_title)
         self._aci_trial_title = aci_trial_title
         self._aci_trial_title_base = "ACI PRC-211.1-22 — Trial Batching"
@@ -454,13 +413,11 @@ class ResultPanel(QWidget):
         self._aci_trial_lbl = QLabel()
         self._aci_trial_lbl.setWordWrap(True)
         self._aci_trial_lbl.setMinimumWidth(0)
-        self._aci_trial_lbl.setStyleSheet("font-size: 12px; color: #334155; line-height: 1.35;")
         self._aci_trial_lbl.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.MinimumExpanding)
         aci_trial_layout.addWidget(self._aci_trial_lbl)
 
-        self._btn_view_aci_trials = QPushButton("🧪 Open Trial Batching Workbook (§5.3.9–5.3.10)")
+        self._btn_view_aci_trials = QPushButton("Open Trial Batching Workbook (§5.3.9–5.3.10)")
         self._btn_view_aci_trials.setObjectName("secondary")
-        self._btn_view_aci_trials.setStyleSheet("font-size: 12px; font-weight: 600; padding: 6px 10px;")
         self._btn_view_aci_trials.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self._btn_view_aci_trials.clicked.connect(self._on_view_aci_trials)
         aci_trial_layout.addWidget(self._btn_view_aci_trials)
@@ -477,16 +434,12 @@ class ResultPanel(QWidget):
         est_layout.setSpacing(4)
 
         est_title = QLabel("Target Strength Estimation")
+        est_title.setObjectName("section-title")
         est_title.setWordWrap(True)
-        est_title.setStyleSheet(
-            "font-size: 11px; font-weight: 700; text-transform: uppercase; "
-            "letter-spacing: 0.05em; color: #444653;"
-        )
         est_layout.addWidget(est_title)
 
         self._strength_est_html = QLabel()
         self._strength_est_html.setWordWrap(True)
-        self._strength_est_html.setStyleSheet("font-size: 12px; padding: 2px 0;")
         self._strength_est_html.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.MinimumExpanding)
         est_layout.addWidget(self._strength_est_html)
 
@@ -539,7 +492,6 @@ class ResultPanel(QWidget):
         self._ca_split_label.setObjectName("section-title")
         self._ca_split_label.setWordWrap(True)
         self._ca_split_label.setTextFormat(Qt.TextFormat.RichText)
-        self._ca_split_label.setStyleSheet("font-size: 13px; padding: 6px;")
         self._ca_split_label.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.MinimumExpanding)
         self._ca_split_label.setVisible(False)
         outer.addWidget(self._ca_split_label)
@@ -548,7 +500,6 @@ class ResultPanel(QWidget):
         self._mix_ratio_label = QLabel()
         self._mix_ratio_label.setObjectName("section-title")
         self._mix_ratio_label.setWordWrap(True)
-        self._mix_ratio_label.setStyleSheet("font-size: 14px; padding: 6px;")
         self._mix_ratio_label.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.MinimumExpanding)
         self._mix_ratio_label.setVisible(False)
         outer.addWidget(self._mix_ratio_label)
@@ -1141,11 +1092,13 @@ class ResultPanel(QWidget):
         }
         for key, (frame, title, base) in frames.items():
             if key == active:
-                frame.setStyleSheet(self._TRIAL_FRAME_ACTIVE_STYLE)
+                frame.setObjectName("trial-frame-active")
                 title.setText(f"ACTIVE - {base}")
             else:
-                frame.setStyleSheet(self._TRIAL_FRAME_BASE_STYLE)
+                frame.setObjectName("trial-frame")
                 title.setText(base)
+            frame.style().unpolish(frame)
+            frame.style().polish(frame)
 
     def _fit_steps_height(self) -> None:
         """Size the calculation-steps tree to its content height.

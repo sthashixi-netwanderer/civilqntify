@@ -12,6 +12,7 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QDialog,
     QHBoxLayout,
+    QLabel,
     QPushButton,
     QTextBrowser,
     QVBoxLayout,
@@ -39,41 +40,27 @@ class ReportPreviewDialog(QDialog):
 
         # Action bar
         action_bar = QWidget()
-        action_bar.setStyleSheet(
-            "background-color: #00288e; padding: 8px 16px;"
-        )
-        action_bar.setFixedHeight(56)
+        action_bar.setObjectName("dialog-action-bar")
+        action_bar.setFixedHeight(50)
         action_bar_layout = QHBoxLayout(action_bar)
         action_bar_layout.setContentsMargins(16, 8, 16, 8)
 
-        title_label = QPushButton("Report Preview")
-        title_label.setStyleSheet(
-            "color: white; font-size: 16px; font-weight: 600; border: none; background: transparent;"
-        )
-        title_label.setEnabled(False)
+        title_label = QLabel("Report Preview")
+        title_label.setObjectName("dialog-title")
         action_bar_layout.addWidget(title_label)
 
         action_bar_layout.addStretch()
 
         # Export button
-        self._btn_export = QPushButton("  Export PDF")
-        self._btn_export.setStyleSheet(
-            "background-color: white; color: #00288e; border: none; border-radius: 4px; "
-            "padding: 8px 16px; font-weight: 600; font-size: 13px;"
-        )
-        self._btn_export.setFixedHeight(36)
-        self._btn_export.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._btn_export = QPushButton("Export PDF")
+        self._btn_export.setFixedHeight(32)
         self._btn_export.clicked.connect(self._on_export)
         action_bar_layout.addWidget(self._btn_export)
 
         # Close button
         self._btn_close = QPushButton("Close")
-        self._btn_close.setStyleSheet(
-            "background-color: transparent; color: white; border: 1px solid white; "
-            "border-radius: 4px; padding: 8px 16px; font-weight: 500; font-size: 13px;"
-        )
-        self._btn_close.setFixedHeight(36)
-        self._btn_close.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._btn_close.setObjectName("secondary")
+        self._btn_close.setFixedHeight(32)
         self._btn_close.clicked.connect(self.close)
         action_bar_layout.addWidget(self._btn_close)
 

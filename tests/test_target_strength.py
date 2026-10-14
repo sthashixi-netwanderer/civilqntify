@@ -109,9 +109,9 @@ def test_no_app_floor_any_standard():
     aci20 = calculate_target_strength("aci211", 20.0)
     # max(20 + 1.34×4, 20 + 2.33×4 − 3.45) = 25.87 → 26 (up to whole MPa)
     assert aci20.target_mean_strength_mpa == pytest.approx(26)
-    # DOE M20: Line B by default (n=20) → s = 0.2×20 = 4.0, M = 6.56,
+    # DOE M20 with an explicit 20-result record: Line B → s = 4.0, M = 6.56,
     # fm = 26.56 → 27 (C2 rounded up).
-    doe20 = calculate_target_strength("doe", 20.0)
+    doe20 = calculate_target_strength("doe", 20.0, num_test_cubes=20)
     assert doe20.standard_deviation_mpa == pytest.approx(4.0)
     assert doe20.target_mean_strength_mpa == pytest.approx(27.0)
 

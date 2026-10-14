@@ -320,6 +320,28 @@ def get_free_water_content(
 #   Line B (≥ 20 results): s = 0.2×fc for fc ≤ 20, else s = 4 MPa
 # Both ramps meet their plateaus continuously at fc = 20 MPa.
 # ---------------------------------------------------------------------------
+def resolve_standard_deviation(
+    characteristic_strength: float,
+    std_dev: float | None = None,
+    n: int | None = None,
+) -> float:
+    """BRE §5.1: Line A without 20 records; otherwise enforce Line B.
+
+    A production-data flag alone does not establish the number of records.
+    Explicit n takes precedence, as in the existing Figure 3 lookup.
+    """
+    import math
+
+    if n is not None and (not math.isfinite(n) or n <= 0 or int(n) != n):
+        raise ValueError("Number of test cubes (n) must be a positive integer")
+    if std_dev is not None and (not math.isfinite(std_dev) or std_dev < 0):
+        raise ValueError("Standard deviation must be finite and non-negative")
+    minimum = get_standard_deviation(characteristic_strength, n=n or 0)
+    if n is None or n < 20:
+        return minimum
+    return max(minimum, std_dev or 0.0)
+
+
 def get_standard_deviation(
     characteristic_strength: float,
     has_production_data: bool = True,

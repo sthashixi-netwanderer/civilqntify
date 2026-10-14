@@ -207,7 +207,7 @@ Checkboxes are bare boxes with the visible label beside them.
 | `Water Exposure` | `W0 — Dry` (default), `W1`, `W2 — Water barrier` | Permeability. |
 | `Corrosion Exposure` | `C0 — Dry` (default), `C1`, `C2 — External chlorides` | Chloride scope. |
 | `Prestressing` | bare checkbox | Prestressed steel present; narrows chloride scope. |
-| `Has Production Data (≥30 tests)` | checked checkbox (ACI-only; hidden otherwise) | On = σ ≈ 3.5 MPa assumed; off = higher overdesign. |
+| `Has Production Data (≥30 tests)` | checked checkbox (ACI-only; hidden otherwise) | On = sample s used (engine default 4.0 MPa unless `Std Deviation s` is set); off = Table 4.7.4.3 no-data overdesign. |
 | `Strength Tests (n)` | spin 15–1000, default 30 | Number of prior tests for overdesign. |
 | `Std Deviation s (MPa)` | spin 0–10, default 0.0 | 0 = engine default 4.0 MPa. |
 | `Rounded aggregate −8% water (Table 5.3.3.1)` | unchecked checkbox | −8 % water cut for rounded CA. Off unless the trial verifies it (Example 2 vs Example 1). |
@@ -487,8 +487,8 @@ Status banner: `Standalone mode — enter material quantities manually.` (linked
 | Label | Range / default | Meaning |
 |---|---|---|
 | `Cement (Bags)` | 0–100000, default 0.0, integer | Bags = cement kg ÷ bag weight (50 kg). |
-| `Fine Agg (m³/yd³)` | 0–100000, default 0.0, 3 dp | Sand volume. V = mass/(SG×1000). |
-| `Coarse Agg (m³/yd³)` | 0–100000, default 0.0, 3 dp | Gravel volume. Bulk 1400–1700 kg/m³. |
+| `Fine Agg (m³/yd³)` | 0–100000, default 0.0, 3 dp | Sand **purchasing** volume: as-delivered mass ÷ as-delivered bulk density (ACI §4.7.7.2 — bulk volume includes interparticle voids). The SSD absolute volume, mass/(SG×1000), is reported separately as *not purchased*. |
+| `Coarse Agg (m³/yd³)` | 0–100000, default 0.0, 3 dp | Gravel purchasing volume on the dry-rodded bulk density. A DOE/BRE 331 §5.5 single-size split is carried from the design and priced as one line per size. |
 | `Water (L/gal)` | 0–1000000, default 0.0, 1 dp | 1 kg = 1 L. Field ≠ design after moisture correction. |
 | `SCMs (kg/lb)` | 0–100000, default 0.0, 1 dp | Fly ash/GGBFS/silica fume. |
 | `Admix (kg/lb)` | 0–10000, default 0.0, 3 dp | Backend `total_admixture_kg` (1 L ≈ 1 kg). |
@@ -506,8 +506,19 @@ Auto-filled by quantify handoff; editable anytime (`valueChanged → _on_input_c
 | `Coarse Agg (per m³/yd³)` | 400.00 | Delivered gravel (10–20 % above sand). |
 | `Water (per 1000L)` / `Water (per 1000 gal)` | 15.00 | Tanker/borehole/tap; 0 where free. |
 | `Admixture (per kg/lb)` | 12.00 (range 8–25) | By type/brand. |
+| `SCM (per kg/lb)` | 0.00, inactive until the checkbox is ticked | Rate for the SCM type transferred from the design (GGBS, fly ash, silica fume). |
 
-Button: `Reset to Default Prices` (secondary) → restores the five defaults above.
+Checkbox: `SCM rate supplied (otherwise incomplete)` — retitled to `Rate supplied for <type>` once a bill naming an SCM is loaded, and cleared whenever a different bill arrives. Unchecked means **no price known**, not free.
+
+With SCM quantity > 0 and the checkbox unticked:
+
+- the estimate is flagged `INCOMPLETE ESTIMATE: SCM has no price; totals exclude SCM.`
+- the total row reads `PARTIAL TOTAL (SCM UNPRICED)` instead of `GRAND TOTAL`
+- the SCM breakdown row shows a 0.00 unit price and is marked unpriced
+
+Tick the checkbox and enter a rate to make the estimate complete. An explicit `0.00` rate counts as a supplied rate for genuinely free material.
+
+Button: `Reset to Default Prices` (secondary) → restores the five quoted defaults, zeroes the SCM rate and unticks the checkbox.
 
 ### 11.3 Group: `Additional Costs (GH₵ or %)` (currency rows prefix `GH₵ `)
 

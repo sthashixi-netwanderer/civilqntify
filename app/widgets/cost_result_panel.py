@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from PyQt6.QtCore import Qt
 from app.unit_preferences import UnitPreferences, get_unit_prefs
+from app.widgets.unit_spin import rate_to_display
 from PyQt6.QtWidgets import (
     QFrame,
     QGridLayout,
@@ -43,9 +44,6 @@ class _StatCard(QFrame):
         self._label.setObjectName("result-label")
         self._value = QLabel("\u2014")
         self._value.setObjectName("result-value")
-        self._value.setStyleSheet(
-            "font-family: 'JetBrains Mono', 'Consolas', monospace;"
-        )
         self._unit = QLabel("")
         self._unit.setObjectName("result-unit")
 
@@ -132,10 +130,7 @@ class CostResultPanel(QWidget):
         outer.addWidget(summary_proj_label)
 
         self._summary_frame = QFrame()
-        self._summary_frame.setObjectName("result-card")
-        self._summary_frame.setStyleSheet(
-            "#result-card { border: 1px solid #1e40af; }"
-        )
+        self._summary_frame.setObjectName("summary-frame")
         self._summary_layout = QVBoxLayout(self._summary_frame)
         self._summary_layout.setContentsMargins(16, 12, 16, 12)
         self._summary_layout.setSpacing(6)
@@ -204,6 +199,9 @@ class CostResultPanel(QWidget):
         mat_m3_display = mat_m3 / 1.30795 if self.unit_prefs.is_imperial() else mat_m3
         self._card_mat_cost_m3.set_value(mat_m3_display)
         self._card_total_mat.set_value(total_mat)
+        self._card_total_proj._label.setText(
+            "Partial Project Cost (incomplete)" if not cost_data.get("is_complete", True) else "Total Project Cost"
+        )
         self._card_total_proj.set_value(total_proj, fmt=",.2f")
         self._card_cost_bag.set_value(cost_bag)
 
@@ -254,17 +252,17 @@ class CostResultPanel(QWidget):
             qty = up.convert_volume_m3(qty)
             unit = up.volume_unit()
             if imperial:
-                price = price / 1.30795  # per m³ → per yd³
+                price = rate_to_display("rate_volume", price, up)
         elif kind == "water":
             qty = up.convert_water_liters(qty)
-            unit = up.water_unit()
+            unit = f"{up.water_unit()} (price per 1000)"
             if imperial:
-                price = price / 264.172  # per 1000 L → per 1000 gal
+                price = rate_to_display("rate_water", price, up)
         elif kind == "mass":
             qty = up.convert_mass_kg(qty)
             unit = up.mass_unit()
             if imperial:
-                price = price / 2.20462  # per kg → per lb
+                price = rate_to_display("rate_mass", price, up)
         return qty, unit, price
 
     def _fit_table_height(self) -> None:
@@ -318,27 +316,19 @@ class CostResultPanel(QWidget):
 
         lbl = QLabel(label)
         if is_total:
-            lbl.setStyleSheet(
-                "font-size: 16px; font-weight: 700; color: #00288e;"
-                "font-family: 'Inter', sans-serif;"
-            )
+            lbl.setObjectName("summary-total-label")
         elif is_subtotal:
-            lbl.setStyleSheet("font-weight: 600;")
+            lbl.setObjectName("summary-subtotal-label")
         else:
-            lbl.setStyleSheet("color: #444653;")
+            lbl.setObjectName("summary-row-label")
 
         amt = QLabel(f"GH\u20B5 {amount:,.2f}")
         if is_total:
-            amt.setStyleSheet(
-                "font-size: 16px; font-weight: 700; color: #00288e;"
-                "font-family: 'JetBrains Mono', monospace;"
-            )
+            amt.setObjectName("summary-total-amt")
         elif is_subtotal:
-            amt.setStyleSheet(
-                "font-weight: 600; font-family: 'JetBrains Mono', monospace;"
-            )
+            amt.setObjectName("summary-subtotal-amt")
         else:
-            amt.setStyleSheet("font-family: 'JetBrains Mono', monospace;")
+            amt.setObjectName("summary-row-amt")
 
         row_layout.addWidget(lbl)
         row_layout.addStretch()

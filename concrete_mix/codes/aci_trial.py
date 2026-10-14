@@ -35,8 +35,10 @@ the example simplifies):
     the ~0.9 % yield correction.
   - When both slump and strength adjustments fire, the next-trial
     cementitious content is the Step-5 value (water ÷ w/cm) plus the
-    Adjustment-3 cement delta; the standard treats the adjustments
-    individually and gives no combination rule.
+    Adjustment-3 cement delta, with its corresponding water delta to
+    maintain w/cm per §5.3.10.3; the standard gives no combination rule.
+    This follows §5.3.10.3's constant-w/cm text rather than Example 3
+    (§9.4), which instead holds water constant and reduces w/cm.
 """
 
 from __future__ import annotations
@@ -141,25 +143,50 @@ def _fine_fill(
     scm: float,
     coarse: float,
     air_pct: float,
-) -> tuple[float, float]:
+    admixture: float = 0.0,
+) -> tuple[float, float, float]:
     """Fine aggregate (SSD) that fills the remaining absolute volume.
 
     Absolute-volume method (§5.3.7 Step 7; §9.2.9.5 reapplies it for the
-    next trial). Returns (fine mass kg/m³, resulting total volume m³).
+    next trial).
+
+    Returns:
+        ``(fine mass kg/m³, fine absolute volume m³, overshoot m³)``.
+
+    The non-coarse constituents can already exceed 1 m³ when §5.3.10.3
+    extrapolates cement content hard — a trial cube well below target is
+    exactly that case, and refusing to compute there would block the
+    adjustment the user needs. Fine aggregate is therefore clamped at zero
+    and the overshoot is returned so the caller can warn, rather than the
+    calculation aborting.
     """
     sg_c = inp.cement.specific_gravity
     sg_f = inp.fine_aggregate.specific_gravity
     sg_ca = inp.coarse_aggregate.specific_gravity
-    sg_s = inp.scms[0].specific_gravity if inp.scms else 3.15
+    # §4.7.7.3: distribute the SCM mass using the input blend and sum
+    # each absolute volume; never assign the first SCM's SG to the blend.
+    replacement = inp.total_scm_replacement_percent
+    scm_volume = sum(
+        _absolute_volume(scm * s.replacement_percent / replacement, s.specific_gravity)
+        for s in inp.scms
+    ) if replacement > 0 else 0.0
+    admixture_volume = (
+        _absolute_volume(admixture, inp.admixture.specific_gravity)
+        if inp.admixture is not None else 0.0
+    )
+    if cementitious < scm:
+        raise ValueError("Trial SCM mass cannot exceed total cementitious mass")
     vol = (
         _absolute_volume(water, 1.0)
         + _absolute_volume(cementitious - scm, sg_c)
-        + (_absolute_volume(scm, sg_s) if scm > 0 else 0.0)
+        + scm_volume
+        + admixture_volume
         + _absolute_volume(coarse, sg_ca)
         + air_pct / 100.0
     )
+    overshoot = max(0.0, vol - 1.0)
     v_fine = max(0.0, 1.0 - vol)
-    return v_fine * sg_f * 1000.0, v_fine
+    return v_fine * sg_f * 1000.0, v_fine, overshoot
 
 
 # ----------------------------------------------------------------------
@@ -259,15 +286,18 @@ def calculate_aci_trial_batches(
     # water (CA unchanged, fine fills the volume).
     series: list[dict[str, Any]] = []
     if include_series:
-        scm = result.scm_kg
         for sign, label in ((-1.0, "low"), (1.0, "high")):
             cementitious_v = round(c["cementitious"] * (1.0 + sign * cement_step_pct / 100.0), 1)
             wc_v = c["water"] / cementitious_v if cementitious_v > 0 else 0.0
-            fine_v, _vol = _fine_fill(
-                inp, c["water"], cementitious_v, scm,
-                c["coarse_agg_ssd"], result.air_volume_percent,
+            # Vary total binder at the original SCM blend and admixture
+            # dosage (A.5); all emitted constituents occupy yield volume.
+            binder_scale = cementitious_v / c["cementitious"]
+            scm_v = result.scm_kg * binder_scale
+            adm_v = c["admixture"] * binder_scale
+            fine_v, _vol, _over = _fine_fill(
+                inp, c["water"], cementitious_v, scm_v,
+                c["coarse_agg_ssd"], result.air_volume_percent, adm_v,
             )
-            adm_v = c["admixture"] * (cementitious_v / c["cementitious"]) if c["cementitious"] > 0 else 0.0
             series.append({
                 "name": f"Series {label} (cementitious "
                         f"{'−' if sign < 0 else '+'}{cement_step_pct:.0f}%)",
@@ -275,12 +305,15 @@ def calculate_aci_trial_batches(
                 "per_m3": {
                     "water": round(c["water"], 1),
                     "cementitious": cementitious_v,
+                    "cement": round(cementitious_v - scm_v, 1),
+                    "scm": round(scm_v, 1),
                     "fine_agg_ssd": round(fine_v, 1),
                     "coarse_agg_ssd": round(c["coarse_agg_ssd"], 1),
                     "admixture": round(adm_v, 2),
                 },
                 "batch": _scale({
                     "water": c["water"], "cementitious": cementitious_v,
+                    "cement": cementitious_v - scm_v, "scm": scm_v,
                     "fine_agg_ssd": fine_v, "coarse_agg_ssd": c["coarse_agg_ssd"],
                     "admixture": adm_v,
                 }, volume_m3),
@@ -461,7 +494,7 @@ def evaluate_aci_trial(
     }
     air_corr = 0.0
     if adj2["provided"]:
-        air_corr = AIR_WATER_KG_M3_PER_PCT * (air_design - float(measurements["measured_air_pct"]))
+        air_corr = AIR_WATER_KG_M3_PER_PCT * (float(measurements["measured_air_pct"]) - air_design)
         adj2["water_correction_kg_m3"] = round(air_corr, 1)
         adj2["note"] = (
             "Re-estimate the air-entrainer dosage for the required air "
@@ -480,6 +513,7 @@ def evaluate_aci_trial(
         "delta_water_kg_m3": None,
     }
     delta_cem = 0.0
+    delta_water = 0.0
     if adj3["provided"]:
         strength = float(measurements["cube_strength_mpa"])
         if c["cementitious"] > 0:
@@ -487,7 +521,10 @@ def evaluate_aci_trial(
             delta_cem = (result.target_mean_strength_mpa - strength) / eff if eff > 0 else 0.0
             adj3["efficiency_mpa_per_kg"] = round(eff, 4)
             adj3["delta_cement_kg_m3"] = round(delta_cem, 1)
-            adj3["delta_water_kg_m3"] = round(delta_cem * result.w_c_ratio, 1)
+            # Follow §5.3.10.3's constant-w/cm procedure, not the
+            # alternative constant-water procedure in Example 3 (§9.4).
+            delta_water = delta_cem * result.w_c_ratio
+            adj3["delta_water_kg_m3"] = round(delta_water, 1)
 
     # ------------------------------------------------------------------
     # §5.3.10.4 — next-trial proportions (recalculate from Step 5).
@@ -496,6 +533,9 @@ def evaluate_aci_trial(
     cementitious_next = water_next / result.w_c_ratio if result.w_c_ratio > 0 else c["cementitious"]
     if adj3["provided"]:
         cementitious_next += delta_cem
+        water_next += delta_water
+    if water_next <= 0 or cementitious_next <= 0:
+        raise ValueError("Trial adjustments require positive water and cementitious masses")
     scm_next = (
         result.scm_kg / c["cementitious"] * cementitious_next
         if c["cementitious"] > 0 else 0.0
@@ -506,12 +546,24 @@ def evaluate_aci_trial(
                 else (yield_section["gravimetric_air_pct"]
                       if yield_section["gravimetric_air_pct"] is not None
                       else air_design))
+    if inp.air_entrained and adj2["provided"]:
+        # Adjustment 2 re-estimates dosage to achieve TARGET air; using
+        # measured air here would undo that correction's yield basis.
+        air_next = air_design
     coarse_next = c["coarse_agg_ssd"]  # unchanged when workability is OK
-    fine_next, _ = _fine_fill(
-        inp, water_next, cementitious_next, scm_next, coarse_next, air_next,
-    )
     adm_dose = (result.admixture_dosage_percent or 0.0)
     adm_next = cementitious_next * adm_dose / 100.0 if adm_dose > 0 else 0.0
+    fine_next, _fine_v, fine_overshoot = _fine_fill(
+        inp, water_next, cementitious_next, scm_next, coarse_next, air_next, adm_next,
+    )
+    if fine_overshoot > 0:
+        warnings.append(
+            f"Non-coarse constituents already exceed 1 m³ by "
+            f"{fine_overshoot:.3f} m³, so the next-trial fine aggregate is "
+            f"zero. §5.3.10.3 extrapolates cement linearly from a single "
+            f"cube result; re-run the trial series rather than accepting "
+            f"this batch as buildable."
+        )
     next_per_m3 = {
         "water": round(water_next, 1),
         "cement": round(cement_next, 1),
@@ -528,7 +580,8 @@ def evaluate_aci_trial(
         "note": (
             "§5.3.10.4: new batch weights calculated from Step 5; coarse "
             "aggregate held unless workability requires a Table 5.3.6 "
-            "adjustment; air uses the measured content where available"
+            "adjustment; air uses the target when entrained-air dosage is "
+            "corrected, otherwise the measured content where available"
         ),
     }
 

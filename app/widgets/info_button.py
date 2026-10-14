@@ -8,7 +8,7 @@ Long content is wrapped in a scroll area.
 from __future__ import annotations
 
 from PyQt6.QtCore import Qt, QEvent, QObject, QPoint
-from PyQt6.QtGui import QCursor, QMouseEvent
+from PyQt6.QtGui import QColor, QCursor, QMouseEvent
 from PyQt6.QtWidgets import (
     QApplication,
     QGraphicsDropShadowEffect,
@@ -52,34 +52,23 @@ class _InfoOverlay(QWidget):
         html = text.replace("\n", "<br>").replace("  ", "&nbsp;&nbsp;")
 
         label = QLabel()
+        label.setObjectName("info-overlay-label")
         label.setWordWrap(True)
         label.setTextFormat(Qt.TextFormat.RichText)
         label.setText(html)
-        label.setStyleSheet(
-            "QLabel {"
-            "  background-color: #1e293b;"
-            "  color: #e2e8f0;"
-            "  border: 2px solid #3b82f6;"
-            "  border-radius: 10px;"
-            "  padding: 14px 18px;"
-            "  font-size: 13px;"
-            "}"
-        )
 
         scroll = QScrollArea()
+        scroll.setObjectName("info-overlay-scroll")
         scroll.setWidget(label)
         scroll.setWidgetResizable(True)
         scroll.setMaximumHeight(360)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        scroll.setStyleSheet(
-            "QScrollArea { background-color: transparent; border: none; }"
-        )
         layout.addWidget(scroll)
 
         shadow = QGraphicsDropShadowEffect()
-        shadow.setBlurRadius(20)
-        shadow.setOffset(0, 4)
-        shadow.setColor(Qt.GlobalColor.black)
+        shadow.setBlurRadius(8)
+        shadow.setOffset(0, 2)
+        shadow.setColor(QColor(0, 0, 0, 70))
         self.setGraphicsEffect(shadow)
 
     def mousePressEvent(self, event) -> None:

@@ -51,7 +51,8 @@ from dataclasses import dataclass
 
 from concrete_mix.codes.tables import is383_quality as q
 from concrete_mix.engine.grading import classify_is383_zone
-from concrete_mix.engine.psd import PSDResult, check_conformance
+from concrete_mix.engine.psd import PSDResult, check_conformance, grading_evidence_issues
+from concrete_mix.codes.tables.is_tables import GRADING_ZONE_LIMITS
 from concrete_mix.validation.base import (
     FAIL,
     NOT_EVALUATED,
@@ -156,6 +157,16 @@ def _grading_check_coarse(
 ) -> ClauseCheck:
     """Clauses 6.1/6.2 — Table 7 grading for the selected reference."""
     check_conformance(result, band)
+    issues = grading_evidence_issues(result, band)
+    if issues:
+        return ClauseCheck(
+            clause="6.1 / 6.2, Table 7",
+            title="Grading requirements (sieve analysis)",
+            status=NOT_EVALUATED,
+            requirement="All specified Table 7 controls must be measured",
+            measured="incomplete or invalid grading evidence",
+            detail="; ".join(issues),
+        )
     violations = []
     for s, p, ok in zip(result.sieve_sizes, result.percent_passing, result.conforms):
         if ok or s not in band:
@@ -214,11 +225,22 @@ def _grading_check_fine(
     Zone IV. Crushed stone sands get the 150 µm relaxation of Table 9
     Note 1.
     """
-    if zone is None:
-        # The classifier keys the zone from the 600 µm sieve.
-        zone = None
+    # Table 9 requires the full control set. Automatic zone identification
+    # is distinct from assessing the user's selected envelope (Clause 6.3).
+    issues = grading_evidence_issues(result, GRADING_ZONE_LIMITS["II"])
+    if issues:
+        return ClauseCheck(
+            clause="6.3, Table 9",
+            title="Grading requirements (sieve analysis)",
+            status=NOT_EVALUATED,
+            requirement="All Table 9 controls must be measured",
+            measured="incomplete or invalid grading evidence",
+            detail="; ".join(issues),
+        )
     passing = dict(zip(result.sieve_sizes, result.percent_passing))
-    classification = classify_is383_zone(passing, crushed_sand=crushed_sand)
+    classification = classify_is383_zone(
+        passing, crushed_sand=crushed_sand, zone=zone
+    )
     if classification.zone is None:
         return ClauseCheck(
             clause="6.3, Table 9",

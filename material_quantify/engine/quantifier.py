@@ -132,9 +132,26 @@ class MaterialQuantifier:
         # Cement bags (round up)
         bags = math.ceil(cement_total / td.cement_bag_weight_kg)
 
-        # Aggregate bulk volumes
-        fa_bulk_m3 = fa_total / (td.fine_agg_specific_gravity * 1000.0) if td.fine_agg_specific_gravity > 0 else 0.0
+        # ACI §4.7.7.2: SSD absolute volume excludes interparticle voids.
+        # Purchasing volume uses a bulk density on the same as-delivered
+        # moisture basis as the field mass, never particle SG.
+        if not math.isfinite(td.fine_agg_bulk_density_kg_m3) or td.fine_agg_bulk_density_kg_m3 <= 0:
+            raise ValueError("Sand as-delivered bulk density must be positive and finite")
+        fa_absolute_m3 = td.fine_aggregate_kg_per_m3 * v / (td.fine_agg_specific_gravity * 1000.0)
+        fa_bulk_m3 = fa_total / td.fine_agg_bulk_density_kg_m3
         ca_bulk_m3 = ca_total / td.coarse_agg_bulk_density_kg_m3 if td.coarse_agg_bulk_density_kg_m3 > 0 else 0.0
+
+        # A DOE single-size split is stated per m3 of the design. Scale it on
+        # the field (moisture-adjusted) mass so the per-size totals sum to the
+        # coarse aggregate the site actually receives, not to the SSD figure,
+        # which differs once aggregate moisture is applied.
+        ca_split = None
+        if td.ca_split_kg and td.coarse_aggregate_kg_per_m3 > 0:
+            share = td.field_coarse_aggregate_kg_per_m3 / td.coarse_aggregate_kg_per_m3
+            ca_split = {
+                size: round(kg * share * v, 1)
+                for size, kg in td.ca_split_kg.items()
+            }
 
         return MaterialBill(
             net_concrete_volume_m3=net_volume_m3,
@@ -146,9 +163,12 @@ class MaterialQuantifier:
             total_water_kg=round(water_total, 1),
             total_water_liters=round(water_total, 1),
             total_fine_aggregate_kg=round(fa_total, 1),
-            total_fine_aggregate_bulk_m3=round(fa_bulk_m3, 3),
+            total_fine_aggregate_bulk_m3=fa_bulk_m3,
+            total_fine_aggregate_absolute_m3=fa_absolute_m3,
+            fine_aggregate_volume_basis=td.fine_agg_bulk_density_basis,
             total_coarse_aggregate_kg=round(ca_total, 1),
             total_coarse_aggregate_bulk_m3=round(ca_bulk_m3, 3),
+            coarse_aggregate_split_kg=ca_split,
             total_scm_kg=round(scm_total, 1),
             total_admixture_kg=round(admixture_total, 3),
             transfer_data=td,

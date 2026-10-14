@@ -181,8 +181,8 @@ def test_adjustment2_air_water_correction():
     meas["air_entrained_check"] = True
     ev = evaluate_aci_trial(res, measurements=meas)
     a2 = ev["adjustment_2"]
-    # ∓5 lb/yd³ (2.97 kg/m³) per 1% air: −2.97 kg/m³ for +1% air.
-    assert a2["water_correction_kg_m3"] == pytest.approx(-2.97, abs=0.05)
+    # Target 1% from measured 2% means DECREASING air: increase water.
+    assert a2["water_correction_kg_m3"] == pytest.approx(2.97, abs=0.05)
 
 
 def test_adjustment3_cement_efficiency():

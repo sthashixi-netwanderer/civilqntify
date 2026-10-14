@@ -1,8 +1,8 @@
 # CivilQntify 🏗️📐
 
-**CivilQntify** is a production-grade Python desktop and CLI application designed for **Concrete Mix Design**, **Structural Material Quantification**, and **Construction Cost Estimation**. 
+**CivilQntify** is a Python desktop and CLI application for preliminary engineering calculations designed for **Concrete Mix Design**, **Structural Material Quantification**, and **Construction Cost Estimation**. 
 
-Built for civil engineers, concrete technology specialists, and quantity surveyors, CivilQntify automates mix proportioning according to international concrete design standards (ACI, IS, DOE/BRE), analyzes aggregate particle size distributions (PSD), calculates precise material bills for structural elements, and provides real-time supplier cost estimation.
+Built for civil engineers, concrete technology specialists, and quantity surveyors, CivilQntify automates mix proportioning according to international concrete design standards (ACI, IS, DOE/BRE), analyzes aggregate particle size distributions (PSD), estimates material bills for supported element geometries, and provides cost estimation from manually entered rates. Results require engineering review and trial-batch verification before construction use.
 
 ---
 
@@ -20,12 +20,8 @@ Built for civil engineers, concrete technology specialists, and quantity surveyo
 - Interactive PSD grading curve visualizer using Matplotlib embedded in PyQt6.
 
 ### 3. Structural Material Quantification
-- Calculates required cement, fine aggregate, coarse aggregate, water, and rebar for:
-  - **Slabs** (Solid, Ribbed/Waffle)
-  - **Beams** & **Columns**
-  - **Footings** (Isolated, Combined, Raft)
-  - **Walls** & **Retaining Walls**
-  - **Staircases**
+- Estimates cement, fine aggregate, coarse aggregate, water, SCM and admixture quantities from supported concrete volumes.
+- Supports basic slabs, beams, columns, footings, walls and staircases; specialized ribbed/waffle, combined/raft and retaining-wall geometry is not independently modeled. Rebar quantities are not calculated.
 - Wastage factor adjustments and volume transfer directly into cost estimation.
 
 ### 4. Cost Estimation (Manual Price Entry)
@@ -37,8 +33,9 @@ Built for civil engineers, concrete technology specialists, and quantity surveyo
 - Concreting advice based on local temperature and relative humidity (cold weather / hot weather concreting precautions).
 
 ### 6. Exporting & Reporting
-- Professional PDF report generation via ReportLab with embedded charts, input summaries, and step-by-step proportioning calculations.
-- CSV and JSON exports for site logs and historical audit trails.
+- Mix-design PDF reports via LaTeX when available, with an fpdf2 fallback, input summaries and step-by-step proportioning calculations.
+- CSV and JSON exports distinguish design/SSD proportions from moisture-adjusted field quantities and scale totals to the requested batch volume. Missing field quantities are marked not assessed.
+- History imports are atomic and remap provenance IDs. Selected-record imports must include their ancestors or explicitly clear external `parent_id` links. Older records missing inputs use current defaults with a warning; recalculate before relying on saved results.
 
 ---
 
@@ -65,7 +62,7 @@ civilqntify/
 │   ├── engine/                 # Quantity calculator for structural elements
 │   └── models/                 # Bill of materials and transfer models
 ├── history/                    # Local SQLite execution history database
-├── tests/                      # Pytest unit tests (240+ test cases)
+├── tests/                      # Pytest unit tests (1100+ test cases)
 ├── docs/                       # Auxiliary technical documentation & reference PDFs
 │   └── standards_pdf/          # Authoritative standard PDF reference files
 ├── scripts/                    # Helper scripts for architecture & table generation
@@ -104,6 +101,12 @@ source .venv/bin/activate  # On Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
+### Source Debian packaging and desktop integration
+- `python scripts/build_deb.py` reads the artifact version from `app/version.py` and maps runtime requirements to Debian dependencies. Release tags must match that version; update it for each release.
+- Source packages require a distribution providing the declared dependency versions, including `python3-fpdf2`, `python3-scipy` and `python3-docx`. Older distributions may not provide them. Frozen CI packages use separate system-library dependencies.
+- `bash scripts/install_linux_desktop.sh` installs the current checkout's user launcher and icons, including on a fresh home directory.
+- Pull requests run pytest before packaging; main and version-tag pushes retain artifact and release publishing.
+
 ---
 
 ## 🚀 Quick Start
@@ -115,9 +118,18 @@ python main.py
 *Alternatively, run `python app/main.py`.*
 
 ### Running the Command Line Interface (CLI)
+
+The CLI is a prompt-driven workflow. Run it with no arguments, or seed the
+prompts from the command line:
+
 ```bash
 python main_cli.py --help
+python main_cli.py --standard doe --target-strength 30 --volume 25 --wastage 5
 ```
+
+`--help` lists every option: `--standard`, `--target-strength`, `--volume`,
+`--slump`, `--wastage`. Each is used as the *default* for the matching prompt,
+so every value stays visible and editable at the prompt.
 
 ---
 
@@ -133,7 +145,7 @@ pytest tests/
 
 ## 📚 Standard References
 
-Development and formula implementations strictly adhere to the following standards:
+Development references the following standards; implemented methods and limitations still require independent verification:
 - **ACI PRC-211.1-22**: *Selecting Proportions for Normal-Density and High-Density Concrete — Guide*
 - **IS 10262:2019**: *Concrete Mix Proportioning — Guidelines (Bureau of Indian Standards)*
 - **BRE 331:1997**: *Design of Normal Concrete Mixes (British DOE Method)*

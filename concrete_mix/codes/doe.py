@@ -25,7 +25,7 @@ from concrete_mix.codes.tables.doe_tables import (
     get_fine_aggregate_proportion,
     get_k_value,
     get_reference_strength,
-    get_standard_deviation,
+    resolve_standard_deviation,
     get_wet_density,
     pfa_water_reduction,
     resolve_workability_class,
@@ -67,25 +67,23 @@ class DOEMixDesign(MixDesignCode):
     ) -> float:
         """Stage 1: f_m = f_c + M  (Calculation C2).
 
-        The margin M = k × s.  If fewer than 20 results are available, use
-        Line A of Figure 3; otherwise Line B (BRE 331:1997 §4.4, Figure 3):
-        s = 8 MPa for n < 20 (Line A) and s = 4 MPa for n ≥ 20 (Line B).
-        When ``n`` / ``num_test_cubes`` is supplied, that Figure 3 rule is
-        applied (n < 20 → 8 MPa, n ≥ 20 → 4 MPa).  No use assumption is
-        made — any grade in [5, 100] MPa is designable.
+        BRE §5.1 requires Line A without at least 20 recorded results;
+        an established deviation must not be below Line B. A specified
+        margin bypasses the statistical route (§4.4).
         """
-        if std_dev is None:
+        margin = kwargs.get("margin_mpa")
+        if margin is not None:
+            if not math.isfinite(margin) or margin <= 0:
+                raise ValueError("Strength margin M must be finite and positive")
+        else:
             n = kwargs.get("n", kwargs.get("num_test_cubes", kwargs.get("number_of_results")))
             if n is None:
                 n = kwargs.get("n_test_cubes")
-            has_data = kwargs.get("has_production_data", True)
-            # ``get_standard_deviation`` applies the Figure 3 n-rule:
-            # n<20 → Line A (8 MPa plateau), n≥20 → Line B (4 MPa plateau).
-            std_dev = get_standard_deviation(target_strength_mpa, has_data, n=n)
-
-        defective_pct = kwargs.get("defective_percent", 5.0)
-        k = get_k_value(defective_pct)
-        margin = k * std_dev
+            std_dev = resolve_standard_deviation(target_strength_mpa, std_dev, n)
+            defective_pct = kwargs.get("defective_percent", 5.0)
+            if not 0.5 <= defective_pct <= 15.0:
+                raise ValueError("Defective percent must be between 0.5 and 15%")
+            margin = get_k_value(defective_pct) * std_dev
         # C2 rounding: target mean rounded up to the whole N/mm² (§7.1:
         # 45.68 → 46; §7.4: 61.65 → 62).
         return float(math.ceil(target_strength_mpa + margin))
@@ -150,7 +148,7 @@ class DOEMixDesign(MixDesignCode):
         #   Line A (n < 20 results):  s = 0.4×fc for fc ≤ 20, else s = 8 MPa
         #   Line B (n ≥ 20 results):  s = 0.2×fc for fc ≤ 20, else s = 4 MPa
         # (get_standard_deviation implements exactly this; §4.4).
-        # n = number of test cubes that will be cast for testing the strength.
+        # n counts previous strength results, not planned trial specimens.
         num_cubes: int | None = getattr(inp, "num_test_cubes", None)
         # Record the Figure 3 basis as an informational warning.
         n_str = f"{num_cubes}" if num_cubes is not None else "—"
@@ -159,7 +157,7 @@ class DOEMixDesign(MixDesignCode):
         elif num_cubes is not None:
             s_desc = "Line A (n<20): s = 0.4×fc (fc≤20), else 8 MPa"
         else:
-            s_desc = "Line A (n<20) / Line B (n≥20)"
+            s_desc = "Line A (record count unknown)"
         structural_note = (
             "DOE design per BRE 331:1997 Figure 3 (§4.4) — any characteristic "
             f"strength grade (fc = {fc:g} MPa). "
@@ -174,13 +172,22 @@ class DOEMixDesign(MixDesignCode):
         # --- Map cement class ---
         cement_class = self._map_cement_class(inp)
         cement_type = inp.cement.type.value
+        if cement_type in {"OPC_33", "OPC_43", "OPC_53", "PPC", "PSC",
+                           "TYPE_I", "TYPE_II", "TYPE_III", "TYPE_IV", "TYPE_V"}:
+            warnings.append(
+                f"DOE Table 2 class {cement_class} for {cement_type} is a project "
+                "mapping, not certified national cement equivalence; confirm "
+                "material-specific strength development by supplier data and trials "
+                "(BRE 331 §3.2, §6)"
+            )
         if "53" not in cement_type and "52" not in cement_type and (
             "33" in cement_type or "32" in cement_type
         ):
             # BRE 331:1997 Table 2 only covers strength classes 42.5 and 52.5
             warnings.append(
                 "BRE 331:1997 Table 2 has no curve for class 32.5/33 cements — "
-                "the class 42.5 curve is used (conservative); verify by trial mix"
+                "the class 42.5 curve is a project approximation, not a conservative "
+                "equivalence; obtain material-specific strength data and verify by trial mix"
             )
 
         # --- Extract DOE-specific input: % passing 600 µm ---
@@ -278,19 +285,19 @@ class DOEMixDesign(MixDesignCode):
         # Line A (n<20): s = 0.4×fc for fc≤20 else 8 MPa.
         # Line B (n≥20): s = 0.2×fc for fc≤20 else 4 MPa (BRE 331 §4.4).
         user_std_dev = getattr(inp, 'std_deviation', None)
-        if user_std_dev is not None and user_std_dev > 0:
-            std_dev = user_std_dev
+        std_dev = resolve_standard_deviation(fc, user_std_dev, num_cubes)
+        if user_std_dev is not None and num_cubes is not None and num_cubes >= 20:
             steps.append(self._make_step(
                 number=1,
-                description="Standard deviation (s) — user provided",
-                formula=f"s = {std_dev:.1f} MPa (user record, BRE 331 §4.4, n={num_cubes if num_cubes is not None else '—'})",
+                description="Standard deviation (s) — established record, Line B minimum",
+                formula=f"s = max(record {user_std_dev:g}, Figure 3 Line B) = {std_dev:g} MPa (n={num_cubes})",
                 inputs={"fc": fc, "std_deviation": std_dev, "n_test_cubes": num_cubes},
                 result=std_dev,
                 unit="MPa",
                 clause_ref="User input (BRE 331:1997 §4.4)",
             ))
         else:
-            std_dev = get_standard_deviation(fc, has_data, n=num_cubes)
+
             # Describe the n-aware Figure 3 line actually applied, equation
             # and all, so the step is a complete audit record.
             if num_cubes is not None:
@@ -318,7 +325,7 @@ class DOEMixDesign(MixDesignCode):
                 steps.append(self._make_step(
                     number=1,
                     description="Standard deviation (s)",
-                    formula="Figure 3: s = f(characteristic strength, production data)",
+                    formula="Figure 3 Line A: record count unknown; s = min(0.4×fc, 8)",
                     inputs={"fc": fc, "has_production_data": has_data},
                     result=std_dev,
                     unit="MPa",
@@ -357,7 +364,7 @@ class DOEMixDesign(MixDesignCode):
         # to two significant figures" — the standard's own examples round
         # UP to the whole N/mm² (45.68 → 46, §7.1; 61.65 → 62, §7.4), so
         # the ceiling is applied here and the whole number feeds Figure 4.
-        target_mean = float(math.ceil(fc + margin))
+        target_mean = self.calculate_target_mean_strength(fc, margin_mpa=margin)
         steps.append(self._make_step(
             number=3,
             description="Target mean strength (f_m = f_c + M)",
@@ -938,6 +945,7 @@ class DOEMixDesign(MixDesignCode):
             water_kg=water,
             cement_kg=cement_content,
             scm_kg=round(scm_content, 1),
+            scm_type=inp.scm_type_label,
             fine_aggregate_kg=fine_agg,
             coarse_aggregate_kg=coarse_agg,
             air_volume_percent=round(air_pct, 1),
@@ -996,13 +1004,22 @@ class DOEMixDesign(MixDesignCode):
 
     @staticmethod
     def _map_cement_class(inp: MixDesignInput) -> str:
-        """Map CementType enum to DOE cement strength class."""
+        """Explicit Table 2 mapping; non-BRE equivalents are app policy.
+
+        BRE §3.2 supplies only classes 42.5/52.5. Legacy national/blended
+        types retain their supported approximation, qualified in warnings.
+        """
         cement_type = inp.cement.type.value
-        # Map to DOE classes based on BS EN 197-1 naming
-        if "53" in cement_type:
-            return "52.5"
-        # OPC_33 and OPC_43 are both class 42.5 in BS EN 197-1
-        return "42.5"
+        return {
+            "Grade 32.5R": "42.5",  # No Table 2 curve; warning in design.
+            "Grade 42.5R": "42.5",
+            "Grade 42.5N": "42.5",
+            "Grade 52.5N": "52.5",
+            "OPC_33": "42.5", "OPC_43": "42.5", "OPC_53": "52.5",
+            "PPC": "42.5", "PSC": "42.5",
+            "TYPE_I": "42.5", "TYPE_II": "42.5", "TYPE_III": "42.5",
+            "TYPE_IV": "42.5", "TYPE_V": "42.5",
+        }[cement_type]
 
     @staticmethod
     def _get_pct_passing_600um(inp: MixDesignInput) -> float:

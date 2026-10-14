@@ -6,6 +6,8 @@ Source: ACI PRC-211.1-22 Table 5.3.3 and Table 5.3.6.
 
 from __future__ import annotations
 
+import warnings
+
 # ── Specified compressive strength (f'c) grades ───────────────────────────
 # ACI has no single "grade table" the way IS 10262 lists M-grades. The
 # selectable set is the set of values f'c may lawfully take, per ACI 318-19
@@ -256,6 +258,16 @@ def interpolate_w_c_ratio(
     table = WC_RATIO_AIR_ENTRAINED if air_entrained else WC_RATIO_NON_AIR_ENTRAINED
     strengths = sorted(table.keys(), reverse=True)
 
+    # Preserve the boundary estimate for existing callers, but never imply
+    # the table establishes attainable strength outside its data (§5.3.4).
+    if target_strength_mpa > strengths[0]:
+        warnings.warn(
+            f"Required average strength {target_strength_mpa:g} MPa exceeds "
+            f"ACI Table 5.3.4 maximum {strengths[0]:g} MPa; boundary w/cm "
+            "is only a preliminary estimate. Material-specific strength data "
+            "and trial batches are required; attainable strength is not established.",
+            stacklevel=2,
+        )
     # Find bracketing entries
     if target_strength_mpa >= strengths[0]:
         return table[strengths[0]]
@@ -718,9 +730,9 @@ def cementitious_for_target_paste_volume(
     and solves the Example-4 Step-2 equation for the cement mass; water
     then follows as w/cm × total cementitious (Step 2 tail).
 
-    For multiple SCMs pass their replacement-weighted mean specific
-    gravity as ``scm_sg`` (single-value restatement of the guide's binary
-    formula).
+    For multiple SCMs pass the mass-weighted harmonic specific gravity
+    as ``scm_sg`` so SCM volume equals the sum of constituent absolute
+    volumes (§4.7.7.3), not an arithmetic-average density.
     """
     p = float(scm_fraction)
     pv_m3 = float(target_pv_percent) / 100.0

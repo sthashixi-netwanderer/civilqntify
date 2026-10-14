@@ -9,6 +9,7 @@ Full interactive workflow:
 Run:  python main_cli.py
 """
 
+import argparse
 import os
 import sys
 
@@ -106,13 +107,20 @@ def collect_mix_inputs() -> dict:
     print("=" * 60)
 
     # Standard
+    _CODE_CHOICES = {
+        "aci211": "ACI 211.1 (American)",
+        "is10262": "IS 10262 (Indian)",
+        "doe": "DOE (BR 331:1997) British",
+    }
     code = _prompt_choice(
         "Select design standard",
-        ["ACI 211.1 (American)", "IS 10262 (Indian)", "DOE (BR 331:1997) British"],
-        default="IS 10262 (Indian)",
+        list(_CODE_CHOICES.values()),
+        default=_CODE_CHOICES.get(str(_CLI_DEFAULTS.get("code", "")),
+                                  "IS 10262 (Indian)"),
     )
     is_aci = "ACI" in code
     is_doe = "DOE" in code
+    is_is = not is_aci and not is_doe
     if is_aci:
         code_key = "aci211"
     elif is_doe:
@@ -130,6 +138,11 @@ def collect_mix_inputs() -> dict:
     if is_doe:
         print("  DOE (BR 331:1997) Standard deviation:")
         print("  n < 20 → s = 8 MPa (Line A), n ≥ 20 → s = 4 MPa (Line B).\n")
+    strength_default = float(
+        _CLI_DEFAULTS.get("target_strength_mpa", strength_default)
+    )
+    if is_aci and strength_default < strength_lo:
+        strength_default = strength_default * 145.038
     strength = _prompt_float(f"Target compressive strength ({strength_unit})", strength_default, strength_lo, strength_hi)
     if is_aci:
         target_strength_mpa = strength / 145.038
@@ -157,7 +170,9 @@ def collect_mix_inputs() -> dict:
     # Slump
     slump = 75.0
     if is_aci or is_doe:
-        slump = _prompt_float("Slump (mm)", 75.0, 10.0, 250.0)
+        slump = _prompt_float(
+            "Slump (mm)", float(_CLI_DEFAULTS.get("slump_mm", 75.0)), 10.0, 250.0
+        )
         if is_doe and not 0.0 <= slump <= 180.0:
             print("    DOE Table 3 slump must be 0–180 mm; clamping.")
             slump = max(0.0, min(180.0, slump))
@@ -391,7 +406,12 @@ def collect_mix_inputs() -> dict:
             admix_sg = _prompt_float("Admixture specific gravity (IS/ACI)", 1.15, 1.0, 1.5)
 
     # Volume
-    volume = _prompt_float("Target concrete volume (m\u00b3)", 1.0, 0.1, 10000.0)
+    volume = _prompt_float(
+        "Target concrete volume (m\u00b3)",
+        float(_CLI_DEFAULTS.get("volume_m3", 1.0)),
+        0.1,
+        10000.0,
+    )
 
     # Derive grading zone from CA fraction selection for IS mode
     if not is_aci and ca_fraction_override is not None and nmsa_val in CA_VOLUME_FRACTION:
@@ -485,6 +505,9 @@ def run_quantification(result: MixDesignResult, params: dict) -> None:
         coarse_agg_bulk_density_kg_m3=params.get("coarse_agg_bulk_density", 1600.0),
         fine_agg_sg=params.get("fine_agg_sg", 2.65),
         coarse_agg_sg=params.get("coarse_agg_sg", 2.70),
+        # The engine records the SCMType it resolved, which flattens "Fly Ash
+        # Class C" to fly_ash. The prompt's own label is the more specific one.
+        scm_type=params.get("scm_type") or None,
     )
 
     # Display transferred data
@@ -512,12 +535,17 @@ def run_quantification(result: MixDesignResult, params: dict) -> None:
     quantifier = MaterialQuantifier(td)
 
     if basis == "Total Concrete Volume":
-        vol = _prompt_float("Total concrete volume (m\u00b3)", 1.0, 0.01, 100000.0)
-        wastage = _prompt_float("Wastage factor (%)", 5.0, 0.0, 30.0)
+        vol = _prompt_float(
+            "Total concrete volume (m\u00b3)",
+            float(_CLI_DEFAULTS.get("volume_m3", 1.0)),
+            0.01,
+            100000.0,
+        )
+        wastage = _prompt_float("Wastage factor (%)", _wastage_default(), 0.0, 30.0)
         bill = quantifier.quantify_by_volume(vol, wastage)
     else:
         elements = _collect_elements()
-        wastage = _prompt_float("Wastage factor (%)", 5.0, 0.0, 30.0)
+        wastage = _prompt_float("Wastage factor (%)", _wastage_default(), 0.0, 30.0)
         bill = quantifier.quantify_by_elements(elements, wastage)
 
     # Output
@@ -597,8 +625,85 @@ def _collect_elements() -> list[StructuralElement]:
 
 # ── Main ───────────────────────────────────────────────────────────
 
-def main() -> None:
-    """Run the full CivilQntify CLI workflow."""
+# CLI-supplied defaults, applied to the matching prompts by
+# collect_mix_inputs/run_quantification rather than bypassing them, so an
+# operator still sees and can change every value the operator owns.
+_CLI_DEFAULTS: dict[str, object] = {}
+
+
+def _wastage_default() -> float:
+    """Wastage percentage to offer as the prompt default."""
+    return float(_CLI_DEFAULTS.get("wastage_percent", 5.0))
+
+
+def _apply_cli_defaults(args: "argparse.Namespace") -> None:
+    """Record the arguments the operator supplied on the command line.
+
+    Args:
+        args: The parsed command line.
+    """
+    for name in ("volume_m3", "target_strength_mpa", "slump_mm",
+                 "code", "wastage_percent"):
+        value = getattr(args, name, None)
+        if value is not None:
+            _CLI_DEFAULTS[name] = value
+
+
+def build_parser() -> "argparse.ArgumentParser":
+    """Command-line interface for the interactive workflow.
+
+    The workflow is prompt-driven; the flags exist for scripting the few
+    values that are otherwise typed in prompts, and so that ``--help``
+    documents the tool at all.
+
+    Returns:
+        The configured parser.
+    """
+    parser = argparse.ArgumentParser(
+        prog="civilqntify",
+        description=(
+            "Concrete mix design and material quantification "
+            "(ACI 211.1-22, IS 10262:2019, DOE/BRE 331:1997)."
+        ),
+        epilog=(
+            "Run with no arguments for the full interactive workflow. "
+            "Any supplied option is used as the default for the matching "
+            "prompt, which the operator can still accept or change."
+        ),
+    )
+    parser.add_argument(
+        "--volume", dest="volume_m3", type=float, metavar="M3",
+        help="Concrete volume in m3 (default 1.0)",
+    )
+    parser.add_argument(
+        "--target-strength", dest="target_strength_mpa", type=float,
+        metavar="MPA", help="Target compressive strength in MPa",
+    )
+    parser.add_argument(
+        "--slump", dest="slump_mm", type=float, metavar="MM",
+        help="Target slump in mm (default 75)",
+    )
+    parser.add_argument(
+        "--wastage", dest="wastage_percent", type=float, metavar="PERCENT",
+        help="Wastage allowance as a percentage (default 5.0)",
+    )
+    parser.add_argument(
+        "--standard", dest="code", choices=("aci211", "is10262", "doe"),
+        metavar="CODE",
+        help="Mix design standard: aci211, is10262 or doe",
+    )
+    return parser
+
+
+def main(argv: "list[str] | None" = None) -> None:
+    """Run the full CivilQntify CLI workflow.
+
+    Args:
+        argv: Command-line arguments, or ``None`` to read ``sys.argv``.
+            ``--help`` and ``--version`` are handled by argparse and exit.
+    """
+    args = build_parser().parse_args(argv)
+    _apply_cli_defaults(args)
     print("=" * 60)
     print("  CivilQntify — Concrete Mix Design & Material Quantification")
     print("=" * 60)

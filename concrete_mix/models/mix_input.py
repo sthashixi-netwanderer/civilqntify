@@ -242,6 +242,11 @@ class MixDesignInput:
     # mean of the fine/coarse SSD specific gravities. Ignored by ACI/IS.
 
     def __post_init__(self) -> None:
+        # Replacement is by mass of total binder (ACI §7 / §5.3.5).
+        # App scope requires a positive Portland-cement remainder; these
+        # procedures do not proportion a 100% SCM binder.
+        if not 0.0 <= self.total_scm_replacement_percent < 100.0:
+            raise ValueError("Total SCM replacement must be non-negative and less than 100%")
         # No app-imposed minimum grade: any characteristic strength in
         # [5, 100] MPa is accepted for every code (DOE Figure 3 spans the
         # full axis; IS/ACI proportion normally, with IS 456 Table 5 and
@@ -428,3 +433,16 @@ class MixDesignInput:
     def total_scm_replacement_percent(self) -> float:
         """Total SCM replacement percentage."""
         return sum(s.replacement_percent for s in self.scms)
+
+    @property
+    def scm_type_label(self) -> Optional[str]:
+        """Human-facing identity of the SCMs in this design, or None if none.
+
+        Engines put this on the result so the name travels with the numbers
+        instead of having to be re-read from whichever form produced them.
+        Repeated types collapse to one entry; blends read "ggbfs + silica_fume".
+        """
+        if not self.scms:
+            return None
+        names = dict.fromkeys(s.type.value for s in self.scms)
+        return " + ".join(names)

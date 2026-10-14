@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 
 from concrete_mix.models.mix_result import MixDesignResult
+from concrete_mix.export.batching import batching_schedule
 
 
 def export_to_json(result: MixDesignResult, indent: int = 2) -> str:
@@ -17,8 +18,11 @@ def export_to_json(result: MixDesignResult, indent: int = 2) -> str:
         "code": result.code_used,
         "target_mean_strength_mpa": result.target_mean_strength_mpa,
         "w_c_ratio": result.w_c_ratio,
+        "volume_m3": result.volume_m3,
+        "batching": batching_schedule(result),
         "proportions_per_m3": {
             "water_kg": result.water_kg,
+            "admixture_kg": result.admixture_kg,
             "cement_kg": result.cement_kg,
             "scm_kg": result.scm_kg,
             "total_cementitious_kg": result.total_cementitious_kg,

@@ -355,6 +355,8 @@ class MixRatioQuantifier:
             coarse_agg_specific_gravity=self.coarse_agg_sg,
             cement_bag_weight_kg=self.cement_bag_weight_kg,
             coarse_agg_bulk_density_kg_m3=self.coarse_agg_bulk_density_kg_m3,
+            fine_agg_bulk_density_kg_m3=self.fine_agg_bulk_density_kg_m3,
+            fine_agg_bulk_density_basis="Project input/assumption: dry loose bulk density (nominal ratio)",
         )
 
         return MaterialBill(
@@ -373,4 +375,5 @@ class MixRatioQuantifier:
             total_scm_kg=0.0,
             total_admixture_kg=0.0,
             transfer_data=td,
+            fine_aggregate_volume_basis=td.fine_agg_bulk_density_basis,
         )

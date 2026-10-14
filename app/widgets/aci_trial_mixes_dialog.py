@@ -105,17 +105,13 @@ class ACITrialMixesDialog(QDialog):
 
     def _build_header(self) -> QFrame:
         header = QFrame()
-        header.setObjectName("result-card")
-        header.setStyleSheet(
-            "background-color: #eff6ff; border: 1px solid #bfdbfe; "
-            "border-radius: 6px; padding: 10px;"
-        )
+        header.setObjectName("dialog-header")
         h_layout = QVBoxLayout(header)
-        h_layout.setContentsMargins(10, 8, 10, 8)
+        h_layout.setContentsMargins(12, 10, 12, 10)
         h_layout.setSpacing(4)
 
         title = QLabel("ACI PRC-211.1-22 — Trial Batching (Ch. 8, §5.3.9–5.3.10)")
-        title.setStyleSheet("font-size: 15px; font-weight: 700; color: #1e3a8a;")
+        title.setObjectName("dialog-title")
         h_layout.addWidget(title)
 
         desc = QLabel(
@@ -124,8 +120,8 @@ class ACITrialMixesDialog(QDialog):
             "ASTM C143/C138/C173/C231, then enter the measured results to obtain the §5.3.10 "
             "post-trial adjustments and the recalculated proportions for the next trial."
         )
+        desc.setObjectName("dialog-desc")
         desc.setWordWrap(True)
-        desc.setStyleSheet("font-size: 12px; color: #1e293b; line-height: 1.4;")
         h_layout.addWidget(desc)
         return header
 
@@ -190,8 +186,8 @@ class ACITrialMixesDialog(QDialog):
         layout.addWidget(self._table)
 
         self._schedule_note = QLabel()
+        self._schedule_note.setObjectName("dialog-note")
         self._schedule_note.setWordWrap(True)
-        self._schedule_note.setStyleSheet("font-size: 11px; color: #64748b;")
         layout.addWidget(self._schedule_note)
         return group
 
@@ -251,9 +247,9 @@ class ACITrialMixesDialog(QDialog):
         layout.addLayout(row2)
 
         self._eval_result = QLabel()
+        self._eval_result.setObjectName("callout-panel")
         self._eval_result.setWordWrap(True)
         self._eval_result.setTextFormat(Qt.TextFormat.RichText)
-        self._eval_result.setStyleSheet("font-size: 12px; color: #334155; line-height: 1.45;")
         self._eval_result.setVisible(False)
         layout.addWidget(self._eval_result)
         return group
@@ -269,7 +265,7 @@ class ACITrialMixesDialog(QDialog):
             "proper curing is essential for reproducible results. Record the water actually "
             "added, the batched aggregate masses, slump, density/yield, air content and strengths."
         )
-        intro.setStyleSheet("font-size: 11px; color: #64748b; font-weight: 600;")
+        intro.setObjectName("dialog-note")
         intro.setWordWrap(True)
         layout.addWidget(intro)
 
@@ -278,13 +274,12 @@ class ACITrialMixesDialog(QDialog):
         for test, standard in TEST_CHECKLIST:
             chk = QCheckBox(f"{test} — {standard}")  # QCheckBox is plain-text: no rich-text tags
             chk.setChecked(True)
-            chk.setStyleSheet("QCheckBox { font-size: 12px; color: #1e293b; }")
             layout.addWidget(chk)
             self._checklist_boxes.append(chk)
 
         t8 = QLabel(self._schedule_table8_text())
+        t8.setObjectName("dialog-note")
         t8.setWordWrap(True)
-        t8.setStyleSheet("font-size: 11px; color: #475569;")
         layout.addWidget(t8)
         return group
 

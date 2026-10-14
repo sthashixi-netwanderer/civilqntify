@@ -807,7 +807,7 @@ class TestACITrialAdjustments:
         r = designer.design(self._inp(air_entrained=True,
                                       trial_air_pct=air_pct - 1.0))
         s103 = next(s for s in r.steps if s.step_number == 10.3)
-        assert abs(s103.inputs["water_correction"] - 2.97) < 0.05
+        assert abs(s103.inputs["water_correction"] + 2.97) < 0.05
         plain = designer.design(self._inp(trial_air_pct=1.0))
         assert not any(s.step_number == 10.3 for s in plain.steps)
 

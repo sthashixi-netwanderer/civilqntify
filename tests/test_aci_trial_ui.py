@@ -114,14 +114,20 @@ def test_dialog_evaluation_renders_adjustments(qt):
         _aci_design().w_c_ratio, abs=0.005
     )
 
-    # With a low strength result, Adjustment 3 adds cementitious on top
-    # of the Step-5 recalculation (documented app policy), tightening
-    # the next-trial w/cm.
+    # §5.3.10.3 adds both cementitious and its corresponding water
+    # increment on top of Step 5, maintaining the selected w/cm.
     dlg._strength_spin.setValue(20.0)
     dlg._on_calculate()
     a3 = dlg._evaluation["adjustment_3"]
     assert a3["delta_cement_kg_m3"] > 0
-    assert dlg._evaluation["next_trial"]["w_c_ratio"] < _aci_design().w_c_ratio
+    assert a3["delta_water_kg_m3"] > 0
+    assert dlg._evaluation["next_trial"]["w_c_ratio"] == pytest.approx(
+        _aci_design().w_c_ratio, abs=0.0005
+    )
+    assert dlg._evaluation["next_trial"]["per_m3"]["water"] == pytest.approx(
+        dlg._evaluation["adjustment_1"]["re_estimated_water_kg_m3"]
+        + a3["delta_water_kg_m3"], abs=0.11
+    )
     assert "Adjustment 3" in dlg._eval_result.text()
 
 

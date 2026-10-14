@@ -20,6 +20,7 @@ from dataclasses import dataclass
 from datetime import date
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
+    QCheckBox,
     QDateEdit,
     QDoubleSpinBox,
     QFileDialog,
@@ -41,7 +42,7 @@ from app.unit_preferences import get_unit_prefs
 from app.widgets.cost_result_panel import CostResultPanel
 from app.widgets.info_button import InfoButton, set_label_with_info_text
 from app.widgets.report_preview_dialog import ReportPreviewDialog
-from app.widgets.unit_spin import UnitSpinBox
+from app.widgets.unit_spin import UnitSpinBox, rate_to_display
 from material_quantify.cost import (
     ProjectCostOptions,
     ProjectMaterialPrices,
@@ -55,6 +56,7 @@ _DEFAULT_PRICES = {
     "coarse_agg_per_m3": 400.00,
     "water_per_1000l": 15.00,
     "admixture_per_kg": 12.00,
+    "scm_per_kg": 0.0,
 }
 
 # Default additional costs in GH₵ or percentage
@@ -86,6 +88,9 @@ class ManualCostBill:
     total_coarse_aggregate_bulk_m3: float
     total_scm_kg: float
     total_admixture_kg: float
+    fine_aggregate_volume_basis: str = "Manually entered purchasing bulk volume"
+    transfer_data: object | None = None
+    scm_type: str = "SCM (unspecified)"
 
 
 class CostEstimationTab(QWidget):
@@ -100,6 +105,9 @@ class CostEstimationTab(QWidget):
         self._last_cost_data: dict | None = None
         self.unit_prefs = None  # Set by MainWindow
         self._build_ui()
+        for edit in (self._proj_name, self._proj_location, self._proj_client):
+            edit.textEdited.connect(self._on_input_changed)
+        self._proj_date.dateChanged.connect(self._on_input_changed)
 
     # ── UI Construction ──────────────────────────────────────────────
 
@@ -178,11 +186,6 @@ class CostEstimationTab(QWidget):
         )
         self._status_banner.setObjectName("info-banner")
         self._status_banner.setWordWrap(True)
-        self._status_banner.setStyleSheet(
-            "background-color: #dbeafe; color: #1e40af; "
-            "border: 1px solid #3b82f6; border-radius: 4px; "
-            "padding: 10px 14px; font-weight: 600;"
-        )
         self._form.addWidget(self._status_banner)
 
         # ── Material Quantities (editable) ──
@@ -216,9 +219,9 @@ class CostEstimationTab(QWidget):
                 0.0,
                 3,
                 "volume",
-                "Total volume of fine aggregate (sand) in m³.\n"
-                "Convert from weight: V = mass / (SG × 1000).\n"
-                "Order by bulk volume accounting for void content.",
+                "Purchasing bulk volume of sand, including interparticle voids.\n"
+                "From weight use measured as-delivered bulk density on the same moisture basis.\n"
+                "ACI §4.7.7.2: mass/(SG × 1000) is NOT purchasing volume.",
             ),
             (
                 "coarse_agg_m3",
@@ -228,9 +231,9 @@ class CostEstimationTab(QWidget):
                 0.0,
                 3,
                 "volume",
-                "Total volume of coarse aggregate (gravel) in m³.\n"
-                "Convert from weight: V = mass / (SG × 1000).\n"
-                "Typical bulk density: 1400–1700 kg/m³.",
+                "Purchasing bulk volume of gravel/stone, including voids.\n"
+                "Convert from weight using bulk density, not particle SG.\n"
+                "Confirm supplier density and moisture/compaction basis.",
             ),
             (
                 "water_l",
@@ -397,6 +400,19 @@ class CostEstimationTab(QWidget):
             label = self._label_with_info(label_fn(get_unit_prefs()), info)
             self._dynamic_labels.append((label, label_fn))
             prices_form.addRow(label, spin)
+
+        self._price_spins["scm_per_kg"] = UnitSpinBox("rate_mass", 0.0, 0.0, 10000.0, 1.0, 2, prefix="GH₵ ")
+        self._price_spins["scm_per_kg"].valueChanged.connect(self._on_input_changed)
+        def scm_label_fn(up):
+            return f"SCM (per {up.mass_unit()})"
+        scm_label = self._label_with_info(scm_label_fn(get_unit_prefs()),
+            "Supply a rate for the transferred SCM type. Mixed SCMs require a verified weighted rate. "
+            "Without a supplied rate, the estimate is explicitly incomplete. Zero may be explicitly supplied for free material.")
+        self._dynamic_labels.append((scm_label, scm_label_fn))
+        prices_form.addRow(scm_label, self._price_spins["scm_per_kg"])
+        self._scm_priced = QCheckBox("SCM rate supplied (otherwise incomplete)")
+        self._scm_priced.toggled.connect(self._on_input_changed)
+        prices_form.addRow(self._scm_priced)
 
         # Reset button
         self._btn_reset_prices = QPushButton("Reset to Default Prices")
@@ -601,10 +617,7 @@ class CostEstimationTab(QWidget):
 
     def _label(self, text: str) -> QLabel:
         lbl = QLabel(text)
-        lbl.setStyleSheet(
-            "font-size: 11px; font-weight: 700; text-transform: uppercase; "
-            "letter-spacing: 0.05em; color: #444653;"
-        )
+        lbl.setObjectName("form-label")
         # Wrap so long labels reflow instead of forcing the sidebar wider
         # than its 360px floor (content would clip behind the scroll area).
         lbl.setWordWrap(True)
@@ -676,6 +689,12 @@ class CostEstimationTab(QWidget):
         Called by MaterialQuantifyTab when user clicks 'Send to Cost Estimation'.
         Can accept MaterialBill or ManualCostBill.
         """
+        self._on_input_changed()
+        old_type = getattr(getattr(self._bill, "transfer_data", None), "scm_type", getattr(self._bill, "scm_type", "SCM (unspecified)"))
+        new_type = getattr(getattr(bill, "transfer_data", None), "scm_type", getattr(bill, "scm_type", "SCM (unspecified)"))
+        if old_type != new_type:
+            self._scm_priced.setChecked(False)
+        self._scm_priced.setText(f"Rate supplied for {new_type} (otherwise incomplete)")
         self._bill = bill
         self._is_standalone = False
         self._populate_quantities(bill)
@@ -686,11 +705,9 @@ class CostEstimationTab(QWidget):
             f"FA: {bill.total_fine_aggregate_bulk_m3:.3f} m\u00b3  |  "
             f"CA: {bill.total_coarse_aggregate_bulk_m3:.3f} m\u00b3"
         )
-        self._status_banner.setStyleSheet(
-            "background-color: #d1fae5; color: #065f46; "
-            "border: 1px solid #10b981; border-radius: 4px; "
-            "padding: 10px 14px; font-weight: 600;"
-        )
+        self._status_banner.setObjectName("success-banner")
+        self._status_banner.style().unpolish(self._status_banner)
+        self._status_banner.style().polish(self._status_banner)
 
     def _populate_quantities(self, bill) -> None:
         """Fill the editable quantity spinboxes."""
@@ -702,20 +719,27 @@ class CostEstimationTab(QWidget):
         m["scm_kg"].setValue(bill.total_scm_kg)
         m["admix_l"].setValue(bill.total_admixture_kg)
         self._volume_spin.setValue(bill.gross_concrete_volume_m3)
+        self._wastage_spin.setValue(bill.wastage_percent)
 
     # ── Price Management ─────────────────────────────────────────────
 
     def _reset_prices(self) -> None:
         """Reset material prices to Ghana Cedis defaults."""
+        self._on_input_changed()
+        self._scm_priced.setChecked(False)
         defaults = _DEFAULT_PRICES
         for key, spin in self._price_spins.items():
             spin.setValue(defaults.get(key, 0.0))
 
     # ── Cost Estimation ──────────────────────────────────────────────
 
-    def _on_input_changed(self) -> None:
-        """Handle input changes (placeholder for live preview)."""
-        pass
+    def _on_input_changed(self, *_args) -> None:
+        """A changed quantity/rate must never leave an exportable old estimate."""
+        self._last_cost_data = None
+        if hasattr(self, "_result_panel"):
+            self._result_panel.clear()
+            self._result_panel._warning_banner.setText("Inputs changed. Estimate cost again.")
+            self._result_panel._warning_banner.setVisible(True)
 
     def _build_bill_from_inputs(self):
         """Create a ManualCostBill from current spinbox values."""
@@ -724,7 +748,7 @@ class CostEstimationTab(QWidget):
         net_vol = gross_vol / (1.0 + wastage / 100.0) if wastage < 100 else gross_vol
 
         cement_bags = self._qty_spins["cement_bags"].value()
-        bag_weight = 50.0  # Standard 50 kg bag
+        bag_weight = self._bill.cement_bag_weight_kg if self._bill is not None else 50.0
 
         return ManualCostBill(
             net_concrete_volume_m3=net_vol,
@@ -741,11 +765,15 @@ class CostEstimationTab(QWidget):
             total_coarse_aggregate_bulk_m3=self._qty_spins["coarse_agg_m3"].value(),
             total_scm_kg=self._qty_spins["scm_kg"].value(),
             total_admixture_kg=self._qty_spins["admix_l"].value(),
+            fine_aggregate_volume_basis=getattr(self._bill, "fine_aggregate_volume_basis", "Manually entered purchasing bulk volume"),
+            transfer_data=getattr(self._bill, "transfer_data", None),
+            scm_type=getattr(getattr(self._bill, "transfer_data", None), "scm_type", getattr(self._bill, "scm_type", "SCM (unspecified)")),
         )
 
     def _on_estimate(self) -> None:
         """Run cost estimation based on loaded bill and input prices."""
         # Build bill from current inputs (standalone or loaded)
+        self._on_input_changed()
         bill = self._build_bill_from_inputs()
 
         gross_vol = bill.gross_concrete_volume_m3
@@ -763,6 +791,7 @@ class CostEstimationTab(QWidget):
             coarse_aggregate_per_m3=self._price_spins["coarse_agg_per_m3"].value(),
             water_per_1000_liters=self._price_spins["water_per_1000l"].value(),
             admixture_per_kg=self._price_spins["admixture_per_kg"].value(),
+            scm_per_kg=self._price_spins["scm_per_kg"].value() if self._scm_priced.isChecked() else None,
         )
         options = ProjectCostOptions(
             labour_count=self._addl_spins["labour_count"].value(),
@@ -821,6 +850,12 @@ class CostEstimationTab(QWidget):
             # Form entries the result was computed from, so the tab can be
             # fully refilled when the record is loaded back.
             input_state = {
+                "gross_concrete_volume_m3": cost_data.get("gross_concrete_volume_m3", (
+                    cost_data.get("total_material_cost", 0.0) / cost_data["material_cost_per_m3"]
+                    if cost_data.get("material_cost_per_m3", 0.0) > 0 else self._volume_spin.value()
+                )),
+                "wastage_percent": self._wastage_spin.value(),
+                "cement_bag_weight_kg": self._bill.cement_bag_weight_kg if self._bill else 50.0,
                 "options": {
                     "labour_count": self._addl_spins["labour_count"].value(),
                     "labour_cost_per_unit": self._addl_spins[
@@ -854,8 +889,11 @@ class CostEstimationTab(QWidget):
             data = json.loads(rec["result_json"])
         except (json.JSONDecodeError, TypeError):
             return
-        self._last_cost_data = data
-        self._result_panel.display_cost(data)
+        self._on_input_changed()
+        self._bill = None
+        self._scm_priced.setChecked(False)
+        for spin in self._qty_spins.values():
+            spin.setValue(0.0)
 
         # Restore project info inputs
         proj_info = data.get("project_info", {})
@@ -879,7 +917,7 @@ class CostEstimationTab(QWidget):
             elif name == "Fine Aggregate":
                 self._qty_spins["fine_agg_m3"].setValue(qty)
                 self._price_spins["fine_agg_per_m3"].setValue(price)
-            elif name == "Coarse Aggregate":
+            elif name == "Coarse Aggregate" or name.startswith("Coarse Aggregate "):
                 self._qty_spins["coarse_agg_m3"].setValue(qty)
                 self._price_spins["coarse_agg_per_m3"].setValue(price)
             elif name == "Water":
@@ -888,11 +926,15 @@ class CostEstimationTab(QWidget):
                 qty_l = qty if item.get("kind") else qty * 1000.0
                 self._qty_spins["water_l"].setValue(qty_l)
                 self._price_spins["water_per_1000l"].setValue(price)
+            elif name == "SCM":
+                self._qty_spins["scm_kg"].setValue(qty)
+                self._price_spins["scm_per_kg"].setValue(price or 0.0)
+                self._scm_priced.setChecked(item.get("priced", price is not None))
             elif name == "Admixture":
                 self._qty_spins["admix_l"].setValue(qty)
                 self._price_spins["admixture_per_kg"].setValue(price)
 
-        # Restore concrete volume from per m3 cost and total cost
+        # Legacy fallback only: old nonzero-cost records lacked explicit volume.
         mat_cost_m3 = data.get("material_cost_per_m3", 0.0)
         total_material = data.get("total_material_cost", 0.0)
         if mat_cost_m3 > 0.0:
@@ -903,6 +945,11 @@ class CostEstimationTab(QWidget):
             input_state = json.loads(rec.get("input_json", "{}"))
         except (json.JSONDecodeError, TypeError):
             input_state = {}
+        volume = data.get("gross_concrete_volume_m3", input_state.get("gross_concrete_volume_m3"))
+        missing_volume = volume is None and mat_cost_m3 <= 0.0
+        if volume is not None:
+            self._volume_spin.setValue(float(volume))
+        self._wastage_spin.setValue(data.get("wastage_percent", input_state.get("wastage_percent", 5.0)))
         options = input_state.get("options") or {}
         key_map = {
             "labour_count": "labour_count",
@@ -915,6 +962,17 @@ class CostEstimationTab(QWidget):
         for spin_key, opt_key in key_map.items():
             if opt_key in options:
                 self._addl_spins[spin_key].setValue(float(options[opt_key]))
+        self._bill = self._build_bill_from_inputs()
+        self._bill.cement_bag_weight_kg = data.get("cement_bag_weight_kg", input_state.get("cement_bag_weight_kg", 50.0))
+        self._bill.fine_aggregate_volume_basis = data.get("fine_aggregate_volume_basis", "Legacy purchasing basis unverified")
+        self._bill.scm_type = next((row.get("material_type", "SCM (unspecified)") for row in breakdown if row.get("name") == "SCM"), "SCM (unspecified)")
+        self._scm_priced.setText(f"Rate supplied for {self._bill.scm_type} (otherwise incomplete)")
+        if missing_volume:
+            self._result_panel._warning_banner.setText("Legacy record has no recoverable volume. Enter the reviewed gross volume and re-estimate.")
+            self._result_panel._warning_banner.setVisible(True)
+        else:
+            self._last_cost_data = data
+            self._result_panel.display_cost(data)
 
     # ── Export ────────────────────────────────────────────────────────
 
@@ -932,17 +990,17 @@ class CostEstimationTab(QWidget):
             qty = up.convert_volume_m3(qty)
             unit = up.volume_unit()
             if imperial:
-                price = price / 1.30795  # per m³ → per yd³
+                price = rate_to_display("rate_volume", price, up)
         elif kind == "water":
             qty = up.convert_water_liters(qty)
-            unit = up.water_unit()
+            unit = f"{up.water_unit()} (price per 1000)"
             if imperial:
-                price = price / 264.172  # per 1000 L → per 1000 gal
+                price = rate_to_display("rate_water", price, up)
         elif kind == "mass":
             qty = up.convert_mass_kg(qty)
             unit = up.mass_unit()
             if imperial:
-                price = price / 2.20462  # per kg → per lb
+                price = rate_to_display("rate_mass", price, up)
         return qty, unit, price
 
     def _generate_cost_report_html(self) -> str:
@@ -1133,7 +1191,7 @@ class CostEstimationTab(QWidget):
                     </div>
                 </div>
                 <div class="flex flex-col justify-center items-end border-l border-outline-variant pl-8">
-                    <span class="font-label-caps text-[11px] text-on-surface-variant uppercase mb-1 text-right">Grand Estimated Total</span>
+                    <span class="font-label-caps text-[11px] text-on-surface-variant uppercase mb-1 text-right">{'Grand Estimated Total' if data.get('is_complete', True) else 'INCOMPLETE: Partial Estimate (SCM unpriced)'}</span>
                     <div class="text-primary flex flex-col items-end">
                         <span class="font-data-display text-[24px] font-bold">GH₵ {data["total_project_cost"]:,.2f}</span>
                         <div class="h-1 w-full bg-primary mt-1"></div>
@@ -1240,7 +1298,9 @@ class CostEstimationTab(QWidget):
     </main>
 </body>
 </html>"""
-        return html
+        from html import escape
+        warnings_html = "".join(f"<p><b>{escape(w)}</b></p>" for w in data.get("warnings", []))
+        return html.replace("<!-- Section 1: Grand Total Highlight -->", warnings_html + "<!-- Section 1: Grand Total Highlight -->", 1)
 
     def _show_preview(self) -> None:
         """Show the report preview dialog."""
@@ -1275,25 +1335,18 @@ class CostEstimationTab(QWidget):
                 pdf.set_auto_page_break(auto=True, margin=15)
                 pdf.add_page()
 
-                # Add Unicode font
-                pdf.add_font(
-                    "DejaVu",
-                    "",
-                    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-                    uni=True,
-                )
-                pdf.add_font(
-                    "DejaVu",
-                    "B",
-                    "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-                    uni=True,
-                )
-                pdf.add_font(
-                    "DejaVu",
-                    "I",
-                    "/usr/share/fonts/truetype/dejavu/DejaVuSans-Oblique.ttf",
-                    uni=True,
-                )
+                # Licensed fonts live with the module, including frozen builds.
+                # Packaging may omit data files: Qt supplies a portable fallback.
+                from pathlib import Path
+                import material_quantify
+                font_dir = Path(material_quantify.__file__).parent / "resources" / "fonts"
+                fonts = [("", "DejaVuSans.ttf"), ("B", "DejaVuSans-Bold.ttf"),
+                         ("I", "DejaVuSans-Oblique.ttf")]
+                if not all((font_dir / name).is_file() for _, name in fonts):
+                    self._export_pdf_with_qt(path)
+                    return
+                for style, filename in fonts:
+                    pdf.add_font("DejaVu", style, str(font_dir / filename))
 
                 # Title
                 pdf.set_font("DejaVu", "B", 18)
@@ -1315,6 +1368,9 @@ class CostEstimationTab(QWidget):
                     align="C",
                 )
                 pdf.ln(8)
+                pdf.set_font("DejaVu", "", 9)
+                for warning in data.get("warnings", []):
+                    pdf.multi_cell(0, 5, warning, new_x="LMARGIN", new_y="NEXT")
 
                 # Project info
                 proj = data.get("project_info", {})
@@ -1462,13 +1518,43 @@ class CostEstimationTab(QWidget):
                 )
 
                 pdf.output(path)
-                self.window().status_bar.showMessage(f"PDF saved to {path}", 5000)
+                if hasattr(self.window(), "status_bar"):
+                    self.window().status_bar.showMessage(f"PDF saved to {path}", 5000)
             except Exception as e:
                 QMessageBox.warning(
                     self,
                     "PDF Export",
                     f"Error exporting PDF: {str(e)}",
                 )
+
+    def _export_pdf_with_qt(self, path: str) -> None:
+        """Portable fallback when bundled font resources are unavailable."""
+        from html import escape
+        from PyQt6.QtGui import QPdfWriter, QTextDocument
+
+        data = self._last_cost_data
+        if data is None:
+            return
+        # Plain semantic HTML also works with Qt's limited rich-text renderer.
+        # Do not depend on web CSS or platform-specific font file locations.
+        up = self.unit_prefs or get_unit_prefs()
+        parts = ["<h1>Cost Estimate Report</h1>"]
+        for warning in data.get("warnings", []):
+            parts.append(f"<p><b>{escape(warning)}</b></p>")
+        for key, value in data.get("project_info", {}).items():
+            parts.append(f"<p>{escape(key)}: {escape(str(value))}</p>")
+        parts.append("<table border='1'><tr><th>Material</th><th>Qty</th><th>Unit</th><th>Rate (GH₵)</th><th>Cost (GH₵)</th></tr>")
+        for row in data["material_breakdown"]:
+            qty, unit, price = self._convert_breakdown_row(row, up)
+            parts.append(f"<tr><td>{escape(row['name'])}</td><td>{qty:,.2f}</td><td>{escape(unit)}</td><td>{price:,.2f}</td><td>{row['total']:,.2f}</td></tr>")
+        parts.append("</table>")
+        for row in data["summary_rows"]:
+            parts.append(f"<p>{escape(row['label'])}: GH₵ {row['amount']:,.2f}</p>")
+        document = QTextDocument()
+        document.setHtml("".join(parts))
+        writer = QPdfWriter(path)
+        writer.setTitle("CivilQntify Cost Estimate")
+        document.print(writer)
 
     def _export_csv(self) -> None:
         if not self._last_cost_data:
@@ -1480,6 +1566,8 @@ class CostEstimationTab(QWidget):
             data = self._last_cost_data
             output = io.StringIO()
             writer = csv.writer(output)
+            for warning in data.get("warnings", []):
+                writer.writerow([warning])
 
             # Header
             writer.writerow(["CivilQntify - Cost Estimate Report"])
@@ -1547,4 +1635,5 @@ class CostEstimationTab(QWidget):
 
             with open(path, "w", newline="") as f:
                 f.write(output.getvalue())
-            self.window().status_bar.showMessage(f"Exported to {path}", 5000)
+            if hasattr(self.window(), "status_bar"):
+                self.window().status_bar.showMessage(f"Exported to {path}", 5000)

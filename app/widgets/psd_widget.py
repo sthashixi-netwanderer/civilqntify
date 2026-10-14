@@ -361,6 +361,7 @@ class PSDResultPanel(QWidget):
         # Copy of the reference band dict passed to display_psd, kept so
         # the CSV export can include the "Standard % Passing" column.
         self._last_band: dict[float, tuple[float, float]] | None = None
+        self._crushed_sand = False
         # Standard the empty plot section advertises (linear for BS 882,
         # semi-log otherwise); kept in sync with the input tab's standard
         # combo via set_standard_display so the section always matches the
@@ -421,16 +422,7 @@ class PSDResultPanel(QWidget):
         self._band_warning = QLabel("")
         self._band_warning.setWordWrap(True)
         self._band_warning.setVisible(False)
-        self._band_warning.setStyleSheet(
-            "QLabel {"
-            "  background-color: #fef2f2;"
-            "  color: #7f1d1d;"
-            "  border: 1px solid #dc2626;"
-            "  border-radius: 6px;"
-            "  padding: 10px 14px;"
-            "  font-size: 12px;"
-            "}"
-        )
+        self._band_warning.setObjectName("compliance-failure-banner")
         outer.addWidget(self._band_warning)
 
         # Predicted corrective adjustments for out-of-band sieves
@@ -438,16 +430,7 @@ class PSDResultPanel(QWidget):
         self._corrections_label.setWordWrap(True)
         self._corrections_label.setTextFormat(Qt.TextFormat.RichText)
         self._corrections_label.setVisible(False)
-        self._corrections_label.setStyleSheet(
-            "QLabel {"
-            "  background-color: #fffbeb;"
-            "  color: #444653;"
-            "  border: 1px solid #f59e0b;"
-            "  border-radius: 6px;"
-            "  padding: 10px 14px;"
-            "  font-size: 12px;"
-            "}"
-        )
+        self._corrections_label.setObjectName("callout-warning")
         outer.addWidget(self._corrections_label)
 
         # ── Fineness-modulus derivation (ACI 211.1-22 §4.3.5) ──
@@ -467,7 +450,7 @@ class PSDResultPanel(QWidget):
         fm_v.addLayout(self._fm_grid)
         self._fm_note = QLabel("")
         self._fm_note.setWordWrap(True)
-        self._fm_note.setStyleSheet(f"color: {_TEXT_DIM}; font-size: 11px;")
+        self._fm_note.setObjectName("dialog-note")
         fm_v.addWidget(self._fm_note)
         outer.addWidget(self._fm_group)
 
@@ -525,6 +508,7 @@ class PSDResultPanel(QWidget):
         band: dict[float, tuple[float, float]],
         band_key,
         fm_required: bool = True,
+        crushed_sand: bool = False,
     ) -> None:
         """Show a computed gradation: stat cards + curve with the band.
 
@@ -533,6 +517,7 @@ class PSDResultPanel(QWidget):
         ASTM C33 coarse) the FM derivation group is hidden entirely.
         """
         self._last_result = result
+        self._crushed_sand = crushed_sand
         self._last_band_key = band_key
         self._last_band = dict(band) if band else {}
         self._update_results_cards(result)
@@ -553,6 +538,7 @@ class PSDResultPanel(QWidget):
         self._last_result = None
         self._last_band_key = None
         self._last_band = None
+        self._crushed_sand = False
         self._bs_handoff = None
         self._results_group.setVisible(False)
         self._set_band_warning("")
@@ -655,6 +641,7 @@ class PSDResultPanel(QWidget):
         linkage = derive_mix_design_params(
             self._last_result,
             standard=self._last_band_key[0] if self._last_band_key else None,
+            crushed_sand=self._crushed_sand,
         )
 
         aggregate_kind = "fine"
@@ -665,7 +652,7 @@ class PSDResultPanel(QWidget):
             # coarse keys end with the nominal size instead.
             aggregate_kind = "coarse" if key[1] != "fine" else "fine"
             if aggregate_kind == "coarse":
-                nominal_size_mm = int(key[-1])
+                nominal_size_mm = float(key[-1])
 
         payload = {
             "aggregate_kind": aggregate_kind,
@@ -744,17 +731,17 @@ class PSDResultPanel(QWidget):
         cards.append(("Total Mass", f"{result.total_mass:.1f} g"))
 
         # Conformance badge
-        if result.conforms:
+        if result.conforms and result.conformance_complete:
             if result.all_conform:
                 badge_text = "✓ Conforms to selected band"
-                badge_color = _SUCCESS
+                badge_obj = "psd-badge-pass"
             else:
                 n_bad = sum(1 for c in result.conforms if not c)
                 badge_text = f"✗ {n_bad} sieve(s) out of band"
-                badge_color = _ERROR
+                badge_obj = "psd-badge-fail"
         else:
-            badge_text = "— No band to check"
-            badge_color = _TEXT_DIM
+            badge_text = "— Band not assessed (missing evidence or reference)"
+            badge_obj = "psd-badge-neutral"
 
         cols = 4
         for i, (label, value) in enumerate(cards):
@@ -764,12 +751,7 @@ class PSDResultPanel(QWidget):
 
         # Conformance badge spans the full width
         badge = QLabel(badge_text)
-        badge.setStyleSheet(
-            f"color: #ffffff; "
-            f"background: {badge_color}; "
-            "padding: 8px 14px; border-radius: 4px; font-weight: 700; "
-            "font-size: 12px;"
-        )
+        badge.setObjectName(badge_obj)
         badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
         row = (len(cards) + cols - 1) // cols
         self._results_grid.addWidget(badge, row, 0, 1, cols)
@@ -812,12 +794,11 @@ class PSDResultPanel(QWidget):
         )
 
         # Header row
-        header_style = f"color: {_PRIMARY}; font-weight: 700;"
         lbl = QLabel("Sieve")
-        lbl.setStyleSheet(header_style)
+        lbl.setObjectName("cell-primary")
         grid.addWidget(lbl, 0, 0)
         lbl = QLabel("Cumulative % Retained")
-        lbl.setStyleSheet(header_style)
+        lbl.setObjectName("cell-primary")
         grid.addWidget(lbl, 0, 1)
 
         total = 0.0
@@ -831,27 +812,27 @@ class PSDResultPanel(QWidget):
                 complete = False
                 missing.append(sieve)
                 cell = QLabel("— not included")
-                cell.setStyleSheet(f"color: {_WARNING};")
+                cell.setObjectName("cell-warning")
             else:
                 total += val
                 cell = QLabel(f"{val:.2f}")
-                cell.setStyleSheet(f"color: {_TEXT_DIM};")
+                cell.setObjectName("cell-dim")
             grid.addWidget(cell, row, 1)
             row += 1
 
-        bold_primary = f"color: {_PRIMARY}; font-weight: 700;"
-        grid.addWidget(QLabel("Σ  sum of cumulative % retained"), row, 0)
+        lbl_sum = QLabel("Σ  sum of cumulative % retained")
+        grid.addWidget(lbl_sum, row, 0)
         sum_cell = QLabel(f"{total:.2f}" + ("" if complete else " *"))
-        sum_cell.setStyleSheet(bold_primary)
+        sum_cell.setObjectName("cell-primary")
         grid.addWidget(sum_cell, row, 1)
 
         grid.addWidget(QLabel("FM = Σ ÷ 100"), row + 1, 0)
         if result.fineness_modulus is not None and complete:
             fm_cell = QLabel(f"{result.fineness_modulus:.2f}")
-            fm_cell.setStyleSheet(f"color: {_SUCCESS}; font-weight: 800;")
+            fm_cell.setObjectName("cell-success")
         else:
             fm_cell = QLabel("—")
-            fm_cell.setStyleSheet(f"color: {_ERROR}; font-weight: 700;")
+            fm_cell.setObjectName("cell-error")
         grid.addWidget(fm_cell, row + 1, 1)
 
         if result.fineness_modulus is not None and complete:
@@ -875,24 +856,15 @@ class PSDResultPanel(QWidget):
 
     def _stat_card(self, label: str, value: str) -> QFrame:
         card = QFrame()
-        card.setStyleSheet(
-            f"QFrame {{ background: #ffffff; border: 1px solid {_BORDER}; "
-            f"border-left: 3px solid {_PRIMARY}; border-radius: 4px; }}"
-        )
+        card.setObjectName("psd-stat-card")
         v = QVBoxLayout(card)
         v.setContentsMargins(12, 8, 12, 8)
         v.setSpacing(2)
         lbl = QLabel(label.upper())
         lbl.setWordWrap(True)
-        lbl.setStyleSheet(
-            f"font-size: 10px; font-weight: 700; color: {_TEXT_DIM}; "
-            "letter-spacing: 0.05em;"
-        )
+        lbl.setObjectName("psd-stat-label")
         val = QLabel(value)
-        val.setStyleSheet(
-            f"font-size: 15px; font-weight: 500; color: {_PRIMARY}; "
-            "font-family: 'JetBrains Mono', 'Consolas', monospace;"
-        )
+        val.setObjectName("psd-stat-val")
         v.addWidget(lbl)
         v.addWidget(val)
         return card
@@ -1498,9 +1470,7 @@ class ParticleSizeDistributionTab(QWidget):
         # the ASTM C33 quality inputs.
         separator = QFrame()
         separator.setFixedHeight(1)
-        separator.setStyleSheet(
-            f"QFrame {{ background-color: {_BORDER}; border: none; }}"
-        )
+        separator.setObjectName("separator")
         outer.addWidget(separator)
         outer.addWidget(self._build_buttons())
 
@@ -1511,6 +1481,14 @@ class ParticleSizeDistributionTab(QWidget):
         self._result_panel.set_standard_display(
             self.standard_combo.currentData()
         )
+        # Quality/material context is part of the analysis, not decoration.
+        # Connect after construction so initial field setup cannot dirty it.
+        for control in self._quality_group.findChildren(QDoubleSpinBox):
+            control.valueChanged.connect(self._on_quality_changed)
+        for control in self._quality_group.findChildren(QComboBox):
+            control.currentIndexChanged.connect(self._on_quality_changed)
+        for control in self._quality_group.findChildren(QCheckBox):
+            control.toggled.connect(self._on_quality_changed)
 
     def _build_controls(self) -> QGroupBox:
         grp = QGroupBox("Sieve Analysis — Setup")
@@ -1572,7 +1550,7 @@ class ParticleSizeDistributionTab(QWidget):
             "test. Results appear in the panel on the right."
         )
         hint.setWordWrap(True)
-        hint.setStyleSheet(f"color: {_TEXT_DIM}; font-size: 12px;")
+        hint.setObjectName("dialog-note")
         v.addWidget(hint)
 
         self.table = QTableWidget()
@@ -1625,9 +1603,8 @@ class ParticleSizeDistributionTab(QWidget):
     def _style_input_column(self) -> None:
         """Style the Mass Retained column (1) to stand out visually.
 
-        Sets a neutral header stylesheet and widens column 1 slightly.
-        Per-cell backgrounds (light blue tint) are applied in
-        :meth:`_rebuild_table` each time rows are created.
+        Widens column 1 slightly. Per-cell backgrounds (light blue tint)
+        are applied in :meth:`_rebuild_table` each time rows are created.
         """
         hdr = self.table.horizontalHeader()
         hdr.setMinimumSectionSize(16)
@@ -1636,18 +1613,6 @@ class ParticleSizeDistributionTab(QWidget):
         self.table.setMinimumWidth(0)
         self.table.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
-        )
-        self.table.setStyleSheet(
-            "QTableWidget { border: 1px solid #e2e8f0; }"
-            "QTableWidget::item { padding: 2px 4px; }"
-            "QHeaderView::section {"
-            "  background-color: #f1f5f9;"
-            "  color: #444653;"
-            "  font-weight: 700;"
-            "  font-size: 11px;"
-            "  padding: 6px;"
-            "  border-bottom: 2px solid #e2e8f0;"
-            "}"
         )
 
     def _build_buttons(self) -> QWidget:
@@ -1732,7 +1697,7 @@ class ParticleSizeDistributionTab(QWidget):
 
         self._quality_hint = QLabel("")
         self._quality_hint.setWordWrap(True)
-        self._quality_hint.setStyleSheet(f"color: {_TEXT_DIM}; font-size: 11px;")
+        self._quality_hint.setObjectName("dialog-note")
         hint_row = QHBoxLayout()
         hint_row.setContentsMargins(0, 0, 0, 0)
         hint_row.setSpacing(4)
@@ -1783,7 +1748,7 @@ class ParticleSizeDistributionTab(QWidget):
             "sieve, and fineness modulus between 2.3 and 3.1."
         )
         auto_note.setWordWrap(True)
-        auto_note.setStyleSheet(f"color: {_TEXT_DIM}; font-size: 11px;")
+        auto_note.setObjectName("dialog-note")
         f1.addWidget(auto_note, 0, 0, 1, 2)
         self.fine_fm_variation_check = QCheckBox("Continuing shipment (6.4)")
         self.fine_fm_variation_check.setToolTip(
@@ -2201,9 +2166,7 @@ class ParticleSizeDistributionTab(QWidget):
             "checks it against your class limit automatically.",
         ), 2, 0)
         self.coarse_sum_label = QLabel("—")
-        self.coarse_sum_label.setStyleSheet(
-            f"color: {_PRIMARY}; font-weight: 600;"
-        )
+        self.coarse_sum_label.setObjectName("stat-highlight")
         f2.addWidget(self.coarse_sum_label, 2, 1)
         self.coarse_clay_spin.valueChanged.connect(
             self._update_coarse_sum_label
@@ -2707,11 +2670,7 @@ class ParticleSizeDistributionTab(QWidget):
 
         total = QLabel("Total deleterious (excl. mica): —")
         total.setWordWrap(True)
-        total.setStyleSheet(
-            "font-weight: 600; color: #1e40af; font-size: 12px; "
-            "padding: 6px 10px; background-color: #eff4ff; "
-            "border: 1px solid #dbeafe; border-radius: 4px;"
-        )
+        total.setObjectName("callout-panel")
         setattr(self, f"{prefix}_total_label", total)
         f.addWidget(self._label_with_info(
             "Total deleterious (Table 2 SI (vi))",
@@ -2793,11 +2752,7 @@ class ParticleSizeDistributionTab(QWidget):
 
         combined = QLabel("Combined FI + EI: —")
         combined.setWordWrap(True)
-        combined.setStyleSheet(
-            "font-weight: 600; color: #1e40af; font-size: 12px; "
-            "padding: 6px 10px; background-color: #eff4ff; "
-            "border: 1px solid #dbeafe; border-radius: 4px;"
-        )
+        combined.setObjectName("callout-panel")
         setattr(self, f"{prefix}_combined_shape_label", combined)
 
         fi = idx_spin("fi")
@@ -3759,10 +3714,48 @@ class ParticleSizeDistributionTab(QWidget):
 
     # ── Live recompute of the table's derived columns ────────────────
 
+    def _invalidate_analysis(self) -> None:
+        self._last_result = None
+        self._astm_checks = []
+        self._bs_checks = []
+        if self._result_panel._last_result is not None:
+            self._result_panel.clear()
+
+    def _on_quality_changed(self) -> None:
+        self._invalidate_analysis()
+        self._update_standard_limit_column()
+
     def _on_cell_changed(self) -> None:
+        self._invalidate_analysis()
         if self.standard_combo.currentData() == "bs882":
-            self._on_bs_changed()
+            self.bs_quality.checks_label.setText("Inputs changed — compute again.")
         self._recompute_table()
+
+    def _read_mass_inputs(self) -> tuple[list[float], float]:
+        """Parse once for live results, Compute and history; never invent zero."""
+        values: list[float] = []
+        errors: list[str] = []
+        sieves = self._current_sieves()
+        for row in range(len(sieves) + 1):
+            item = self.table.item(row, 1)
+            label = _fmt_size(sieves[row]) if row < len(sieves) else "Pan"
+            try:
+                value = float(item.text().strip()) if item is not None else math.nan
+                if not math.isfinite(value) or value < 0:
+                    raise ValueError
+            except (ValueError, OverflowError):
+                message = f"{label}: enter a finite, nonnegative mass (use 0 for zero)."
+                errors.append(message)
+                if item is not None:
+                    item.setBackground(QColor("#fef2f2"))
+                    item.setToolTip(message)
+            else:
+                values.append(value)
+                item.setBackground(QColor("#eff6ff"))
+                item.setToolTip("")
+        if errors:
+            raise ValueError("\n".join(errors))
+        return values[:-1], values[-1]
 
     def _compute_current_psd(
         self, masses: list[float], sieves: list[float], pan: float
@@ -3783,21 +3776,8 @@ class ParticleSizeDistributionTab(QWidget):
         """Recompute %retained / cumulative / %passing from the mass column."""
         self.table.blockSignals(True)
         sieves = self._current_sieves()
-        masses: list[float] = []
-        for i in range(len(sieves)):
-            item = self.table.item(i, 1)
-            try:
-                masses.append(float(item.text()) if item and item.text() else 0.0)
-            except ValueError:
-                masses.append(0.0)
-
-        pan_item = self.table.item(len(sieves), 1)
         try:
-            pan = float(pan_item.text()) if pan_item and pan_item.text() else 0.0
-        except ValueError:
-            pan = 0.0
-
-        try:
+            masses, pan = self._read_mass_inputs()
             result = self._compute_current_psd(masses, sieves, pan)
         except ValueError:
             for i in range(len(sieves) + 1):
@@ -3956,8 +3936,9 @@ class ParticleSizeDistributionTab(QWidget):
     def _on_band_changed(self) -> None:
         self._update_standard_limit_column()
         self._update_band_info()
-        # If a result already exists, re-evaluate conformance and redraw.
-        if self._last_result is not None:
+        if self.standard_combo.currentData() != "bs882":
+            self._invalidate_analysis()
+        elif self._last_result is not None:
             self._evaluate_and_plot(self._last_result)
 
     def _on_clear(self) -> None:
@@ -3972,19 +3953,16 @@ class ParticleSizeDistributionTab(QWidget):
             self.window().status_bar.showMessage("PSD cleared", 3000)
 
     def _on_compute_plot(self) -> None:
+        self._invalidate_analysis()
         sieves = self._current_sieves()
-        masses: list[float] = []
-        for i in range(len(sieves)):
-            item = self.table.item(i, 1)
-            try:
-                masses.append(float(item.text()) if item and item.text() else 0.0)
-            except ValueError:
-                masses.append(0.0)
-        pan_item = self.table.item(len(sieves), 1)
+        self.table.blockSignals(True)
         try:
-            pan = float(pan_item.text()) if pan_item and pan_item.text() else 0.0
-        except ValueError:
-            pan = 0.0
+            masses, pan = self._read_mass_inputs()
+        except ValueError as exc:
+            QMessageBox.warning(self, "Input Error", str(exc))
+            return
+        finally:
+            self.table.blockSignals(False)
 
         if sum(masses) + pan <= 0:
             QMessageBox.information(
@@ -4020,26 +3998,26 @@ class ParticleSizeDistributionTab(QWidget):
         standard = self.standard_combo.currentData()
         if standard == "astm_c33":
             self._astm_checks = self._run_astm_c33_checks(result)
-            failures = [c for c in self._astm_checks if c.failed]
-            if failures:
-                self._show_astm_compliance_dialog(self._astm_checks)
-            elif hasattr(self.window(), "status_bar") and self.window().status_bar:
-                self.window().status_bar.showMessage(
-                    f"ASTM C33: all {len(self._astm_checks)} applicable "
-                    "requirement(s) checked — no non-conformance found",
-                    5000,
-                )
         elif standard == "is383":
             self._astm_checks = self._run_is383_checks(result)
-            failures = [c for c in self._astm_checks if c.failed]
-            if failures:
+        if self._astm_checks:
+            if any(c.failed for c in self._astm_checks):
                 self._show_astm_compliance_dialog(self._astm_checks)
-            elif hasattr(self.window(), "status_bar") and self.window().status_bar:
+            if hasattr(self.window(), "status_bar") and self.window().status_bar:
+                name = "ASTM C33" if standard == "astm_c33" else "IS 383"
                 self.window().status_bar.showMessage(
-                    f"IS 383: all {len(self._astm_checks)} applicable "
-                    "requirement(s) checked — no non-conformance found",
-                    5000,
+                    self._checks_summary(name, self._astm_checks), 5000,
                 )
+
+    @staticmethod
+    def _checks_summary(standard: str, checks: list) -> str:
+        passed = sum(c.status == "pass" for c in checks)
+        failed = sum(c.status == "fail" for c in checks)
+        unassessed = len(checks) - passed - failed
+        return (
+            f"{standard}: {passed} passed, {failed} failed, "
+            f"{unassessed} not assessed — not a full-standard compliance certificate"
+        )
 
     def _evaluate_and_plot(self, result: PSDResult) -> None:
         """Check conformance against the selected band and show on the panel."""
@@ -4050,7 +4028,8 @@ class ParticleSizeDistributionTab(QWidget):
         band = self._current_band(band_key)
         check_conformance(result, band)
         self._result_panel.display_psd(
-            result, band, band_key, fm_required=self._fm_required()
+            result, band, band_key, fm_required=self._fm_required(),
+            crushed_sand=self._is_crushed_stone_sand(),
         )
         if self.standard_combo.currentData() != "bs882":
             self._result_panel._bs_handoff = None
@@ -4107,6 +4086,13 @@ class ParticleSizeDistributionTab(QWidget):
             and self.agg_combo.currentData() == "fine"
         )
 
+    def _is_crushed_stone_sand(self) -> bool:
+        return (
+            self.standard_combo.currentData() == "is383"
+            and self.agg_combo.currentData() == "fine"
+            and self.is_fine_source_combo.currentData() == "crushed_stone_sand"
+        )
+
     def _current_band(self, band_key) -> dict[float, tuple[float, float]]:
         if band_key is None:
             return {}
@@ -4120,7 +4106,14 @@ class ParticleSizeDistributionTab(QWidget):
                 )
             return get_bs_coarse_band(*reference)
         if standard == "is383" and aggregate_type == "fine":
-            return get_fine_band(reference[0])
+            band = dict(get_fine_band(reference[0]))
+            if self._is_crushed_stone_sand():
+                # IS 383:2016 Table 9 Note 1; never mutate the base table.
+                from concrete_mix.codes.tables.is383_quality import (
+                    ZONE_150UM_CRUSHED_STONE_SAND_MAX,
+                )
+                band[0.150] = (band[0.150][0], ZONE_150UM_CRUSHED_STONE_SAND_MAX)
+            return band
         if standard == "astm_c33" and aggregate_type == "fine":
             return get_astm_fine_band()
         if standard == "is383":
@@ -4137,18 +4130,11 @@ class ParticleSizeDistributionTab(QWidget):
         from dataclasses import asdict
 
         sieves = self._current_sieves()
-        masses: list[float] = []
-        for i in range(len(sieves)):
-            item = self.table.item(i, 1)
-            try:
-                masses.append(float(item.text()) if item and item.text() else 0.0)
-            except ValueError:
-                masses.append(0.0)
-        pan_item = self.table.item(len(sieves), 1)
+        self.table.blockSignals(True)
         try:
-            pan = float(pan_item.text()) if pan_item and pan_item.text() else 0.0
-        except ValueError:
-            pan = 0.0
+            masses, pan = self._read_mass_inputs()
+        finally:
+            self.table.blockSignals(False)
 
         band_key = self.band_combo.currentData()
         inp = {
@@ -4494,10 +4480,7 @@ class ParticleSizeDistributionTab(QWidget):
         # µ to a capital Mu that reads as "M") so unit-bearing labels
         # like "75-µm" keep their micro symbol under the uppercase style.
         lbl = QLabel(uppercase_preserving_si_units(text))
-        lbl.setStyleSheet(
-            "font-size: 11px; font-weight: 700; "
-            f"letter-spacing: 0.05em; color: {_TEXT_DIM};"
-        )
+        lbl.setObjectName("form-label")
         # Wrap so labels reflow when the sidebar is narrowed instead of
         # forcing the form wider than the sidebar's 360px floor.
         lbl.setWordWrap(True)

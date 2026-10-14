@@ -6,17 +6,60 @@ on:
       - main
     tags:
       - 'v*'
+  pull_request:
   workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
+  test:
+    name: Test and validate version
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    env:
+      QT_QPA_PLATFORM: offscreen
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+      - name: Install test dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y libegl1 libgl1 libxkbcommon0 libdbus-1-3
+          python -m pip install -r requirements.txt
+      - name: Validate application and tag version
+        id: version
+        env:
+          BUILD_REF: ${{ github.ref }}
+        run: |
+          python - <<'PY'
+          import os
+          from scripts.build_deb import DEFAULT_VERSION
+          ref = os.environ['BUILD_REF']
+          if ref.startswith('refs/tags/v') and ref != 'refs/tags/v' + DEFAULT_VERSION:
+              raise SystemExit('Release tag must match app/version.py')
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write('version=' + DEFAULT_VERSION + '\n')
+          PY
+      - name: Run pytest (offline, isolated home)
+        timeout-minutes: 10
+        run: |
+          mkdir -p "$RUNNER_TEMP/civilqntify-home"
+          HOME="$RUNNER_TEMP/civilqntify-home" python -m pytest tests/ -q
+
   # ------------------------------------------------------------------
   # Job 1: Build Standalone Windows Executable (.exe)
   # ------------------------------------------------------------------
   build-windows:
     name: Build Windows Executable (.exe)
+    needs: test
+    if: github.event_name != 'pull_request'
     runs-on: windows-latest
 
     steps:
@@ -64,6 +107,8 @@ jobs:
   # ------------------------------------------------------------------
   build-linux:
     name: Build Linux Packages (.deb & .rpm)
+    needs: test
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
 
     steps:
@@ -127,10 +172,7 @@ jobs:
       - name: Package .deb and .rpm with FPM
         run: |
           # Determine package version
-          VERSION="1.0.0"
-          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
-            VERSION="${GITHUB_REF_NAME#v}"
-          fi
+          VERSION="${{ needs.test.outputs.version }}"
           echo "Packaging version: $VERSION"
 
           # Prepare Linux install root directory structure
@@ -219,7 +261,7 @@ jobs:
   # ------------------------------------------------------------------
   release:
     name: Publish Release & Upload Binaries
-    needs: [build-windows, build-linux]
+    needs: [test, build-windows, build-linux]
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
 
@@ -246,7 +288,7 @@ jobs:
             TAG_NAME="${GITHUB_REF_NAME}"
             RELEASE_NAME="CivilQntify ${TAG_NAME}"
           else
-            TAG_NAME="v1.0.0-latest"
+            TAG_NAME="v${{ needs.test.outputs.version }}-latest"
             RELEASE_NAME="CivilQntify Release (Latest)"
           fi
           echo "tag_name=${TAG_NAME}" >> $GITHUB_OUTPUT

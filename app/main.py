@@ -145,31 +145,13 @@ class MainWindow(QMainWindow):
         spacer.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred
         )
-        spacer.setStyleSheet("background: transparent;")
         self.toolbar.addWidget(spacer)
 
-        # Weather button — unified to primary palette
+        # Weather button — styled centrally via #weather-btn in STYLESHEET
         self._btn_weather = QPushButton("Weather")
         self._btn_weather.setObjectName("weather-btn")
         self._btn_weather.setToolTip("View Weather Data")
-        self._btn_weather.setFixedSize(80, 36)
-        self._btn_weather.setStyleSheet("""
-            QPushButton {
-                padding: 4px 12px;
-                background-color: #1e40af;
-                color: white;
-                border: none;
-                border-radius: 4px;
-                font-size: 12px;
-                font-weight: 600;
-            }
-            QPushButton:hover {
-                background-color: #1e3a8a;
-            }
-            QPushButton:pressed {
-                background-color: #172554;
-            }
-        """)
+        self._btn_weather.setFixedSize(80, 32)
         self._btn_weather.clicked.connect(self._open_weather)
         # Visibility is driven through the toolbar *action*, not the raw
         # widget: toggling a fixed-size widget inside a QToolBar does not
@@ -186,7 +168,7 @@ class MainWindow(QMainWindow):
         self._btn_settings.setObjectName("settings-btn")
         self._btn_settings.setIcon(QIcon(str(_icon_path)))
         self._btn_settings.setToolTip("Unit Settings")
-        self._btn_settings.setFixedSize(36, 36)
+        self._btn_settings.setFixedSize(32, 32)
         self._btn_settings.clicked.connect(self._open_settings)
         self.toolbar.addWidget(self._btn_settings)
 
@@ -204,11 +186,6 @@ class MainWindow(QMainWindow):
         dialog.setModal(True)
         dialog.setMinimumSize(560, 700)
         dialog.resize(560, 780)
-        dialog.setStyleSheet("""
-            QDialog {
-                background-color: #ffffff;
-            }
-        """)
 
         layout = QVBoxLayout(dialog)
         layout.setContentsMargins(16, 16, 16, 16)
@@ -218,7 +195,6 @@ class MainWindow(QMainWindow):
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QScrollArea.Shape.NoFrame)
-        scroll.setStyleSheet("QScrollArea { background: transparent; border: none; }")
 
         weather_widget = WeatherWidget()
         api_key = self.unit_prefs.weather_api_key()
@@ -245,21 +221,30 @@ class MainWindow(QMainWindow):
     def _on_send_to_quant(self, result) -> None:
         """Handle mix design → quantification handoff."""
         try:
-            self.quant_tab.load_transfer_data(
-                result,
-                cement_bag_weight=50.0,
-                coarse_agg_bulk_density=1600.0,
-                fine_agg_sg=2.65,
-                coarse_agg_sg=2.70,
-            )
+            from material_quantify.models.transfer_data import MixDesignTransferData
+
+            # Use the inputs of the displayed calculation, not current widgets
+            # (which may have been edited since that calculation).
+            params = self.concrete_tab._last_input_params or {}
+            if isinstance(result, MixDesignTransferData):
+                transfer = result
+            else:
+                transfer = MixDesignTransferData.from_mix_design_result(
+                    result,
+                    coarse_agg_bulk_density_kg_m3=params.get("coarse_agg_bulk_density", 1600.0),
+                    fine_agg_sg=params.get("fine_agg_sg", 2.65),
+                    coarse_agg_sg=params.get("coarse_agg_sg", 2.70),
+                )
+                transfer.scm_type = params.get("scm_type") or "SCM (unspecified)"
+            self.quant_tab.load_transfer_data(transfer)
             self.tabs.setCurrentWidget(self.quant_tab)
             up = self.unit_prefs
             cement_pv = (
-                result.cement_kg * 1.68555 if up.is_imperial() else result.cement_kg
+                transfer.cement_kg_per_m3 * 1.68555 if up.is_imperial() else transfer.cement_kg_per_m3
             )
             self.status_bar.showMessage(
                 f"Mix design transferred to Quantification  |  "
-                f"{result.code_used}  |  Cement: {cement_pv:.1f} "
+                f"{transfer.code_used}  |  Cement: {cement_pv:.1f} "
                 f"{up.mass_per_volume_unit()}",
                 6000,
             )

@@ -71,16 +71,13 @@ class ISTrialMixesDialog(QDialog):
 
         # Header banner
         header_frame = QFrame()
-        header_frame.setObjectName("result-card")
-        header_frame.setStyleSheet(
-            "background-color: #eff6ff; border: 1px solid #bfdbfe; border-radius: 6px; padding: 10px;"
-        )
+        header_frame.setObjectName("dialog-header")
         h_layout = QVBoxLayout(header_frame)
-        h_layout.setContentsMargins(10, 8, 10, 8)
+        h_layout.setContentsMargins(12, 10, 12, 10)
         h_layout.setSpacing(4)
 
         title = QLabel("IS 10262:2019 Section 5.8 — Trial Mixes Procedure")
-        title.setStyleSheet("font-size: 15px; font-weight: 700; color: #1e3a8a;")
+        title.setObjectName("dialog-title")
         h_layout.addWidget(title)
 
         desc = QLabel(
@@ -89,7 +86,7 @@ class ISTrialMixesDialog(QDialog):
             "compressive strength and water-cement ratio before finalizing production proportions."
         )
         desc.setWordWrap(True)
-        desc.setStyleSheet("font-size: 12px; color: #1e293b; line-height: 1.4;")
+        desc.setObjectName("dialog-desc")
         h_layout.addWidget(desc)
         layout.addWidget(header_frame)
 
@@ -195,7 +192,7 @@ class ISTrialMixesDialog(QDialog):
         )
         lbl_steps = QLabel(steps_text)
         lbl_steps.setWordWrap(True)
-        lbl_steps.setStyleSheet("font-size: 12px; line-height: 1.4; color: #334155;")
+        lbl_steps.setObjectName("dialog-desc")
         guide_layout.addWidget(lbl_steps)
         layout.addWidget(guide_group)
 
@@ -205,13 +202,12 @@ class ISTrialMixesDialog(QDialog):
         rep_layout.setSpacing(6)
 
         rep_intro = QLabel("Ensure the final mix design report includes all mandatory items required by IS 10262:2019 Clause 5.8.1:")
-        rep_intro.setStyleSheet("font-size: 11px; color: #64748b; font-weight: 600;")
+        rep_intro.setObjectName("dialog-note")
         rep_layout.addWidget(rep_intro)
 
         for code_letter, req_text in self._protocol["reporting_checklist"]:
             chk = QCheckBox(f"({code_letter}) {req_text}")  # QCheckBox is plain-text: no rich-text tags
             chk.setChecked(True)
-            chk.setStyleSheet("QCheckBox { font-size: 12px; color: #1e293b; }")
             rep_layout.addWidget(chk)
 
         layout.addWidget(rep_group)

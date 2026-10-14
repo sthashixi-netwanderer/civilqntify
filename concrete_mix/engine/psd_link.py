@@ -99,7 +99,8 @@ class PSDLinkage:
 
 
 def derive_mix_design_params(
-    result: PSDResult, *, standard: str | None = None
+    result: PSDResult, *, standard: str | None = None,
+    crushed_sand: bool = False
 ) -> PSDLinkage:
     """Derive every mix-design-relevant parameter from one sieve analysis.
 
@@ -108,6 +109,8 @@ def derive_mix_design_params(
             from either the fine-aggregate or coarse-aggregate sieve stack;
             parameters whose required sieves are missing stay ``None`` with
             an explanatory warning.
+        crushed_sand: Explicit crushed stone sand context for IS 383:2016
+            Table 9 Note 1 (150 µm upper limit of 20 %).
 
     Returns:
         A :class:`PSDLinkage` holding the ACI fineness modulus, the IS 383
@@ -132,12 +135,12 @@ def derive_mix_design_params(
 
     # ---- Grading zone (IS 383 Table 9 → IS 10262:2019 Table 5) ------------
     zone: str | None = None
-    zone_conforms = True
+    zone_conforms = False
     zone_deviations: tuple[str, ...] = ()
     zone_relief = False
     if _ZONE_SIEVES_REQUIRED <= sizes:
         passing = dict(zip(result.sieve_sizes, result.percent_passing))
-        classification = classify_is383_zone(passing)
+        classification = classify_is383_zone(passing, crushed_sand=crushed_sand)
         zone = classification.zone
         if zone is not None:
             zone_conforms = classification.conforms

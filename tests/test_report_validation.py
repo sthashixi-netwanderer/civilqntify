@@ -88,10 +88,14 @@ def test_report_quantification_values_come_from_current_pipeline(report_data):
 
 def test_report_cost_values_come_from_shared_app_service(report_data):
     estimate = report_data["cost"]["estimate"]
-    assert estimate["total_material_cost"] == pytest.approx(101984.75000000001)
-    assert estimate["material_cost_per_m3"] == pytest.approx(971.2833333333334)
-    assert estimate["total_project_cost"] == pytest.approx(145864.35937500003)
-    assert estimate["cost_per_bag"] == pytest.approx(203.43704236401678)
+    # Q02: purchase sand using the labelled project bulk-density assumption,
+    # not particle absolute volume from SG (ACI §4.7.7.2).
+    assert report_data["cost"]["bill"]["total_fine_aggregate_bulk_m3"] == pytest.approx(50.8659375)
+    assert "Project assumption" in estimate["fine_aggregate_volume_basis"]
+    assert estimate["total_material_cost"] == pytest.approx(108998.02812500001)
+    assert estimate["material_cost_per_m3"] == pytest.approx(1038.0764583333334)
+    assert estimate["total_project_cost"] == pytest.approx(155069.2869140625)
+    assert estimate["cost_per_bag"] == pytest.approx(216.27515608655858)
 
 
 def test_all_published_validation_checks_meet_acceptance_limit(report_data):
@@ -110,4 +114,7 @@ def test_cross_method_table_contains_all_three_current_engine_outputs(report_dat
     assert methods["ACI 211.1-22"]["cement_kg"] == pytest.approx(415.2)
     # IS result reports whole kg per the annexes (ceiled target 32 MPa).
     assert methods["IS 10262:2019"]["cement_kg"] == pytest.approx(398.0)
-    assert methods["DOE (BRE 331)"]["cement_kg"] == pytest.approx(305.0)
+    # BRE 331 §5.1 (C04 fix): the comparison brief supplies std_deviation=4.0
+    # with no record count, so Line A applies (s=8 MPa → target 39 MPa),
+    # not the supplied 4.0 MPa. Cement is therefore 345 kg/m³, not 305.
+    assert methods["DOE (BRE 331)"]["cement_kg"] == pytest.approx(345.0)

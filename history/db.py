@@ -413,36 +413,88 @@ class HistoryDB:
 
     def export_all(self, tab_type: str | None = None) -> str:
         """Export calculations to JSON string."""
-        rows = self.list_calculations(tab_type=tab_type, limit=10000)
+        rows = self.list_calculations(tab_type=tab_type, limit=-1)
         return json.dumps(rows, indent=2, default=str)
 
     def import_records(self, json_str: str) -> int:
-        """Import calculations from a JSON string. Returns count imported."""
+        """Validate and atomically import a self-contained provenance graph.
+
+        Source IDs never refer to destination records. For a selected-record
+        export, include its ancestors or explicitly clear external parent links.
+        """
         records = json.loads(json_str)
-        if not isinstance(records, list):
+        if isinstance(records, dict):
             records = [records]
-        count = 0
-        for rec in records:
-            self._conn.execute(
-                """INSERT INTO calculations
-                   (tab_type, created_at, updated_at, name, tags,
-                    input_json, result_json, parent_id, pinned)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (
-                    rec.get("tab_type", "unknown"),
-                    rec.get("created_at", now_iso()),
-                    rec.get("updated_at", now_iso()),
-                    rec.get("name", ""),
-                    rec.get("tags", ""),
-                    rec.get("input_json", "{}"),
-                    rec.get("result_json", "{}"),
-                    rec.get("parent_id"),
-                    int(bool(rec.get("pinned", 0))),
-                ),
-            )
-            count += 1
-        self._conn.commit()
-        return count
+        if not isinstance(records, list):
+            raise ValueError("History must be a JSON object or list of objects")
+        ids: set[int] = set()
+        parents: dict[int, int | None] = {}
+        prepared = []
+        for index, rec in enumerate(records, 1):
+            if not isinstance(rec, dict):
+                raise ValueError(f"Record {index} must be an object")
+            old_id = rec.get("id")
+            if old_id is not None:
+                if type(old_id) is not int or old_id <= 0 or old_id in ids:
+                    raise ValueError(f"Record {index} has an invalid or duplicate source ID")
+                ids.add(old_id)
+            parent = rec.get("parent_id")
+            if parent is not None and (type(parent) is not int or parent <= 0):
+                raise ValueError(f"Record {index} has an invalid parent ID")
+            if old_id is not None:
+                parents[old_id] = parent
+            values = []
+            for key, default in (("tab_type", "unknown"), ("created_at", now_iso()),
+                                 ("updated_at", now_iso()), ("name", ""), ("tags", ""),
+                                 ("input_json", "{}"), ("result_json", "{}")):
+                value = rec.get(key, default)
+                if not isinstance(value, str):
+                    raise ValueError(f"Record {index}: {key} must be text")
+                if key.endswith("_json") and not isinstance(json.loads(value), dict):
+                    raise ValueError(f"Record {index}: {key} must contain a JSON object")
+                values.append(value)
+            pinned = rec.get("pinned", 0)
+            if pinned not in (0, 1) or not isinstance(pinned, (int, bool)):
+                raise ValueError(f"Record {index}: pinned must be 0 or 1")
+            prepared.append((old_id, parent, (*values, int(pinned))))
+        for _, parent, _ in prepared:
+            if parent is not None and parent not in ids:
+                raise ValueError(f"Missing source parent {parent}; include ancestors or clear parent_id")
+        visited: set[int] = set()
+        for old_id in ids:
+            path: set[int] = set()
+            current = old_id
+            while current is not None and current not in visited:
+                if current in path:
+                    raise ValueError("Source history contains a parent cycle")
+                path.add(current)
+                current = parents[current]
+            visited.update(path)
+
+        # Savepoint also rolls back correctly when called inside a transaction.
+        self._conn.execute("SAVEPOINT history_import")
+        try:
+            mapping = {}
+            inserted = []
+            for old_id, parent, values in prepared:
+                cur = self._conn.execute(
+                    """INSERT INTO calculations
+                       (tab_type, created_at, updated_at, name, tags,
+                        input_json, result_json, pinned)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?)""", values)
+                inserted.append((cur.lastrowid, parent))
+                if old_id is not None:
+                    mapping[old_id] = cur.lastrowid
+            for new_id, parent in inserted:
+                if parent is not None:
+                    self._conn.execute("UPDATE calculations SET parent_id=? WHERE id=?",
+                                       (mapping[parent], new_id))
+            self._conn.execute("RELEASE SAVEPOINT history_import")
+        except Exception:
+            self._conn.execute("ROLLBACK TO SAVEPOINT history_import")
+            self._conn.execute("RELEASE SAVEPOINT history_import")
+            raise
+        return len(prepared)
     # ------------------------------------------------------------------
     # Search
     # ------------------------------------------------------------------

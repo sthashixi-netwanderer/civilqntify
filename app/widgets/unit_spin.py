@@ -28,7 +28,20 @@ from app.unit_preferences import UnitPreferences, get_unit_prefs
 # Display-unit factors: how many display units make one metric unit.
 _F_VOLUME = 1.30795  # yd³ per m³
 _F_MASS = 2.20462  # lb per kg
-_F_WATER_1000 = 264.172  # gal per 1000 L
+_F_WATER_1000 = 0.264172  # thousand US gal per thousand L
+
+
+def rate_to_display(kind: str, value: float, prefs: UnitPreferences) -> float:
+    """Reciprocal quantity conversion, retaining per-1000 water rates."""
+    factor = {"rate_volume": _F_VOLUME, "rate_mass": _F_MASS,
+              "rate_water": _F_WATER_1000}[kind]
+    return value / factor if prefs.is_imperial() else value
+
+
+def rate_to_metric(kind: str, value: float, prefs: UnitPreferences) -> float:
+    factor = {"rate_volume": _F_VOLUME, "rate_mass": _F_MASS,
+              "rate_water": _F_WATER_1000}[kind]
+    return value * factor if prefs.is_imperial() else value
 
 
 class _Kind:
@@ -118,19 +131,19 @@ _KINDS: dict[str, _Kind] = {
     # currency rates: price per metric unit ↔ price per display unit.
     # qty_display = qty_metric × F  ⟹  rate_display = rate_metric / F.
     "rate_volume": _Kind(
-        lambda up, v: v / _F_VOLUME,
-        lambda up, v: v * _F_VOLUME,
+        lambda up, v: rate_to_display("rate_volume", v, up),
+        lambda up, v: rate_to_metric("rate_volume", v, up),
         lambda up: f"per {up.volume_unit()}",
     ),
     "rate_mass": _Kind(
-        lambda up, v: v / _F_MASS,
-        lambda up, v: v * _F_MASS,
+        lambda up, v: rate_to_display("rate_mass", v, up),
+        lambda up, v: rate_to_metric("rate_mass", v, up),
         lambda up: f"per {up.mass_unit()}",
     ),
     "rate_water": _Kind(
-        lambda up, v: v / _F_WATER_1000,
-        lambda up, v: v * _F_WATER_1000,
-        lambda up: "per 1000 gal",
+        lambda up, v: rate_to_display("rate_water", v, up),
+        lambda up, v: rate_to_metric("rate_water", v, up),
+        lambda up: "per 1000 gal" if up.is_imperial() else "per 1000 L",
     ),
 }
 # metric labels for the rate kinds (kind callables run against live prefs,
@@ -156,6 +169,7 @@ class UnitSpinBox(QDoubleSpinBox):
         prefix: str = "",
         parent=None,
     ) -> None:
+        self._kind_name = kind
         self._kind = _KINDS[kind]
         self._metric = float(default)
         self._lo_metric = float(lo)
@@ -213,8 +227,8 @@ class UnitSpinBox(QDoubleSpinBox):
         super().setValue(float(v))
 
     def unit_label(self) -> str:
-        if not self._prefs.is_imperial() and self._kind in _RATE_METRIC_LABELS:
-            return _RATE_METRIC_LABELS[self._kind]
+        if not self._prefs.is_imperial() and self._kind_name in _RATE_METRIC_LABELS:
+            return _RATE_METRIC_LABELS[self._kind_name]
         return self._kind.unit_label(self._prefs)
 
     # ── Internals ───────────────────────────────────────────────────
@@ -230,7 +244,7 @@ class UnitSpinBox(QDoubleSpinBox):
 
     def _apply_unit_scales(self) -> None:
         self._syncing = True
-        self.blockSignals(True)
+        was_blocked = self.blockSignals(True)
         try:
             imperial = self._prefs.is_imperial()
             lo = self._kind.to_display(self._prefs, self._lo_metric)
@@ -249,14 +263,14 @@ class UnitSpinBox(QDoubleSpinBox):
                 super().setPrefix(self._prefix)
             super().setSuffix(f" {self.unit_label()}")
         finally:
-            self.blockSignals(False)
+            self.blockSignals(was_blocked)
             self._syncing = False
 
     def _sync_display(self) -> None:
         self._syncing = True
-        self.blockSignals(True)
+        was_blocked = self.blockSignals(True)
         try:
             super().setValue(self._kind.to_display(self._prefs, self._metric))
         finally:
-            self.blockSignals(False)
+            self.blockSignals(was_blocked)
             self._syncing = False

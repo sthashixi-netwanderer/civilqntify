@@ -90,13 +90,79 @@ def _round1_half_down(value: float) -> float:
     return float(Decimal(repr(value)).quantize(Decimal("0.1"), rounding=ROUND_HALF_DOWN))
 
 
-def _design_wet_density(result: MixDesignResult, inp: MixDesignInput) -> float:
-    """Recompute the design's Item 4.2 wet density (nearest 5 kg).
+MOISTURE_CONDITIONS: tuple[str, ...] = (
+    "ssd", "oven_dry", "air_dried", "surface_wet",
+)
 
-    Mirrors doe.design() exactly: Figure 5 at (water, coarse SG), then the
-    §8.3 air deduction for air-entrained mixes.
+
+def available_moisture_conditions(
+    inp: MixDesignInput | None,
+) -> dict[str, tuple[bool, str]]:
+    """Which BS 1881 Part 125 moisture conditions the inputs actually support.
+
+    Air-dried material only makes sense while the aggregates are no wetter
+    than absorption; surface-wet only once they are wetter. Offering both
+    unconditionally leaves the user to discover the boundary by clicking
+    into a modal error, so the dialog gates its combo from this.
+
+    Args:
+        inp: Design input record, or ``None`` when it is unavailable (in
+            which case only the design-basis condition is offered).
+
+    Returns:
+        Condition key mapped to ``(available, reason)``. The reason is a
+        user-facing sentence, empty when the condition is available.
     """
-    sg = inp.coarse_aggregate.specific_gravity
+    if inp is None:
+        return {
+            c: (c == "ssd",
+                "" if c == "ssd" else "Needs the design input record — "
+                "open this dialog from a DOE design result")
+            for c in MOISTURE_CONDITIONS
+        }
+
+    fa_abs = inp.fine_aggregate.absorption_percent
+    ca_abs = inp.coarse_aggregate.absorption_percent
+    fa_mc = inp.fine_aggregate.moisture_content_percent
+    ca_mc = inp.coarse_aggregate.moisture_content_percent
+    too_dry = [n for n, mc, ab in (("fine", fa_mc, fa_abs), ("coarse", ca_mc, ca_abs))
+               if mc < ab]
+    too_wet = [n for n, mc, ab in (("fine", fa_mc, fa_abs), ("coarse", ca_mc, ca_abs))
+               if mc > ab]
+    detail = (f"({' and '.join(too_dry)} aggregate moisture is below its "
+              f"absorption {fa_abs}/{ca_abs}%)")
+
+    return {
+        "ssd": (True, ""),
+        "oven_dry": (True, ""),
+        "air_dried": (
+            not too_wet,
+            "" if not too_wet else
+            f"Air-dried needs moisture at or below absorption — {detail}. "
+            "Use surface-wet instead.",
+        ),
+        "surface_wet": (
+            not too_dry,
+            "" if not too_dry else
+            f"Surface-wet needs free water on the aggregate, but {detail}. "
+            "Raise the moisture content above absorption, or use air-dried.",
+        ),
+    }
+
+
+def _design_wet_density(result: MixDesignResult, inp: MixDesignInput) -> float:
+    """Carry the actual Item 4.2 density into §6.3.2 feedback.
+
+    The calculation ledger includes the final air deduction when present.
+    Older results without that ledger use the same combined SSD RD policy
+    as doe.design(), never the coarse SG alone (BRE §5.4, Item 4.1).
+    """
+    for step in reversed(result.steps):
+        if step.step_number in (9, 9.1):
+            return float(step.result)
+    sg = getattr(inp, "aggregate_relative_density_ssd", None)
+    if sg is None:
+        sg = (inp.fine_aggregate.specific_gravity + inp.coarse_aggregate.specific_gravity) / 2.0
     density = _round_to_5(get_wet_density(result.water_kg, sg))
     air_pct = result.air_volume_percent or 0.0
     if air_pct > 0:
@@ -336,8 +402,17 @@ def calculate_doe_trial_batches(
                 # (§6.1: batch mass × 100/(100+A), mixing water increased
                 # by the absorbed mass; A is the water needed to bring the
                 # aggregate to SSD.)
-                a_fa = fa_abs if moisture_condition == "oven_dry" else max(0.0, fa_abs - fa_mc)
-                a_ca = ca_abs if moisture_condition == "oven_dry" else max(0.0, ca_abs - ca_mc)
+                # MC and absorption are percentages of oven-dry mass.
+                # For air-dried material A must instead be expressed on
+                # its current mass: 100*(abs−MC)/(100+MC) (§6.1).
+                if moisture_condition == "air_dried" and (fa_mc > fa_abs or ca_mc > ca_abs):
+                    raise ValueError(
+                        f"Air-dried needs moisture at or below absorption, but "
+                        f"fine is {fa_mc}% (absorption {fa_abs}%) and coarse is "
+                        f"{ca_mc}% (absorption {ca_abs}%) — use surface-wet"
+                    )
+                a_fa = fa_abs if moisture_condition == "oven_dry" else 100.0 * (fa_abs - fa_mc) / (100.0 + fa_mc)
+                a_ca = ca_abs if moisture_condition == "oven_dry" else 100.0 * (ca_abs - ca_mc) / (100.0 + ca_mc)
                 dry_fa = bt["fine_agg"] * 100.0 / (100.0 + a_fa) if (100.0 + a_fa) else bt["fine_agg"]
                 dry_ca = bt["coarse_agg"] * 100.0 / (100.0 + a_ca) if (100.0 + a_ca) else bt["coarse_agg"]
                 dry_fa = _round1_half_down(dry_fa)
@@ -364,13 +439,34 @@ def calculate_doe_trial_batches(
                     "strength readings (§6.1)"
                 )
             else:  # surface_wet — condition (d)
-                free_fa = bt["fine_agg"] * max(0.0, fa_mc - fa_abs) / 100.0
-                free_ca = bt["coarse_agg"] * max(0.0, ca_mc - ca_abs) / 100.0
-                free_water = _round1_half_down(free_fa + free_ca)
+                if fa_mc < fa_abs or ca_mc < ca_abs:
+                    raise ValueError(
+                        f"Surface-wet needs free water on the aggregate, but "
+                        f"fine is {fa_mc}% and coarse is {ca_mc}% against "
+                        f"absorption {fa_abs}%/{ca_abs}% — raise the moisture "
+                        f"content above absorption, or use air-dried"
+                    )
+                # SSD = OD*(1+A/100); wet = OD*(1+MC/100).
+                # Increase aggregate masses as well as deducting their
+                # free water (BRE §6.1); retain the batch 1-dp policy.
+                free_fa = pm["fine_agg"] * (fa_mc - fa_abs) / (100.0 + fa_abs)
+                free_ca = pm["coarse_agg"] * (ca_mc - ca_abs) / (100.0 + ca_abs)
+                wet_fa = _round1_half_down((pm["fine_agg"] + free_fa) * volume_m3)
+                wet_ca = _round1_half_down((pm["coarse_agg"] + free_ca) * volume_m3)
+                free_water = _round1_half_down(
+                    wet_fa - bt["fine_agg"] + wet_ca - bt["coarse_agg"]
+                )
+                if free_water > entry["added_water_kg"]:
+                    raise ValueError("Aggregate free water exceeds design free water; reduce aggregate moisture")
                 entry["free_water_kg"] = free_water
                 entry["added_water_kg"] = _round1_half_down(
-                    max(0.0, entry["added_water_kg"] - free_water)
+                    entry["added_water_kg"] - free_water
                 )
+                bt["fine_agg"], bt["coarse_agg"] = wet_fa, wet_ca
+                pm["fine_agg"] = round(pm["fine_agg"] + free_fa, 1)
+                pm["coarse_agg"] = round(pm["coarse_agg"] + free_ca, 1)
+                pm["water"] = round(pm["water"] - free_fa - free_ca, 1)
+                bt["water"] = entry["added_water_kg"]
                 entry["notes"].append(
                     "Surface-wet aggregates carry free water: it is "
                     "deducted from the water added at the mixer (§6.1)"
@@ -542,13 +638,23 @@ def evaluate_doe_trial(
     if actual_water is None:
         actual_water = result.water_kg
 
+    scm_type = None
+    if result.scm_kg > 0 and inp.scms:
+        scm_value = inp.scms[0].type.value
+        scm_type = "pfa" if scm_value in ("fly_ash", "fly_ash_c") else "ggbs"
+    # Figure 7 must use the same strength basis as design: equivalent
+    # cement for pfa (§9.2.2), combined binder for supported ggbs (§10.3).
+    scm_efficiency = PFA_EFFICIENCY_K if scm_type == "pfa" else 1.0
+    strength_binder = result.cement_kg + scm_efficiency * result.scm_kg
+    equivalent_fraction = strength_binder / (result.cement_kg + result.scm_kg)
+    strength["ratio_basis"] = "W/(C+0.30F)" if scm_type == "pfa" else ("W/(C+G)" if scm_type else "W/C")
     revised_wc = result.w_c_ratio
     if cube_strength:
         cement_class = DOEMixDesign._map_cement_class(inp)
         agg_type = DOEMixDesign._map_agg_type(inp)
         ref50 = get_reference_strength(cement_class, agg_type, age_days)  # A
         b_design = result.w_c_ratio  # B
-        b_prime = round(actual_water / result.cement_kg, 4) if result.cement_kg > 0 else b_design  # B′
+        b_prime = actual_water / strength_binder if strength_binder > 0 else b_design  # B′
         c_meas = float(cube_strength)  # C
 
         # Invert the Figure 4 curve family through the trial point
@@ -566,9 +672,15 @@ def evaluate_doe_trial(
         ref50_prime = c_meas * math.exp(-r)  # shifted reference strength
 
         d_new = wc_ratio_from_strength(result.target_mean_strength_mpa, ref50_prime)
+        if c_meas == result.target_mean_strength_mpa:
+            # A matching trial provides no evidence for changing its ratio.
+            d_new = b_prime
 
         # Durability cap (Item 1.8) re-checked on D.
         max_wc = inp.w_c_ratio
+        if max_wc is not None and scm_type == "pfa":
+            # Item 3.8 caps W/(C+F), not strength's W/(C+0.30F).
+            max_wc = max_wc / equivalent_fraction
         cap_note = None
         if max_wc is not None and d_new > max_wc:
             d_new = float(max_wc)
@@ -594,7 +706,9 @@ def evaluate_doe_trial(
                 "air-corrected expectation and confirm the measured air "
                 "content (BRE 331:1997 §8.5)"
             )
-        revised_wc = d_new
+        # Keep exact identity for matching trials; otherwise retain the
+        # supported two-decimal Figure 7 readout for proportioning.
+        revised_wc = d_new if c_meas == result.target_mean_strength_mpa else round(d_new, 2)
 
     # ------------------------------------------------------------------
     # Verdict + revised proportions (§6.3.3)
@@ -640,14 +754,14 @@ def evaluate_doe_trial(
                 # and split back (§9.4 reports C+F on the 5-kg grid).
                 _k = PFA_EFFICIENCY_K
                 cement_new = (100.0 - p_pct) * water_new / (
-                    (100.0 - (1.0 - _k) * p_pct) * strength["D"]
+                    (100.0 - (1.0 - _k) * p_pct) * revised_wc
                 )
                 scm_new = p_pct * cement_new / (100.0 - p_pct)
                 total_new = _round_to_5(cement_new + scm_new)
                 cement_new = total_new * (100.0 - p_pct) / 100.0
                 scm_new = total_new * p_pct / 100.0
             else:  # ggbs: C3 on the combined total, mass-for-mass split
-                total_new = _round_to_5(water_new / strength["D"])
+                total_new = _round_to_5(water_new / revised_wc)
                 scm_new = total_new * p_pct / 100.0
                 cement_new = total_new - scm_new
             if (max_c := getattr(inp, "max_cement_kg", None)) and total_new > max_c:
@@ -658,8 +772,11 @@ def evaluate_doe_trial(
                 )
             if (min_c := getattr(inp, "min_cement_kg", None)) and total_new < min_c:
                 total_new = float(min_c)
+            # Limits apply to combined binder; re-split after enforcement.
+            scm_new = total_new * p_pct / 100.0
+            cement_new = total_new - scm_new
         else:
-            cement_new = _round_to_5(water_new / strength["D"])  # C3
+            cement_new = _round_to_5(water_new / revised_wc)  # C3
             if (max_c := getattr(inp, "max_cement_kg", None)) and cement_new > max_c:
                 warnings.append(
                     f"Revised cement content {cement_new:.0f} kg/m³ "
@@ -669,6 +786,13 @@ def evaluate_doe_trial(
             if (min_c := getattr(inp, "min_cement_kg", None)) and cement_new < min_c:
                 cement_new = float(min_c)
             scm_new = 0.0
+
+        if (float(cube_strength) == result.target_mean_strength_mpa
+                and water_new == actual_water
+                and cement_new + scm_new < result.cement_kg + result.scm_kg):
+            # Preserve a successful trial's binder, including any design
+            # minimum/rounding allowance (BRE §6.3.3, §9.3.6).
+            cement_new, scm_new = result.cement_kg, result.scm_kg
 
         total_agg_new = density_basis - (cement_new + scm_new) - water_new  # C4
         if total_agg_new <= 0:
@@ -680,8 +804,11 @@ def evaluate_doe_trial(
         wc_class = _design_workability_class(inp)
         pct_600 = DOEMixDesign._get_pct_passing_600um(inp)
         nmsa = int(inp.nmsa) if inp.nmsa <= 10 else (20 if inp.nmsa <= 20 else 40)
+        # Figure 6 uses the combined ratio, not pfa's strength ratio (§9.3.5).
+        figure6_ratio = (water_new / (cement_new + scm_new)
+                         if scm_type == "pfa" else round(water_new / (cement_new + scm_new), 2))
         fine_prop_new = get_fine_aggregate_proportion(
-            nmsa=nmsa, wc_ratio=strength["D"], pct_passing_600um=pct_600,
+            nmsa=nmsa, wc_ratio=figure6_ratio, pct_passing_600um=pct_600,
             workability_class=wc_class,
         )
         fine_new = _round_to_5(total_agg_new * fine_prop_new / 100.0)  # C5
@@ -703,6 +830,8 @@ def evaluate_doe_trial(
             },
             "w_c_ratio": strength["D"],
             "fine_proportion_pct": fine_prop_new,
+            "figure6_ratio": figure6_ratio,
+            "combined_water_binder_ratio": water_new / (cement_new + scm_new),
         }
         if result.ca_split_kg:
             # Keep the §5.5 single-size ratios; re-round with the

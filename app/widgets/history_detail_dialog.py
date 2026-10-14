@@ -60,13 +60,13 @@ class HistoryDetailDialog(QDialog):
         # -- Header --
         header = QHBoxLayout()
         id_lbl = QLabel(f"#{self._rec['id']}")
-        id_lbl.setStyleSheet("font-size: 18px; font-weight: bold; color: #1e40af;")
+        id_lbl.setObjectName("dialog-title")
         header.addWidget(id_lbl)
 
         name = self._rec.get("name", "")
         if name:
             name_lbl = QLabel(name)
-            name_lbl.setStyleSheet("font-size: 15px; color: #0b1c30;")
+            name_lbl.setObjectName("stat-highlight")
             header.addWidget(name_lbl)
 
         header.addStretch()
@@ -101,7 +101,7 @@ class HistoryDetailDialog(QDialog):
         row = 0
         for key, value in self._flatten_dict(input_data):
             key_lbl = QLabel(key.replace("_", " ").title() + ":")
-            key_lbl.setStyleSheet("font-weight: 600;")
+            key_lbl.setObjectName("form-label")
             val_lbl = QLabel(str(value))
             val_lbl.setTextInteractionFlags(
                 Qt.TextInteractionFlag.TextSelectableByMouse
@@ -220,7 +220,7 @@ class HistoryDetailDialog(QDialog):
             if value is None or value == "":
                 continue
             key_lbl = QLabel(f"{label}:")
-            key_lbl.setStyleSheet("font-weight: 600;")
+            key_lbl.setObjectName("form-label")
             val_lbl = QLabel(str(value))
             val_lbl.setTextInteractionFlags(
                 Qt.TextInteractionFlag.TextSelectableByMouse
@@ -253,7 +253,7 @@ class HistoryDetailDialog(QDialog):
             if value is None or value == "":
                 continue
             key_lbl = QLabel(f"{key.replace('_', ' ').title()}:")
-            key_lbl.setStyleSheet("font-weight: 600;")
+            key_lbl.setObjectName("form-label")
             val_lbl = QLabel(str(value))
             val_lbl.setTextInteractionFlags(
                 Qt.TextInteractionFlag.TextSelectableByMouse
@@ -311,7 +311,7 @@ class HistoryDetailDialog(QDialog):
             warn_layout = QVBoxLayout(warn_group)
             for w in warnings:
                 lbl = QLabel(f"\u26a0 {w}")
-                lbl.setStyleSheet("color: #f59e0b;")
+                lbl.setObjectName("warning-text")
                 warn_layout.addWidget(lbl)
             content_layout.addWidget(warn_group)
 

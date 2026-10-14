@@ -4,23 +4,57 @@
 Usage:
     python scripts/build_deb.py [VERSION]
 
-Default version is 1.0.6 if not provided.
+Version is read from app/version.py; an optional version must match it.
 """
 
 from __future__ import annotations
 
 import os
 import pathlib
+import re
+import runpy
 import shutil
 import subprocess
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-DEFAULT_VERSION = "1.0.8"
+DEFAULT_VERSION = runpy.run_path(str(ROOT / "app" / "version.py"))["__version__"]
+if not isinstance(DEFAULT_VERSION, str) or not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", DEFAULT_VERSION):
+    raise ValueError("app/version.py must define a numeric major.minor.patch version")
+
+# Debian names for the runtime requirements; fail if a new dependency has
+# no explicit mapping rather than shipping an incomplete source package.
+DEBIAN_PACKAGES = {
+    "pyqt6": "python3-pyqt6", "matplotlib": "python3-matplotlib",
+    "python-docx": "python3-docx", "fpdf2": "python3-fpdf2",
+    "requests": "python3-requests", "scipy": "python3-scipy",
+}
+
+
+def runtime_dependencies() -> str:
+    dependencies = ["python3 (>= 3.10)"]
+    for line in (ROOT / "requirements.txt").read_text(encoding="utf-8").splitlines():
+        if line.startswith("# Development"):
+            break
+        line = line.split("#", 1)[0].strip()
+        if not line:
+            continue
+        match = re.fullmatch(r"([A-Za-z0-9_-]+)(?:>=([0-9.]+))?", line)
+        if not match or match[1].lower() not in DEBIAN_PACKAGES:
+            raise ValueError(f"No Debian runtime dependency mapping for: {line}")
+        package = DEBIAN_PACKAGES[match[1].lower()]
+        dependencies.append(package + (f" (>= {match[2]})" if match[2] else ""))
+    return ", ".join(dependencies)
 
 
 def main() -> int:
+    if sys.argv[1:] == ["--print-version"]:
+        print(DEFAULT_VERSION)
+        return 0
     version = sys.argv[1] if len(sys.argv) > 1 else DEFAULT_VERSION
+    if version != DEFAULT_VERSION or len(sys.argv) > 2:
+        print(f"error: version must match app/version.py ({DEFAULT_VERSION})", file=sys.stderr)
+        return 1
     dpkg_deb = shutil.which("dpkg-deb")
     if not dpkg_deb:
         print("error: dpkg-deb not found. Please install dpkg (e.g. sudo apt install dpkg).", file=sys.stderr)
@@ -108,7 +142,7 @@ def main() -> int:
         "Section: science\n"
         "Priority: optional\n"
         "Architecture: amd64\n"
-        "Depends: python3 (>= 3.9), python3-pyqt6, python3-matplotlib, python3-numpy, python3-pil, python3-requests\n"
+        f"Depends: {runtime_dependencies()}\n"
         "Maintainer: CivilQntify Team <netwandererdotcom@gmail.com>\n"
         "Homepage: https://github.com/sthashixi-netwanderer/civilqntify\n"
         "Description: CivilQntify - Concrete Mix Design & Material Quantification\n"

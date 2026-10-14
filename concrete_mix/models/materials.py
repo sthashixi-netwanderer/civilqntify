@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
+from math import isfinite
 from typing import Optional
 
 
@@ -114,6 +115,14 @@ class Cement:
             )
 
 
+def _validate_aggregate_water(absorption: float, moisture: float) -> None:
+    # ACI §4.7.8: both are water mass / oven-dry aggregate mass, not
+    # signed free moisture. No arbitrary upper percentage is imposed.
+    for name, value in (("absorption", absorption), ("moisture content", moisture)):
+        if not isfinite(value) or value < 0:
+            raise ValueError(f"Aggregate {name} must be finite and non-negative")
+
+
 @dataclass(frozen=True)
 class FineAggregate:
     """Fine aggregate (sand) properties.
@@ -138,6 +147,7 @@ class FineAggregate:
             raise ValueError(
                 f"Fine aggregate specific gravity {self.specific_gravity} outside valid range [2.2, 5.5]"
             )
+        _validate_aggregate_water(self.absorption_percent, self.moisture_content_percent)
         if self.fineness_modulus is not None and not 1.0 <= self.fineness_modulus <= 4.0:
             raise ValueError(
                 f"Fineness modulus {self.fineness_modulus} outside valid range [1.0, 4.0]"
@@ -171,6 +181,15 @@ class CoarseAggregate:
             raise ValueError(
                 f"Coarse aggregate specific gravity {self.specific_gravity} outside valid range [2.2, 5.5]"
             )
+        _validate_aggregate_water(self.absorption_percent, self.moisture_content_percent)
+        # ACI §4.7.7–4.7.8: dry-rodded bulk density must leave interparticle
+        # voids; SG here is SSD, so convert its particle density to dry basis.
+        dry_particle_density = self.specific_gravity * 1000.0 / (1.0 + self.absorption_percent / 100.0)
+        if not isfinite(self.bulk_density_kg_m3) or not 0 < self.bulk_density_kg_m3 < dry_particle_density:
+            raise ValueError(
+                "Coarse aggregate bulk density must be finite, positive and below "
+                f"the dry particle density ({dry_particle_density:g} kg/m³)"
+            )
         # 80/150 mm are IS 10262:2019 mass-concreting sizes (§9); 12.5 mm is
         # an IS 10262 high-strength size (Tables 6/7/8/10, §6.2.2); each
         # design code validates its own supported subset (DOE: 10/20/40;
@@ -190,6 +209,9 @@ class SCM:
     replacement_percent: float = 20.0  # % of cement replaced
 
     def __post_init__(self) -> None:
+        # ACI §4.7.7.3: each SCM needs its own physical particle density.
+        if not isfinite(self.specific_gravity) or self.specific_gravity <= 0:
+            raise ValueError("SCM specific gravity must be finite and positive")
         if not 5.0 <= self.replacement_percent <= 70.0:
             raise ValueError(
                 f"SCM replacement {self.replacement_percent}% outside valid range [5, 70]"

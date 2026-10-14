@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from concrete_mix.codes.aci211 import ACI211MixDesign
 from concrete_mix.codes.doe import DOEMixDesign
 
-from concrete_mix.codes.tables.doe_tables import get_k_value, get_standard_deviation
+from concrete_mix.codes.tables.doe_tables import get_k_value, resolve_standard_deviation
 from concrete_mix.codes.tables.is_tables import (
     _grade_from_fck,
     calculate_target_strength as calculate_is_target_strength,
@@ -150,7 +150,7 @@ def calculate_target_strength(
                 raise ValueError(
                     f"Strength margin M must be positive. Got {margin_mpa} MPa."
                 )
-            target = float(math.ceil(fck + margin - 1e-9))
+            target = DOEMixDesign().calculate_target_mean_strength(fck, margin_mpa=margin)
             formula = (
                 f"fm = fc + M = {fck:.2f} + {margin:.2f} "
                 f"→ {target:.0f} (user-specified M, rounded up, C2)"
@@ -167,19 +167,16 @@ def calculate_target_strength(
             )
         if not 0.5 <= defective_percent <= 15.0:
             raise ValueError("Defective percent must be between 0.5 and 15%")
-        if num_test_cubes is None:
-            num_test_cubes = 20
-        if num_test_cubes <= 0:
-            raise ValueError("Number of test cubes (n) must be positive")
-
-        standard_deviation = get_standard_deviation(fck, n=num_test_cubes)
+        standard_deviation = resolve_standard_deviation(fck, std_deviation, num_test_cubes)
         k = get_k_value(defective_percent)
         target = DOEMixDesign().calculate_target_mean_strength(
             fck,
+            std_dev=std_deviation,
             num_test_cubes=num_test_cubes,
             defective_percent=defective_percent,
         )
-        line = "Line A" if num_test_cubes < 20 else "Line B"
+        line = ("Line A" if num_test_cubes is None or num_test_cubes < 20
+                else "record / Line B minimum")
         formula = (
             f"fm = fc + k × s = {fck:.2f} + {k:.2f} × "
             f"{standard_deviation:.2f} ({line}, n={num_test_cubes})"

@@ -34,6 +34,11 @@ class MixDesignResult:
     water_kg: float
     cement_kg: float
     scm_kg: float = 0.0
+    # Identity of the SCM actually used, e.g. "ggbfs". None when the design
+    # has no supplementary cementitious material. Carried on the result so
+    # quantification and pricing can name the material without going back to
+    # the form the design came from.
+    scm_type: Optional[str] = None
     fine_aggregate_kg: float = 0.0
     coarse_aggregate_kg: float = 0.0
     air_volume_percent: float = 0.0
@@ -113,6 +118,7 @@ class MixDesignResult:
             water_kg=self.water_kg * factor,
             cement_kg=self.cement_kg * factor,
             scm_kg=self.scm_kg * factor,
+            scm_type=self.scm_type,
             fine_aggregate_kg=self.fine_aggregate_kg * factor,
             coarse_aggregate_kg=self.coarse_aggregate_kg * factor,
             air_volume_percent=self.air_volume_percent,

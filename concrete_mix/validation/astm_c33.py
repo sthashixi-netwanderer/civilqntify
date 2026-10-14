@@ -41,7 +41,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from concrete_mix.codes.tables import astm_c33_quality as q
-from concrete_mix.engine.psd import PSDResult, check_conformance
+from concrete_mix.engine.psd import (
+    ASTM_FINE_SIEVES, PSDResult, check_conformance, grading_evidence_issues,
+)
 from concrete_mix.validation.base import (
     FAIL,
     NOT_EVALUATED,
@@ -144,6 +146,14 @@ def _grading_check(
 ) -> ClauseCheck:
     """Clause 6.1 / 10.1 grading-band check from the computed PSD."""
     conforms = check_conformance(result, band)
+    issues = grading_evidence_issues(result, band)
+    if issues:
+        return ClauseCheck(
+            clause=clause, title=title, status=NOT_EVALUATED,
+            requirement="All specified grading controls must be measured",
+            measured="incomplete or invalid grading evidence",
+            detail="; ".join(issues),
+        )
     violations = []
     for s, p, ok in zip(result.sieve_sizes, result.percent_passing, conforms):
         if ok or s not in band:
@@ -308,16 +318,25 @@ def evaluate_astm_c33_fine(
 
     # ── Clause 6.2 — 45 % max between consecutive sieves ──
     pairs: list[tuple[float, float, float]] = []  # (coarser, finer, retained %)
-    for i in range(len(result.sieve_sizes) - 1):
-        coarser = result.sieve_sizes[i]
-        finer = result.sieve_sizes[i + 1]
-        retained = (
-            result.cumulative_percent_retained[i + 1]
-            - result.cumulative_percent_retained[i]
-        )
-        pairs.append((coarser, finer, retained))
+    # Clause 6.2 refers to the Clause 6.1 series, not arbitrary adjacent
+    # input rows. Missing controls cannot establish the 45 % restriction.
+    interval_issues = grading_evidence_issues(
+        result, dict.fromkeys(ASTM_FINE_SIEVES, (0, 100))
+    )
+    passing = dict(zip(result.sieve_sizes, result.percent_passing))
+    if not interval_issues:
+        for coarser, finer in zip(ASTM_FINE_SIEVES, ASTM_FINE_SIEVES[1:]):
+            pairs.append((coarser, finer, passing[coarser] - passing[finer]))
     over = [p for p in pairs if p[2] > q.FINE_MAX_RETAINED_BETWEEN_SIEVES_PCT + _EPS]
-    if over:
+    if interval_issues:
+        checks.append(ClauseCheck(
+            clause="6.2", title="Not more than 45 % between consecutive sieves",
+            status=NOT_EVALUATED,
+            requirement="All Clause 6.1 sieve intervals must be measured",
+            measured="incomplete or invalid grading evidence",
+            detail="; ".join(interval_issues),
+        ))
+    elif over:
         detail = "; ".join(
             f"{_fmt(r)} % passing {sieve_label(c)} and retained on "
             f"{sieve_label(f)}"
