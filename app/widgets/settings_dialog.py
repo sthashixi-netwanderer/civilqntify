@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QCheckBox,
-    QDialog,
     QGroupBox,
     QHBoxLayout,
     QLabel,
@@ -18,9 +16,10 @@ from PyQt6.QtWidgets import (
 
 from app.unit_preferences import UnitPreferences, UnitSystem
 from app.version import BUILD_TAG, STANDARDS_INFO, __version__
+from app.widgets.frameless_dialog import FramelessDialog
 
 
-class SettingsDialog(QDialog):
+class SettingsDialog(FramelessDialog):
     """Dialog for changing unit system preferences."""
 
     def __init__(
@@ -28,16 +27,18 @@ class SettingsDialog(QDialog):
         unit_prefs: UnitPreferences,
         parent: QWidget | None = None,
     ) -> None:
-        super().__init__(parent)
+        super().__init__(parent, title="Settings")
         self._prefs = unit_prefs
-        self.setWindowTitle("Settings")
         self.setMinimumWidth(400)
-        self.setModal(True)
+        # Modeless: opened through open_detached as an independent window,
+        # so the main window stays usable and the window switcher can move
+        # between this dialog and the rest of the app.
         self._build_ui()
         self._load_current()
+        self.resize(440, 700)
 
     def _build_ui(self) -> None:
-        root = QVBoxLayout(self)
+        root = self.content_layout
         root.setSpacing(16)
         root.setContentsMargins(20, 20, 20, 20)
 
@@ -55,7 +56,7 @@ class SettingsDialog(QDialog):
         root.addWidget(desc)
 
         # ── Unit System ──
-        sys_group = QGroupBox("Unit System")
+        sys_group = QGroupBox("Unit system")
         sys_layout = QVBoxLayout(sys_group)
 
         self._radio_metric = QRadioButton("Metric (kg, m\u00b3, MPa)")
@@ -65,7 +66,7 @@ class SettingsDialog(QDialog):
         root.addWidget(sys_group)
 
         # ── Weather API Key ──
-        api_group = QGroupBox("Weather API Settings")
+        api_group = QGroupBox("Weather API settings")
         api_layout = QVBoxLayout(api_group)
 
         api_desc = QLabel(
@@ -76,8 +77,8 @@ class SettingsDialog(QDialog):
         api_desc.setWordWrap(True)
         api_layout.addWidget(api_desc)
 
-        # Toolbar visibility toggle for the Weather button
-        self._show_weather_check = QCheckBox("Show weather button in toolbar")
+        # Title-bar visibility toggle for the Weather button
+        self._show_weather_check = QCheckBox("Show weather button in title bar")
         api_layout.addWidget(self._show_weather_check)
 
         spacer = QLabel()
@@ -98,7 +99,7 @@ class SettingsDialog(QDialog):
         root.addWidget(api_group)
 
         # ── About & Build Information ──
-        about_group = QGroupBox("Application & Build Information")
+        about_group = QGroupBox("Application & build information")
         about_layout = QVBoxLayout(about_group)
         about_layout.setSpacing(6)
 
@@ -116,6 +117,11 @@ class SettingsDialog(QDialog):
         about_layout.addWidget(std_lbl)
 
         root.addWidget(about_group)
+
+        # Stretch above the buttons pins the footer to the bottom edge so
+        # the dialog never shows dead space under the action row when the
+        # window is enlarged.
+        root.addStretch(1)
 
         # ── Buttons ──
         btn_row = QHBoxLayout()
@@ -140,7 +146,7 @@ class SettingsDialog(QDialog):
         api_key = self._prefs.weather_api_key()
         self._api_key_input.setText(api_key)
 
-        # Load toolbar visibility toggle
+        # Load title-bar visibility toggle
         self._show_weather_check.setChecked(self._prefs.weather_button_visible())
 
     def _apply(self) -> None:
@@ -154,7 +160,7 @@ class SettingsDialog(QDialog):
         api_key = self._api_key_input.text().strip()
         self._prefs.set_weather_api_key(api_key)
 
-        # Save Weather button toolbar visibility
+        # Save Weather button title-bar visibility
         self._prefs.set_weather_button_visible(self._show_weather_check.isChecked())
 
         self.accept()

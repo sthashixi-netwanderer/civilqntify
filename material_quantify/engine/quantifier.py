@@ -132,7 +132,7 @@ class MaterialQuantifier:
         # Cement bags (round up)
         bags = math.ceil(cement_total / td.cement_bag_weight_kg)
 
-        # ACI §4.7.7.2: SSD absolute volume excludes interparticle voids.
+        # ACI clause 4.7.7.2: SSD absolute volume excludes interparticle voids.
         # Purchasing volume uses a bulk density on the same as-delivered
         # moisture basis as the field mass, never particle SG.
         if not math.isfinite(td.fine_agg_bulk_density_kg_m3) or td.fine_agg_bulk_density_kg_m3 <= 0:

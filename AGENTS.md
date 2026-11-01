@@ -18,6 +18,7 @@ The following documents have been extracted from authoritative concrete design s
 | [`BS-882-1992-Aggregates-for-Concrete.md`](./BS-882-1992-Aggregates-for-Concrete.md) | BS 882:1992 | British aggregate grading Tables 3–6; verified transcriptions precede raw OCR |
 | [`BS-812-103.1-Particle-Size-Distribution.md`](./BS-812-103.1-Particle-Size-Distribution.md) | BS 812-103.1:1985 | Sieving methods, mass calculations and whole-percent reporting |
 | [`BS-812-105.1-Flakiness-Index.md`](./BS-812-105.1-Flakiness-Index.md) | BS 812-105.1:1989 | Independent particle-shape/flakiness test, not PSD grading limits |
+| [`BS-3892-1-1997-PFA-Specification.md`](./BS-3892-1-1997-PFA-Specification.md) | BS 3892-1:1997 | Pfa (pulverized-fuel ash) for use with Portland cement — clauses 5–12 limits, annex E/F test methods, annex G conformity incl. Table G.3 major defects; the pfa grade BRE 331 clause 9.1 assumes |
 
 ---
 
@@ -33,21 +34,23 @@ The following documents have been extracted from authoritative concrete design s
 
 | Task | Reference Document(s) |
 |------|----------------------|
-| Water-cement ratio calculations | Both ACI 211.1-22 (§5, §9), IS 10262:2019 (Table 8, Fig. 1) and BRE 331:1997 (Figure 4, §9.3) |
-| Target strength calculations | IS 10262:2019 (Clause 7.1, Table 1, Table 2) and BRE 331:1997 (§5.1, Figure 3) |
-| Aggregate volume/proportions | Both ACI 211.1-22 (§5.3, Tables 5.3.3–5.3.6), IS 10262:2019 (Table 10, Table 13) and BRE 331:1997 (Figure 6) |
-| Coarse aggregate PSD / grading bands | ASTM C33/C33M Table 2, supported project mappings: 10 mm → Size 8, 20 mm → Size 67, 40 mm → Size 467; ACI 211.1-22 (§4.3.1, §A.4.2) |
+| Water-cement ratio calculations | Both ACI 211.1-22 (clause 5, clause 9), IS 10262:2019 (Table 8, Fig. 1) and BRE 331:1997 (Figure 4, clause 9.3) |
+| Target strength calculations | IS 10262:2019 (Clause 7.1, Table 1, Table 2) and BRE 331:1997 (clause 5.1, Figure 3) |
+| Aggregate volume/proportions | Both ACI 211.1-22 (clause 5.3, Tables 5.3.3–5.3.6), IS 10262:2019 (Table 10, Table 13) and BRE 331:1997 (Figure 6) |
+| Coarse aggregate PSD / grading bands | ASTM C33/C33M Table 2, supported project mappings: 10 mm → Size 8, 20 mm → Size 67, 40 mm → Size 467; ACI 211.1-22 (clause 4.3.1, clause A.4.2) |
 | Water content selection | Both ACI 211.1-22 (Tables 5.3.3), IS 10262:2019 (Table 7, Table 12) and BRE 331:1997 (Table 3, Table 9) |
-| Admixture/sp superplasticizer logic | IS 10262:2019 (Annex G), ACI 211.1-22 (§6.3) |
-| Paste volume calculations | ACI 211.1-22 (§9.5, Example 4) |
-| Cementitious efficiency factor | ACI 211.1-22 (§9.4, Example 3) and BRE 331:1997 (§9, efficiency factor k=0.30) |
+| Admixture/sp superplasticizer logic | IS 10262:2019 (Annex G), ACI 211.1-22 (clause 6.3) |
+| Paste volume calculations | ACI 211.1-22 (clause 9.5, Example 4) |
+| Cementitious efficiency factor | ACI 211.1-22 (clause 9.4, Example 3) and BRE 331:1997 (clause 9, efficiency factor k=0.30) |
 | High-density concrete | ACI 211.1-22 (Appendix B) |
 | Mass concreting | IS 10262:2019 (Annex F) |
 | SCC (Self-Compacting Concrete) | IS 10262:2019 (Annex E) |
-| Moisture adjustments for aggregates | Both ACI 211.1-22 (§9.3.8) and IS 10262:2019 (D-9.1 note) |
+| Moisture adjustments for aggregates | Both ACI 211.1-22 (clause 9.3.8) and IS 10262:2019 (D-9.1 note) |
 | Exposure classes / durability requirements | IS 10262:2019 (Table 3, Table 5 of IS 456) and ACI 211.1-22 (Tables 4.7.3a–4.7.3d) |
-| Fly ash / SCM replacement | Both ACI 211.1-22 (§6), IS 10262:2019 (D-7, F-7) and BRE 331:1997 (§9, §10) |
-| Trial batch procedures | Both ACI 211.1-22 (§9.3.9, Appendix A.5), IS 10262:2019 (§9, Annex D/E/F) and BRE 331:1997 (§5.6, §7) |
+| Fly ash / SCM replacement | Both ACI 211.1-22 (clause 6), IS 10262:2019 (D-7, F-7) and BRE 331:1997 (clause 9, clause 10) |
+| pfa quality / conformity (clauses 5–12, Table G.3) | BS 3892-1:1997 (extracted in BS-3892-1-1997-PFA-Specification.md) — implemented in `concrete_mix/validation/bs3892.py`; BRE 331 clause 9.1 assumes pfa to this grade |
+| DOE Portland cement/pfa design (clause 9) | BRE 331:1997 clause 9 — Table 9 Parts A/B, Table 10, k = 0.30 (28-day only, clause 9.2.2), calculations C6–C9, Figure 6 entered at W/(C+F) |
+| Trial batch procedures | Both ACI 211.1-22 (clause 9.3.9, Appendix A.5), IS 10262:2019 (clause 9, Annex D/E/F) and BRE 331:1997 (clause 5.6, clause 7) |
 
 ### When Modifying UI/Display of Mix Results
 
@@ -70,12 +73,12 @@ The following documents have been extracted from authoritative concrete design s
 
 - Use BS 882:1992 Tables 3/4 with BS 812-103.1:1985 testing, not ASTM/IS near-equivalent sieve apertures. BS coarse grading apertures are 50, 37.5, 20, 14, 10, 5 and 2.36 mm; sand uses 10, 5, 2.36, 1.18, 0.600, 0.300 and 0.150 mm.
 - Use the verified table transcriptions in the BS 882 Markdown, not uncorrected OCR. The supplied scan is incomplete after printed page 7.
-- Table 4 C/M/F are overlapping additional limits applied with overall limits, not IS grading zones. Respect the crushed-rock 150 µm exception and heavy-duty-floor restriction. A single PSD cannot establish the consecutive-sample requirement in §5.2.1.
+- Table 4 C/M/F are overlapping additional limits applied with overall limits, not IS grading zones. Respect the crushed-rock 150 µm exception and heavy-duty-floor restriction. A single PSD cannot establish the consecutive-sample requirement in clause 5.2.1.
 - BS plots use a numerical linear sieve-aperture axis and straight segments as an explicit app display policy. Do not describe this as a mandatory BS 812 plotting scale. IS/ASTM remain logarithmic. Never reuse log-space smoothing or characteristic-diameter annotations on the BS display.
-- Under BS 812-103.1 §§7–8, washed samples use original dry mass M1; incorporate M1−M2 exactly once with dry-sieved fines. Table 6 separately uses the washing result specified by §7.2.1; missing evidence means not assessed.
-- Report BS passing percentages to whole numbers (§10); half-up ties are app policy. Keep calculation values unrounded. Apply the measured 600 µm BS value to DOE using the same reporting precision; do not substitute C/M/F or a synthetic interpolated measurement.
-- BRE §1.2.5 uses sand percentage passing 600 µm, not combined grading curves. Keep DOE design nominal sizes 10/20/40 mm; a BS PSD reference of 14 or 5 mm must not silently map to one of these.
-- BS 812-105.1 flakiness is a separate test. A supplied measured FI can be compared with BS 882 §4.2, but cannot be derived from PSD mass data. Passing PSD checks does not establish full BS 882 compliance.
+- Under BS 812-103.1 clauses 7–8, washed samples use original dry mass M1; incorporate M1−M2 exactly once with dry-sieved fines. Table 6 separately uses the washing result specified by clause 7.2.1; missing evidence means not assessed.
+- Report BS passing percentages to whole numbers (clause 10); half-up ties are app policy. Keep calculation values unrounded. Apply the measured 600 µm BS value to DOE using the same reporting precision; do not substitute C/M/F or a synthetic interpolated measurement.
+- BRE clause 1.2.5 uses sand percentage passing 600 µm, not combined grading curves. Keep DOE design nominal sizes 10/20/40 mm; a BS PSD reference of 14 or 5 mm must not silently map to one of these.
+- BS 812-105.1 flakiness is a separate test. A supplied measured FI can be compared with BS 882 clause 4.2, but cannot be derived from PSD mass data. Passing PSD checks does not establish full BS 882 compliance.
 
 ### When Adding New Features
 
@@ -98,10 +101,11 @@ Use whichever value is **higher**.
 ### All codes — Target strength rounding (app policy)
 
 ```
-Target = ceil(exact formula value) to whole MPa   (IS Cl. 4.2, ACI §4.7.4, DOE C2 §7.1)
+Target = ceil(exact formula value) to 0.1 MPa   (IS Cl. 4.2, ACI clause 4.7.4, DOE C2 clause 7.1)
 ```
 The standards state no rounding rule for IS/ACI (DOE C2 rounds up); the app
-rounds every target UP to whole MPa — conservative, never under-designs.
+rounds every target UP to one decimal place — conservative, never
+under-designs. Implemented in `concrete_mix/utils/rounding.py`.
 
 ### IS 10262:2019 — Volume Calculation Formula
 
@@ -130,17 +134,17 @@ Paste Volume (%) = (Volume of cement + Volume of water) / Total concrete volume 
 ### BRE 331:1997 (DOE Method) — Target Strength, density & aggregate
 
 ```
-fm = ceil(fc + k × s)                                           (Target mean strength: C2 "two significant figures", rounded up — 45.68 → 46, §7.1)
+fm = ceil(fc + k × s to 0.1 MPa)                                (Target mean strength: C2 "two significant figures", rounded up — 45.68 → 45.7, clause 7.1)
 wc_ratio = 0.5 - 0.370938 * R + 0.045970 * R^2                  (W/C ratio, where R = ln(target/ref); read to 2 dp as in C3)
 density = 1144.3 * RD + 5.04 * W - 2.4590 * RD * W - 357.8      (Wet density of compacted concrete; Item 4.2 expresses it to the nearest 5 kg)
 Fine agg % = bilinear readout of Figure 6 panel (NMSA page × workability class 0–3) at (wc_ratio, %passing 600 µm)
   classes: 0 = Slump 0–10 mm / Vebe >12 s; 1 = 10–30 mm / 6–12 s; 2 = 30–60 mm / 3–6 s; 3 = 60–180 mm / 0–3 s
 ```
 
-### BRE 331:1997 (DOE Method) — Reporting/rounding chain (per the worked examples §7.1–§7.4, §8.6, §9.4)
+### BRE 331:1997 (DOE Method) — Reporting/rounding chain (per the worked examples clause 7.1–clause 7.4, clause 8.6, clause 9.4)
 
-- Cement C3 = (W ÷ w/c) rounded to the **nearest 5 kg** and the rounded value chains into C4 (§7.4: 215 ÷ 0.37 = 581 → 580; §7.1: 2400 − 340 − 160 = 1900).
-- Mixed-aggregate water = round5(2/3·Wf + 1/3·Wc) (§7.4: 213.3 → 215; §8.6: 146.7 → 145).
+- Cement C3 = (W ÷ w/c) rounded to the **nearest 5 kg** and the rounded value chains into C4 (clause 7.4: 215 ÷ 0.37 = 581 → 580; clause 7.1: 2400 − 340 − 160 = 1900).
+- Mixed-aggregate water = round5(2/3·Wf + 1/3·Wc) (clause 7.4: 213.3 → 215; clause 8.6: 146.7 → 145).
 - C4 total aggregate = D − C − W; C5 fine = round5(total × fines %), coarse = total − fine.
 - Every step value must equal the reported result-panel quantity (no hidden final re-rounding).
 

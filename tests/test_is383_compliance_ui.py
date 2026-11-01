@@ -235,7 +235,11 @@ class TestHistoryRoundTrip:
 
         tab.is_coarse_acv_spin.setValue(28.0)
         tab.is_coarse_wearing_check.setChecked(True)
-        masses = [0, 0, 0, 50, 200, 200, 150, 320, 80]
+        # Mass stack for the band-required graded-40 sieves only (40/20/
+        # 10/4.75 mm): hidden-sieve masses from the full stack (16 → 20,
+        # 12.5 → 10, 2.36 → 4.75) are combined into their nearest visible
+        # sieve, keeping the 1000 g total.
+        masses = [0, 250, 350, 400]
         _fill(tab, masses, 0)
         tab._on_compute_plot()
 

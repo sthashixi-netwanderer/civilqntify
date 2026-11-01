@@ -1,14 +1,14 @@
-"""DOE (BRE 331:1997 §6) trial-mix batch schedule and feedback evaluation.
+"""DOE (BRE 331:1997 clause 6) trial-mix batch schedule and feedback evaluation.
 
 Source: "Design of normal concrete mixes" (BR 331), 2nd edition, 1997,
-§6 "Trial mixes" (production §6.1, tests §6.2, adjustments §6.3).
+clause 6 "Trial mixes" (production clause 6.1, tests clause 6.2, adjustments clause 6.3).
 
 Two pure functions serve the DOE trial-mixes dialog:
 
 ``calculate_doe_trial_batches``
-    Scales the design quantities to a trial volume (§6.1 — typically
+    Scales the design quantities to a trial volume (clause 6.1 — typically
     0.05 m³ for six 150 mm cubes plus slump/Vebe and density tests),
-    optionally adds w/c variant batches at the same water content (§6
+    optionally adds w/c variant batches at the same water content (clause 6
     intro: "it may be expedient to prepare two or more initial trial
     mixes with the same water content but with different water/cement
     ratios"), and converts the schedule to the selected BS 1881 Part 125
@@ -16,10 +16,10 @@ Two pure functions serve the DOE trial-mixes dialog:
     scales aggregates by 100/(100+A) and adds the absorption water).
 
 ``evaluate_doe_trial``
-    Applies the §6.3 feedback loop to measured trial results: workability
-    assessment (§6.3.1, Table 3), density correction of the unit
-    proportions (§6.3.2), and the Figure 7 strength adjustment that
-    re-estimates the free-water/cement ratio (§6.3.3) via the app's
+    Applies the clause 6.3 feedback loop to measured trial results: workability
+    assessment (clause 6.3.1, Table 3), density correction of the unit
+    proportions (clause 6.3.2), and the Figure 7 strength adjustment that
+    re-estimates the free-water/cement ratio (clause 6.3.3) via the app's
     Figure 4 model, ending in a minor-adjustment / re-trial verdict.
 
 App-policy items (documented per AGENTS.md — the standard is silent):
@@ -59,20 +59,20 @@ _WC_QUAD = 0.045970
 _WC_CENTER = 0.5
 
 # App policy: minor adjustment (production mixes without further trials)
-# vs large adjustment (second trial mix advised) — BRE 331:1997 §6.3.3
+# vs large adjustment (second trial mix advised) — BRE 331:1997 clause 6.3.3
 # distinguishes "minor" from "large" without a numeric boundary.
 MINOR_ADJUSTMENT_WC_LIMIT = 0.05
 
-# §6.2 tests on trial mixes (BS 1881 parts cited by BRE 331:1997 §6.2),
-# plus §6.1's preparation standard.
+# clause 6.2 tests on trial mixes (BS 1881 parts cited by BRE 331:1997 clause 6.2),
+# plus clause 6.1's preparation standard.
 TEST_CHECKLIST = [
-    ("Preparation of trial mixes", "BS 1881:Part 125 (BRE 331:1997 §6.1)"),
-    ("Slump test", "BS 1881:Part 102 (BRE 331:1997 §6.2)"),
-    ("Vebe time test", "BS 1881:Part 104 (BRE 331:1997 §6.2)"),
-    ("Density (fresh concrete)", "BS 1881:Part 107 (BRE 331:1997 §6.2)"),
-    ("Making test cubes", "BS 1881:Part 108 (BRE 331:1997 §6.2)"),
-    ("Normal curing", "BS 1881:Part 111 (BRE 331:1997 §6.2)"),
-    ("Compression testing of cubes", "BS 1881:Part 116 (BRE 331:1997 §6.2)"),
+    ("Preparation of trial mixes", "BS 1881:Part 125 (BRE 331:1997 clause 6.1)"),
+    ("Slump test", "BS 1881:Part 102 (BRE 331:1997 clause 6.2)"),
+    ("Vebe time test", "BS 1881:Part 104 (BRE 331:1997 clause 6.2)"),
+    ("Density (fresh concrete)", "BS 1881:Part 107 (BRE 331:1997 clause 6.2)"),
+    ("Making test cubes", "BS 1881:Part 108 (BRE 331:1997 clause 6.2)"),
+    ("Normal curing", "BS 1881:Part 111 (BRE 331:1997 clause 6.2)"),
+    ("Compression testing of cubes", "BS 1881:Part 116 (BRE 331:1997 clause 6.2)"),
 ]
 
 
@@ -81,7 +81,7 @@ TEST_CHECKLIST = [
 # ----------------------------------------------------------------------
 
 def _round1_half_down(value: float) -> float:
-    """Round to 1 dp, halves going down (§7.1: 25.75 → 25.7, 69.25 → 69.2).
+    """Round to 1 dp, halves going down (clause 7.1: 25.75 → 25.7, 69.25 → 69.2).
 
     The standard's 50-litre example prints 25.7 and 69.2 where exact
     scaling gives 25.75 and 69.25, so batch masses are rounded half-down
@@ -151,11 +151,11 @@ def available_moisture_conditions(
 
 
 def _design_wet_density(result: MixDesignResult, inp: MixDesignInput) -> float:
-    """Carry the actual Item 4.2 density into §6.3.2 feedback.
+    """Carry the actual Item 4.2 density into clause 6.3.2 feedback.
 
     The calculation ledger includes the final air deduction when present.
     Older results without that ledger use the same combined SSD RD policy
-    as doe.design(), never the coarse SG alone (BRE §5.4, Item 4.1).
+    as doe.design(), never the coarse SG alone (BRE clause 5.4, Item 4.1).
     """
     for step in reversed(result.steps):
         if step.step_number in (9, 9.1):
@@ -196,7 +196,7 @@ def _table3_water(inp: MixDesignInput, workability_class: int) -> float:
 def _scm_mode(result: MixDesignResult) -> str | None:
     """'pfa' / 'ggbs' when the design carries an SCM, else None."""
     if result.scm_kg and result.scm_kg > 0:
-        # The DOE engine supports only pfa (§9) or ggbs (§10); the split
+        # The DOE engine supports only pfa (clause 9) or ggbs (clause 10); the split
         # mode matters only for the cementitious recomputation, and both
         # branch on which addition is present.
         return "scm"
@@ -223,7 +223,7 @@ def _batch_constituents(
 
 
 def _scale_masses(per_m3: dict[str, float], volume_m3: float) -> dict[str, float]:
-    """Scale per-m³ constituents to the trial volume (§6.1), 1 dp half-down.
+    """Scale per-m³ constituents to the trial volume (clause 6.1), 1 dp half-down.
 
     ``_round_to_5`` yields ints for whole-5-kg contents, so the numeric
     check must accept both int and float.
@@ -238,7 +238,7 @@ def _scale_masses(per_m3: dict[str, float], volume_m3: float) -> dict[str, float
 
 
 # ----------------------------------------------------------------------
-# §6.1 — batch schedule
+# clause 6.1 — batch schedule
 # ----------------------------------------------------------------------
 
 def calculate_doe_trial_batches(
@@ -249,24 +249,24 @@ def calculate_doe_trial_batches(
     include_variants: bool = False,
     moisture_condition: str = "ssd",
 ) -> dict[str, Any]:
-    """Build the §6.1 trial-batch schedule from a DOE design result.
+    """Build the clause 6.1 trial-batch schedule from a DOE design result.
 
     Args:
         result: DOE MixDesignResult (``result._input`` used when *inp* is
             omitted).
         inp: The design input record. Required for variant batches and
             for non-SSD moisture conditions (absorption / grading data).
-        volume_m3: Trial volume; §6.1's reference batch is 0.05 m³
+        volume_m3: Trial volume; clause 6.1's reference batch is 0.05 m³
             (six 150 mm cubes + slump/Vebe/density tests).
         wc_step: w/c offset of the optional variant batches.
         include_variants: Generate the ±wc_step variant batches at the
-            same water content (§6 intro). Plain mixes only.
+            same water content (clause 6 intro). Plain mixes only.
         moisture_condition: "ssd" | "oven_dry" | "air_dried" |
-            "surface_wet" (BS 1881 Part 125 conditions a–d, §6.1).
+            "surface_wet" (BS 1881 Part 125 conditions a–d, clause 6.1).
 
     Returns:
         Dict with ``batches`` (per-m³ and trial-volume masses), the
-        §6.2 ``test_checklist`` and any ``warnings``.
+        clause 6.2 ``test_checklist`` and any ``warnings``.
     """
     if volume_m3 <= 0:
         raise ValueError("Trial volume must be positive")
@@ -289,7 +289,7 @@ def calculate_doe_trial_batches(
     if include_variants and _scm_mode(result):
         raise ValueError(
             "w/c variant batches are limited to plain (non-SCM) DOE "
-            "designs — for pfa (§9) / ggbs (§10) designs batch the "
+            "designs — for pfa (clause 9) / ggbs (clause 10) designs batch the "
             "designed mix and adjust at the trial (project policy)"
         )
 
@@ -307,7 +307,7 @@ def calculate_doe_trial_batches(
         warnings.append(
             "Air-entrained trial mix: measure the air content first (BS "
             "1881:Part 106) — workability and strength readings depend on "
-            "it (BRE 331:1997 §8.5)"
+            "it (BRE 331:1997 clause 8.5)"
         )
 
     batches: list[dict[str, Any]] = []
@@ -328,7 +328,7 @@ def calculate_doe_trial_batches(
 
     _emit(f"Designed mix (w/c {result.w_c_ratio:.2f})", result.w_c_ratio, base, [])
 
-    # --- Optional w/c variants at the same water content (§6 intro) ---
+    # --- Optional w/c variants at the same water content (clause 6 intro) ---
     if include_variants and inp is not None:
         wc_class = _design_workability_class(inp)
         pct_600 = DOEMixDesign._get_pct_passing_600um(inp)
@@ -377,7 +377,7 @@ def calculate_doe_trial_batches(
                     fine=fine_v, coarse=coarse_v,
                 ),
                 [
-                    f"Same water content as the designed mix (§6 intro); "
+                    f"Same water content as the designed mix (clause 6 intro); "
                     f"Cement {result.water_kg:.0f} ÷ {wc_v:.2f} = "
                     f"{cement_v:.0f} kg/m³ (C3, nearest 5 kg)",
                     f"Figure 6 [{panel}] at w/c {wc_v:.2f} gives fine "
@@ -386,7 +386,7 @@ def calculate_doe_trial_batches(
                 ],
             )
 
-    # --- Moisture-condition batching (§6.1, BS 1881 Part 125) ---
+    # --- Moisture-condition batching (clause 6.1, BS 1881 Part 125) ---
     if moisture_condition != "ssd":
         fa_abs = inp.fine_aggregate.absorption_percent
         ca_abs = inp.coarse_aggregate.absorption_percent
@@ -399,12 +399,12 @@ def calculate_doe_trial_batches(
                 # Water still to be absorbed from SSD state:
                 #   oven-dry  → A = absorption
                 #   air-dried → A = absorption − existing moisture
-                # (§6.1: batch mass × 100/(100+A), mixing water increased
+                # (clause 6.1: batch mass × 100/(100+A), mixing water increased
                 # by the absorbed mass; A is the water needed to bring the
                 # aggregate to SSD.)
                 # MC and absorption are percentages of oven-dry mass.
                 # For air-dried material A must instead be expressed on
-                # its current mass: 100*(abs−MC)/(100+MC) (§6.1).
+                # its current mass: 100*(abs−MC)/(100+MC) (clause 6.1).
                 if moisture_condition == "air_dried" and (fa_mc > fa_abs or ca_mc > ca_abs):
                     raise ValueError(
                         f"Air-dried needs moisture at or below absorption, but "
@@ -417,7 +417,7 @@ def calculate_doe_trial_batches(
                 dry_ca = bt["coarse_agg"] * 100.0 / (100.0 + a_ca) if (100.0 + a_ca) else bt["coarse_agg"]
                 dry_fa = _round1_half_down(dry_fa)
                 dry_ca = _round1_half_down(dry_ca)
-                # §7.1 works the absorption water from the reported
+                # clause 7.1 works the absorption water from the reported
                 # batch masses: (25.7 − 25.2) + (69.2 − 68.5) = 1.2 kg.
                 abs_water = (bt["fine_agg"] - dry_fa) + (bt["coarse_agg"] - dry_ca)
                 entry["dry_aggregate_kg"] = {
@@ -436,7 +436,7 @@ def calculate_doe_trial_batches(
                     "Dry batching (BS 1881 Part 125): soak the aggregates "
                     "with about half the mixing water and let them stand "
                     "before adding cement, to avoid false workability and "
-                    "strength readings (§6.1)"
+                    "strength readings (clause 6.1)"
                 )
             else:  # surface_wet — condition (d)
                 if fa_mc < fa_abs or ca_mc < ca_abs:
@@ -448,7 +448,7 @@ def calculate_doe_trial_batches(
                     )
                 # SSD = OD*(1+A/100); wet = OD*(1+MC/100).
                 # Increase aggregate masses as well as deducting their
-                # free water (BRE §6.1); retain the batch 1-dp policy.
+                # free water (BRE clause 6.1); retain the batch 1-dp policy.
                 free_fa = pm["fine_agg"] * (fa_mc - fa_abs) / (100.0 + fa_abs)
                 free_ca = pm["coarse_agg"] * (ca_mc - ca_abs) / (100.0 + ca_abs)
                 wet_fa = _round1_half_down((pm["fine_agg"] + free_fa) * volume_m3)
@@ -469,13 +469,13 @@ def calculate_doe_trial_batches(
                 bt["water"] = entry["added_water_kg"]
                 entry["notes"].append(
                     "Surface-wet aggregates carry free water: it is "
-                    "deducted from the water added at the mixer (§6.1)"
+                    "deducted from the water added at the mixer (clause 6.1)"
                 )
 
     if moisture_condition in ("oven_dry", "air_dried"):
         warnings.append(
             "Dry aggregates must pre-soak with about half the mixing "
-            "water before cement is added (BRE 331:1997 §6.1, BS 1881 "
+            "water before cement is added (BRE 331:1997 clause 6.1, BS 1881 "
             "Part 125)"
         )
 
@@ -492,7 +492,7 @@ def calculate_doe_trial_batches(
 
 
 # ----------------------------------------------------------------------
-# §6.3 — trial evaluation
+# clause 6.3 — trial evaluation
 # ----------------------------------------------------------------------
 
 def evaluate_doe_trial(
@@ -500,7 +500,7 @@ def evaluate_doe_trial(
     inp: MixDesignInput | None = None,
     measurements: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Apply the §6.3 feedback loop to measured trial-mix results.
+    """Apply the clause 6.3 feedback loop to measured trial-mix results.
 
     Args:
         result: DOE MixDesignResult.
@@ -514,8 +514,8 @@ def evaluate_doe_trial(
             ``test_age_days`` (default = design age, else 28).
 
     Returns:
-        Dict with ``workability`` (§6.3.1), ``density`` (§6.3.2),
-        ``strength`` (§6.3.3 Figure 7 A/B/B′/C/D chain), ``verdict``
+        Dict with ``workability`` (clause 6.3.1), ``density`` (clause 6.3.2),
+        ``strength`` (clause 6.3.3 Figure 7 A/B/B′/C/D chain), ``verdict``
         and ``revised`` proportions.
     """
     measurements = dict(measurements or {})
@@ -535,7 +535,7 @@ def evaluate_doe_trial(
         raise ValueError("Trial volume must be positive")
 
     # ------------------------------------------------------------------
-    # §6.3.1 Workability
+    # clause 6.3.1 Workability
     # ------------------------------------------------------------------
     design_cls = _design_workability_class(inp)
     measured_slump = measurements.get("measured_slump_mm")
@@ -559,7 +559,7 @@ def evaluate_doe_trial(
         if measured_cls is not None:
             workability["measured_label"] = workability_class_label(measured_cls)
             if measured_cls != design_cls:
-                # §6.3.1: estimate the water change by reference to
+                # clause 6.3.1: estimate the water change by reference to
                 # Table 3 — the difference between the designed class and
                 # the class the trial actually produced.
                 water_delta = _table3_water(inp, design_cls) - _table3_water(inp, measured_cls)
@@ -571,20 +571,20 @@ def evaluate_doe_trial(
                     f"the specified {workability['design_label']} range — "
                     f"Table 3 suggests {direction} about "
                     f"{abs(water_delta):.0f} kg/m³ of free water "
-                    f"(BRE 331:1997 §6.3.1)"
+                    f"(BRE 331:1997 clause 6.3.1)"
                 )
             else:
                 workability["guidance"].append(
                     "Trial workability matches the specified class — no "
-                    "water change indicated (BRE 331:1997 §6.3.1)"
+                    "water change indicated (BRE 331:1997 clause 6.3.1)"
                 )
         workability["guidance"].append(
             "At mixing, withhold about 10% of the water until the "
-            "technician confirms it is needed for workability (§6.3.1)"
+            "technician confirms it is needed for workability (clause 6.3.1)"
         )
 
     # ------------------------------------------------------------------
-    # §6.3.2 Density correction
+    # clause 6.3.2 Density correction
     # ------------------------------------------------------------------
     measured_density = measurements.get("measured_density_kg_m3")
     density: dict[str, Any] = {
@@ -615,7 +615,7 @@ def evaluate_doe_trial(
         } or None
 
     # ------------------------------------------------------------------
-    # §6.3.3 Strength — Figure 7 (A, B, B′, C, D)
+    # clause 6.3.3 Strength — Figure 7 (A, B, B′, C, D)
     # ------------------------------------------------------------------
     cube_strength = measurements.get("cube_strength_mpa")
     age_days = int(measurements.get("test_age_days") or getattr(inp, "age_days", 28) or 28)
@@ -643,7 +643,7 @@ def evaluate_doe_trial(
         scm_value = inp.scms[0].type.value
         scm_type = "pfa" if scm_value in ("fly_ash", "fly_ash_c") else "ggbs"
     # Figure 7 must use the same strength basis as design: equivalent
-    # cement for pfa (§9.2.2), combined binder for supported ggbs (§10.3).
+    # cement for pfa (clause 9.2.2), combined binder for supported ggbs (clause 10.3).
     scm_efficiency = PFA_EFFICIENCY_K if scm_type == "pfa" else 1.0
     strength_binder = result.cement_kg + scm_efficiency * result.scm_kg
     equivalent_fraction = strength_binder / (result.cement_kg + result.scm_kg)
@@ -704,14 +704,14 @@ def evaluate_doe_trial(
             warnings.append(
                 "Air-entrained mix: compare the cube result against the "
                 "air-corrected expectation and confirm the measured air "
-                "content (BRE 331:1997 §8.5)"
+                "content (BRE 331:1997 clause 8.5)"
             )
         # Keep exact identity for matching trials; otherwise retain the
         # supported two-decimal Figure 7 readout for proportioning.
         revised_wc = d_new if c_meas == result.target_mean_strength_mpa else round(d_new, 2)
 
     # ------------------------------------------------------------------
-    # Verdict + revised proportions (§6.3.3)
+    # Verdict + revised proportions (clause 6.3.3)
     # ------------------------------------------------------------------
     verdict: dict[str, Any] = {"decision": None, "delta_wc": None, "text": None}
     revised: dict[str, Any] | None = None
@@ -723,7 +723,7 @@ def evaluate_doe_trial(
             verdict["text"] = (
                 f"Minor adjustment (Δw/c = {delta:+.2f}): the revised "
                 f"proportions may be used in production mixes without "
-                f"further trials (BRE 331:1997 §6.3.3)"
+                f"further trials (BRE 331:1997 clause 6.3.3)"
             )
         else:
             verdict["decision"] = "re_trial"
@@ -732,17 +732,17 @@ def evaluate_doe_trial(
                 f"{MINOR_ADJUSTMENT_WC_LIMIT:.2f}, app policy): prepare a "
                 f"second trial mix at w/c {strength['D']:.2f} with batch "
                 f"quantities recalculated on the measured density "
-                f"(BRE 331:1997 §6.3.3)"
+                f"(BRE 331:1997 clause 6.3.3)"
             )
 
         # Recomputed unit proportions at the new w/c (C3/C4/C5 chain,
-        # carried on the measured density when available — §6.3.3).
+        # carried on the measured density when available — clause 6.3.3).
         water_new = result.water_kg + water_delta
         density_basis = density["measured"] or density["assumed"]
         scm_mode = _scm_mode(result)
         if scm_mode:
             # Recompute the cementitious contents at the new equivalent
-            # ratio D exactly as the design stage does (§9.3.3 / §10.3).
+            # ratio D exactly as the design stage does (clause 9.3.3 / clause 10.3).
             _scm_type = None
             if inp.scms:
                 _t = inp.scms[0].type.value if hasattr(inp.scms[0].type, "value") else str(inp.scms[0].type)
@@ -751,7 +751,7 @@ def evaluate_doe_trial(
             if _scm_type == "pfa":
                 # C6 inversion: C = (100−p)·W / ((100−(1−k)p)·R), k = 0.30;
                 # C7: F = p·C/(100−p); combined total re-rounded to 5 kg
-                # and split back (§9.4 reports C+F on the 5-kg grid).
+                # and split back (clause 9.4 reports C+F on the 5-kg grid).
                 _k = PFA_EFFICIENCY_K
                 cement_new = (100.0 - p_pct) * water_new / (
                     (100.0 - (1.0 - _k) * p_pct) * revised_wc
@@ -791,7 +791,7 @@ def evaluate_doe_trial(
                 and water_new == actual_water
                 and cement_new + scm_new < result.cement_kg + result.scm_kg):
             # Preserve a successful trial's binder, including any design
-            # minimum/rounding allowance (BRE §6.3.3, §9.3.6).
+            # minimum/rounding allowance (BRE clause 6.3.3, clause 9.3.6).
             cement_new, scm_new = result.cement_kg, result.scm_kg
 
         total_agg_new = density_basis - (cement_new + scm_new) - water_new  # C4
@@ -799,12 +799,12 @@ def evaluate_doe_trial(
             raise ValueError(
                 "Revised proportions leave no aggregate content — the "
                 "w/c and workability requirements cannot be met "
-                "simultaneously (BRE 331:1997 §5.3)"
+                "simultaneously (BRE 331:1997 clause 5.3)"
             )
         wc_class = _design_workability_class(inp)
         pct_600 = DOEMixDesign._get_pct_passing_600um(inp)
         nmsa = int(inp.nmsa) if inp.nmsa <= 10 else (20 if inp.nmsa <= 20 else 40)
-        # Figure 6 uses the combined ratio, not pfa's strength ratio (§9.3.5).
+        # Figure 6 uses the combined ratio, not pfa's strength ratio (clause 9.3.5).
         figure6_ratio = (water_new / (cement_new + scm_new)
                          if scm_type == "pfa" else round(water_new / (cement_new + scm_new), 2))
         fine_prop_new = get_fine_aggregate_proportion(
@@ -834,7 +834,7 @@ def evaluate_doe_trial(
             "combined_water_binder_ratio": water_new / (cement_new + scm_new),
         }
         if result.ca_split_kg:
-            # Keep the §5.5 single-size ratios; re-round with the
+            # Keep the clause 5.5 single-size ratios; re-round with the
             # remainder on the largest fraction (as doe.design does).
             ratios = {sz: m / result.coarse_aggregate_kg
                       for sz, m in result.ca_split_kg.items()}

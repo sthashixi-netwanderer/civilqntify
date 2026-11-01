@@ -29,7 +29,6 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
-    QMessageBox,
     QPushButton,
     QScrollArea,
     QSizePolicy,
@@ -38,11 +37,15 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from app.styles import sentence_case_si_units
 from app.unit_preferences import get_unit_prefs
 from app.widgets.cost_result_panel import CostResultPanel
+from app.widgets.frameless_dialog import open_detached
 from app.widgets.info_button import InfoButton, set_label_with_info_text
+from app.widgets.message_dialog import MessageBox as QMessageBox
 from app.widgets.report_preview_dialog import ReportPreviewDialog
 from app.widgets.unit_spin import UnitSpinBox, rate_to_display
+from app.widgets.wrap_label import WrapLabel
 from material_quantify.cost import (
     ProjectCostOptions,
     ProjectMaterialPrices,
@@ -181,11 +184,10 @@ class CostEstimationTab(QWidget):
 
     def _build_form(self) -> None:
         # ── Status Banner ──
-        self._status_banner = QLabel(
+        self._status_banner = WrapLabel(
             "Standalone mode — enter material quantities manually."
         )
         self._status_banner.setObjectName("info-banner")
-        self._status_banner.setWordWrap(True)
         self._form.addWidget(self._status_banner)
 
         # ── Material Quantities (editable) ──
@@ -221,7 +223,7 @@ class CostEstimationTab(QWidget):
                 "volume",
                 "Purchasing bulk volume of sand, including interparticle voids.\n"
                 "From weight use measured as-delivered bulk density on the same moisture basis.\n"
-                "ACI §4.7.7.2: mass/(SG × 1000) is NOT purchasing volume.",
+                "ACI clause 4.7.7.2: mass/(SG × 1000) is NOT purchasing volume.",
             ),
             (
                 "coarse_agg_m3",
@@ -613,10 +615,10 @@ class CostEstimationTab(QWidget):
     # ── Helpers ──────────────────────────────────────────────────────
 
     def _group(self, title: str) -> QGroupBox:
-        return QGroupBox(title)
+        return QGroupBox(sentence_case_si_units(title))
 
     def _label(self, text: str) -> QLabel:
-        lbl = QLabel(text)
+        lbl = QLabel(sentence_case_si_units(text))
         lbl.setObjectName("form-label")
         # Wrap so long labels reflow instead of forcing the sidebar wider
         # than its 360px floor (content would clip behind the scroll area).
@@ -1137,22 +1139,22 @@ class CostEstimationTab(QWidget):
             <!-- Document Header -->
             <header class="flex justify-between items-start border-b border-outline-variant pb-4 mb-8">
                 <div>
-                    <h1 class="text-primary font-headline-md text-[24px] leading-[32px] mb-1">PROJECT COST ESTIMATE</h1>
+                    <h1 class="text-primary font-headline-md text-[24px] leading-[32px] mb-1">Project Cost Estimate</h1>
                     <div class="space-y-1">
                         <div class="flex items-center gap-2">
-                            <span class="font-label-caps text-[11px] text-on-surface-variant w-24 uppercase">Project</span>
+                            <span class="font-label-caps text-[11px] text-on-surface-variant w-24">Project</span>
                             <span class="font-body-md text-[14px] font-semibold">{proj.get("name", "N/A")}</span>
                         </div>
                         <div class="flex items-center gap-2">
-                            <span class="font-label-caps text-[11px] text-on-surface-variant w-24 uppercase">Location</span>
+                            <span class="font-label-caps text-[11px] text-on-surface-variant w-24">Location</span>
                             <span class="font-body-md text-[14px]">{proj.get("location", "N/A")}</span>
                         </div>
                         <div class="flex items-center gap-2">
-                            <span class="font-label-caps text-[11px] text-on-surface-variant w-24 uppercase">Client</span>
+                            <span class="font-label-caps text-[11px] text-on-surface-variant w-24">Client</span>
                             <span class="font-body-md text-[14px]">{proj.get("client", "N/A")}</span>
                         </div>
                         <div class="flex items-center gap-2">
-                            <span class="font-label-caps text-[11px] text-on-surface-variant w-24 uppercase">Date</span>
+                            <span class="font-label-caps text-[11px] text-on-surface-variant w-24">Date</span>
                             <span class="font-body-md text-[14px]">{proj.get("date", "N/A")}</span>
                         </div>
                     </div>
@@ -1166,7 +1168,7 @@ class CostEstimationTab(QWidget):
             <!-- Section 1: Grand Total Highlight -->
             <section class="mb-8 grid grid-cols-1 md:grid-cols-2 gap-8">
                 <div class="space-y-4">
-                    <h3 class="font-section-header text-[12px] text-primary uppercase tracking-[0.1em] font-bold">Financial Summary</h3>
+                    <h3 class="font-section-header text-[12px] text-primary tracking-[0.1em] font-bold">Financial summary</h3>
                     <div class="bg-surface-container rounded p-4 space-y-2">
                         <div class="flex justify-between">
                             <span class="font-body-md text-[14px] text-on-surface-variant">Material Subtotal</span>
@@ -1191,7 +1193,7 @@ class CostEstimationTab(QWidget):
                     </div>
                 </div>
                 <div class="flex flex-col justify-center items-end border-l border-outline-variant pl-8">
-                    <span class="font-label-caps text-[11px] text-on-surface-variant uppercase mb-1 text-right">{'Grand Estimated Total' if data.get('is_complete', True) else 'INCOMPLETE: Partial Estimate (SCM unpriced)'}</span>
+                    <span class="font-label-caps text-[11px] text-on-surface-variant mb-1 text-right">{'Grand estimated total' if data.get('is_complete', True) else 'Incomplete: partial estimate (SCM unpriced)'}</span>
                     <div class="text-primary flex flex-col items-end">
                         <span class="font-data-display text-[24px] font-bold">GH₵ {data["total_project_cost"]:,.2f}</span>
                         <div class="h-1 w-full bg-primary mt-1"></div>
@@ -1202,17 +1204,17 @@ class CostEstimationTab(QWidget):
 
             <!-- Section 2: Material Cost Breakdown -->
             <section class="mb-8">
-                <h3 class="font-section-header text-[12px] text-primary uppercase mb-4 flex items-center gap-2 tracking-[0.1em] font-bold">
-                    <span class="material-symbols-outlined text-[16px]">inventory_2</span> 01. Material Cost Breakdown
+                <h3 class="font-section-header text-[12px] text-primary mb-4 flex items-center gap-2 tracking-[0.1em] font-bold">
+                    <span class="material-symbols-outlined text-[16px]">inventory_2</span> 01. Material cost breakdown
                 </h3>
                 <table class="w-full border-collapse">
                     <thead>
                         <tr class="bg-surface-container-high border-y border-outline-variant">
-                            <th class="text-left py-2 px-4 font-label-caps text-[11px] text-on-surface uppercase">Material Description</th>
-                            <th class="text-right py-2 px-4 font-label-caps text-[11px] text-on-surface uppercase w-24">Qty</th>
-                            <th class="text-right py-2 px-4 font-label-caps text-[11px] text-on-surface uppercase w-20">Unit</th>
-                            <th class="text-right py-2 px-4 font-label-caps text-[11px] text-on-surface uppercase w-32">Unit Price</th>
-                            <th class="text-right py-2 px-4 font-label-caps text-[11px] text-on-surface uppercase w-40">Total (GH₵)</th>
+                            <th class="text-left py-2 px-4 font-label-caps text-[11px] text-on-surface">Material description</th>
+                            <th class="text-right py-2 px-4 font-label-caps text-[11px] text-on-surface w-24">Qty</th>
+                            <th class="text-right py-2 px-4 font-label-caps text-[11px] text-on-surface w-20">Unit</th>
+                            <th class="text-right py-2 px-4 font-label-caps text-[11px] text-on-surface w-32">Unit price</th>
+                            <th class="text-right py-2 px-4 font-label-caps text-[11px] text-on-surface w-40">Total (GH₵)</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -1223,15 +1225,15 @@ class CostEstimationTab(QWidget):
 
             <!-- Section 3: Additional Costs -->
             <section class="mb-8">
-                <h3 class="font-section-header text-[12px] text-primary uppercase mb-4 flex items-center gap-2 tracking-[0.1em] font-bold">
-                    <span class="material-symbols-outlined text-[16px]">payments</span> 02. Additional Direct & Indirect Costs
+                <h3 class="font-section-header text-[12px] text-primary mb-4 flex items-center gap-2 tracking-[0.1em] font-bold">
+                    <span class="material-symbols-outlined text-[16px]">payments</span> 02. Additional direct & indirect costs
                 </h3>
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
                     <table class="w-full border-collapse">
                         <thead>
                             <tr class="bg-surface-container-high border-y border-outline-variant">
-                                <th class="text-left py-2 px-4 font-label-caps text-[11px] text-on-surface uppercase">Cost Center</th>
-                                <th class="text-right py-2 px-4 font-label-caps text-[11px] text-on-surface uppercase">Total (GH₵)</th>
+                                <th class="text-left py-2 px-4 font-label-caps text-[11px] text-on-surface">Cost center</th>
+                                <th class="text-right py-2 px-4 font-label-caps text-[11px] text-on-surface">Total (GH₵)</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -1274,11 +1276,11 @@ class CostEstimationTab(QWidget):
                 <div class="grid grid-cols-2 gap-8">
                     <div>
                         <div class="w-full border-b border-gray-400 max-w-[240px] h-12 mb-1"></div>
-                        <p class="font-label-caps text-[11px] text-on-surface-variant uppercase">Prepared By: Lead Quantity Surveyor</p>
+                        <p class="font-label-caps text-[11px] text-on-surface-variant">Prepared by: Lead Quantity Surveyor</p>
                     </div>
                     <div>
                         <div class="w-full border-b border-gray-400 max-w-[240px] h-12 mb-1"></div>
-                        <p class="font-label-caps text-[11px] text-on-surface-variant uppercase">Approved By: Project Manager</p>
+                        <p class="font-label-caps text-[11px] text-on-surface-variant">Approved by: Project Manager</p>
                     </div>
                 </div>
             </section>
@@ -1316,7 +1318,7 @@ class CostEstimationTab(QWidget):
         dialog = ReportPreviewDialog(self, title="Cost Estimate Report Preview")
         dialog.set_html(html)
         dialog.set_export_callback(self._do_export_pdf)
-        dialog.exec()
+        open_detached(dialog)
 
     def _do_export_pdf(self) -> None:
         """Actually export the PDF after preview."""

@@ -179,7 +179,7 @@ def _validate_doe_input(inp: MixDesignInput) -> list[str]:
     _line = "Line A (n<20)" if (n or 0) < 20 and n is not None else (
         "Line B (n≥20)" if n is not None else "Line A/B by result count")
     warnings.append(
-        f"DOE (BR 331:1997) Figure 3, §4.4 — any grade (fc = {fc:.1f} MPa). "
+        f"DOE (BR 331:1997) Figure 3, clause 4.4 — any grade (fc = {fc:.1f} MPa). "
         f"Applied deviation s = {s_applied:.2f} MPa [{_line}: "
         f"Line A s = 0.4×fc (fc≤20) else 8 MPa; "
         f"Line B s = 0.2×fc (fc≤20) else 4 MPa]."
@@ -194,7 +194,7 @@ def _validate_doe_input(inp: MixDesignInput) -> list[str]:
         else:
             warnings.append(
                 f"Number of test cubes n = {n} (≥20): Figure 3 Line B — "
-                f"s = 0.2×fc (fc≤20) else 4 MPa (§4.4)."
+                f"s = 0.2×fc (fc≤20) else 4 MPa (clause 4.4)."
             )
     else:
         warnings.append(

@@ -7,7 +7,7 @@ grading limits live in the Clause 6.1 inline table, Table 1 covers
 deleterious substances in fine aggregate, Table 2 coarse grading (bands
 already in :mod:`concrete_mix.codes.tables.grading_bands`) and Table 3 the
 deleterious/physical requirements of coarse aggregate. Later C33/C33M
-editions renumber the §6.1 table as "Table 1"; the UI band labels keep the
+editions renumber the clause 6.1 table as "Table 1"; the UI band labels keep the
 project's established C33/C33M wording while every compliance message cites
 the -99 clause numbers used in the markdown reference document.
 

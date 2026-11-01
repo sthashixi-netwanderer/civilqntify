@@ -6,7 +6,7 @@ module derives every secondary quantity:
 - percent retained on each sieve
 - cumulative percent retained
 - percent passing each sieve
-- Fineness Modulus (FM) — ACI 211.1-22 §4.3.5 / ASTM C136
+- Fineness Modulus (FM) — ACI 211.1-22 clause 4.3.5 / ASTM C136
 - characteristic sizes D10, D30, D60 (log-linear interpolation of the
   passing curve) and the uniformity/coefficient-of-curvature indices
   Cu = D60/D10, Cc = D30²/(D60·D10)
@@ -14,7 +14,7 @@ module derives every secondary quantity:
 No Qt dependency — pure functions and a dataclass, fully unit-testable.
 
 Reference standards (per AGENTS.md):
-  - ACI 211.1-22 §4.3.5 — Fineness modulus definition and standard sieve
+  - ACI 211.1-22 clause 4.3.5 — Fineness modulus definition and standard sieve
     series (halving openings).
   - IS 383:2016 — grading zones / coarse aggregate grading (Table 7).
   - ASTM D6913 / C136 — sieve analysis of soils/aggregates.
@@ -63,7 +63,7 @@ ASTM_COARSE_SIEVES: list[float] = [
     0.300,
 ]
 
-# BS 882:1992 Tables 3/4 plus 75 µm for BS 812-103.1 §7.2.2.1.
+# BS 882:1992 Tables 3/4 plus 75 µm for BS 812-103.1 clause 7.2.2.1.
 # 75 µm is a measurement sieve, NOT a Table 3/4 grading requirement.
 BS_FINE_SIEVES: list[float] = [
     10.0, 5.0, 2.36, 1.18, 0.600, 0.300, 0.150, 0.075
@@ -100,7 +100,7 @@ STANDARD_SIEVES: dict[str, list[float]] = {
     "coarse": COARSE_SIEVES,
 }
 
-# Sieves used for the ACI 211.1-22 §4.3.5 fineness modulus sum. The sum of
+# Sieves used for the ACI 211.1-22 clause 4.3.5 fineness modulus sum. The sum of
 # cumulative percentages retained on these six sieves divided by 100 yields
 # the FM (ASTM C136 procedure). Public so the PSD display and the psd-link
 # bridge cannot drift away from the computation.
@@ -172,7 +172,7 @@ def compute_psd(
         pan_mass: Mass (g) passing the finest sieve (the pan catch).
         compute_fineness_modulus: Whether the fineness modulus belongs to
             the result. The FM is a fine-aggregate quantity consumed by
-            ACI 211.1-22 §4.3.5 and restricted by ASTM C33/C33M Clauses
+            ACI 211.1-22 clause 4.3.5 and restricted by ASTM C33/C33M Clauses
             6.2/6.4; it is not a requirement of IS 383:2016 (grading
             zones) or of any coarse-aggregate analysis, so callers on
             those standards pass ``False`` and get ``fineness_modulus=None``.
@@ -235,7 +235,7 @@ def compute_psd(
         cum_retained.append(running)
     pct_passing = [100.0 - c for c in cum_retained]
 
-    # Fineness modulus (ACI 211.1-22 §4.3.5):
+    # Fineness modulus (ACI 211.1-22 clause 4.3.5):
     #   FM = Σ cumulative % retained on {0.150, 0.30, 0.60, 1.18, 2.36, 4.75}
     #         / 100
     # Only meaningful for fine aggregate; computed if those sieves are

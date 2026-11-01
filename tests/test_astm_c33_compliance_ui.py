@@ -144,9 +144,13 @@ def test_astm_coarse_table_3_failure_reported_via_dialog(qt, dialog_calls):
     tab.coarse_clay_spin.setValue(2.0)
     tab.coarse_chert_spin.setValue(6.0)
 
+    # Mass stack for the band-required Size 67 sieves only (25/19/9.5/
+    # 4.75/2.36 mm): masses from hidden sieves in the full stack (12.5 →
+    # 9.5, 1.18 and 300 µm → 2.36) are combined into their nearest
+    # visible sieve, keeping the 100 g total.
     _fill_and_plot(
         tab,
-        [0, 0, 0, 0, 0, 0, 0, 8, 30, 40, 15, 4, 2, 1],
+        [0, 8, 70, 15, 7],
         pan=0,
     )
 

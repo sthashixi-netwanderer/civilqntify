@@ -36,6 +36,7 @@ def export_to_json(result: MixDesignResult, indent: int = 2) -> str:
                 "step": s.step_number,
                 "description": s.description,
                 "formula": s.formula,
+                "formula_latex": s.latex,
                 "inputs": s.inputs,
                 "result": s.result,
                 "unit": s.unit,

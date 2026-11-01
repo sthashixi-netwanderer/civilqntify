@@ -46,6 +46,11 @@ node_modules/
 
 # Obsidian vault metadata
 docs/.obsidian/
+.obsidian/
+
+# Agent tool state
+.mimosa/
+.kilo/
 
 # Temporary & Lock files
 .~lock.*

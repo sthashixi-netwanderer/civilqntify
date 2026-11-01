@@ -26,7 +26,7 @@ Requirements" group below the sieve table, so the user never has to consult
 the standard for a limit or condition.
 
 Reference standards (per AGENTS.md):
-  - ACI 211.1-22 §4.3.5 — Fineness modulus and standard sieve series.
+  - ACI 211.1-22 clause 4.3.5 — Fineness modulus and standard sieve series.
   - IS 383:2016 — fine-aggregate grading zones (Table 9) and coarse-aggregate
     grading (Table 7).
   - ASTM C33/C33M — Table 1 fine and Table 2 coarse grading requirements;
@@ -54,7 +54,6 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
     QLabel,
-    QMessageBox,
     QPushButton,
     QScrollArea,
     QSizePolicy,
@@ -72,10 +71,13 @@ matplotlib.use("QtAgg")
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 
-from app.styles import uppercase_preserving_si_units
+from app.styles import sentence_case_si_units
 from app.widgets.astm_c33_compliance_dialog import ASTM_C33ComplianceDialog
+from app.widgets.frameless_dialog import open_detached
 from app.widgets.info_button import InfoButton
+from app.widgets.message_dialog import MessageBox as QMessageBox
 from app.widgets.bs882_quality_widget import BS882QualityWidget
+from app.widgets.wrap_label import WrapLabel
 from concrete_mix.codes.tables.bs882 import get_bs_fine_band, get_bs_coarse_band
 from concrete_mix.engine.bs812 import compute_bs812_psd, report_whole_percent
 from concrete_mix.engine.psd import BS812_EXTENDED_SIEVES
@@ -119,7 +121,7 @@ from concrete_mix.validation.is383 import (
 )
 from history.serializers import deserialize_psd_result
 # Coarsest→finest order for presenting the FM working table (ACI 211.1-22
-# §4.3.5 / ASTM C136). Derived from the shared constant so both can't drift.
+# clause 4.3.5 / ASTM C136). Derived from the shared constant so both can't drift.
 FM_SIEVE_SERIES: list[float] = sorted(FM_SIEVES, reverse=True)
 
 # Stitch "Civil Engineering Precision" palette (matches app/styles.py)
@@ -372,8 +374,8 @@ class PSDResultPanel(QWidget):
         # compute): source_type, heavy_duty_floor, sand C/M/F grades
         # (fine only) and failed BS 882 check summaries. Lets the
         # mix-design form receive the BRE 331 inputs that never come
-        # from the sieve curve itself (aggregate type, §1.2.4) plus the
-        # compliance gates (Tables 3/4/6, §4.2 FI) as warnings.
+        # from the sieve curve itself (aggregate type, clause 1.2.4) plus the
+        # compliance gates (Tables 3/4/6, clause 4.2 FI) as warnings.
         self._bs_handoff: dict | None = None
         self._build_ui()
 
@@ -390,12 +392,12 @@ class PSDResultPanel(QWidget):
         outer.setContentsMargins(12, 12, 12, 12)
         outer.setSpacing(12)
 
-        self._title_label = QLabel("Gradation Analysis")
+        self._title_label = QLabel("Gradation analysis")
         self._title_label.setObjectName("section-title")
         outer.addWidget(self._title_label)
 
         # ── Results summary (stat cards + conformance badge) ──
-        self._results_group = QGroupBox("Results Summary")
+        self._results_group = QGroupBox("Results summary")
         self._results_group.setVisible(False)
         self._results_grid = QGridLayout(self._results_group)
         self._results_grid.setContentsMargins(12, 16, 12, 12)
@@ -403,7 +405,7 @@ class PSDResultPanel(QWidget):
         outer.addWidget(self._results_group)
 
         # ── Plot ──
-        self._plot_group = QGroupBox("Gradation Curve (Semi-Log)")
+        self._plot_group = QGroupBox("Gradation curve (semi-log)")
         v = QVBoxLayout(self._plot_group)
         v.setContentsMargins(12, 16, 12, 12)
 
@@ -419,26 +421,24 @@ class PSDResultPanel(QWidget):
 
         # Out-of-band warning banner — lives BELOW the plot so the
         # summary text never covers the curve or markers.
-        self._band_warning = QLabel("")
-        self._band_warning.setWordWrap(True)
+        self._band_warning = WrapLabel("")
         self._band_warning.setVisible(False)
         self._band_warning.setObjectName("compliance-failure-banner")
         outer.addWidget(self._band_warning)
 
         # Predicted corrective adjustments for out-of-band sieves
-        self._corrections_label = QLabel("")
-        self._corrections_label.setWordWrap(True)
+        self._corrections_label = WrapLabel("")
         self._corrections_label.setTextFormat(Qt.TextFormat.RichText)
         self._corrections_label.setVisible(False)
         self._corrections_label.setObjectName("callout-warning")
         outer.addWidget(self._corrections_label)
 
-        # ── Fineness-modulus derivation (ACI 211.1-22 §4.3.5) ──
+        # ── Fineness-modulus derivation (ACI 211.1-22 clause 4.3.5) ──
         # Shows exactly how the FM handed to ACI mix design is obtained
         # from this sieve analysis: cumulative % retained on each of the
         # six standard sieves, their sum, and FM = Σ / 100.
         self._fm_group = QGroupBox(
-            "Fineness Modulus — from Sieve Analysis (ACI 211.1-22 §4.3.5)"
+            "Fineness Modulus — from Sieve Analysis (ACI 211.1-22 clause 4.3.5)"
         )
         self._fm_group.setVisible(False)
         fm_v = QVBoxLayout(self._fm_group)
@@ -471,11 +471,11 @@ class PSDResultPanel(QWidget):
         self._btn_apply.setToolTip(
             "Fill the mix-design form with the parameters derived from this "
             "sieve analysis.\n\n"
-            "ACI 211.1-22 §4.3.5: fineness modulus → Table 5.3.6\n"
+            "ACI 211.1-22 clause 4.3.5: fineness modulus → Table 5.3.6\n"
             "IS 10262:2019 Clause 5.4: grading zone → Table 5\n"
-            "BRE 331:1997 §1.2.5: % passing 600 µm → Figure 6\n"
+            "BRE 331:1997 clause 1.2.5: % passing 600 µm → Figure 6\n"
             "BS 882 analyses also carry the lab record: aggregate type "
-            "(§1.2.4) and Tables 3/4/6 + §4.2 checks"
+            "(clause 1.2.4) and Tables 3/4/6 + clause 4.2 checks"
         )
         self._btn_apply.clicked.connect(self._on_apply_to_mix)
         btn_row.addWidget(self._btn_apply)
@@ -590,7 +590,7 @@ class PSDResultPanel(QWidget):
         if payload.get("fineness_modulus") is not None:
             lines.append(
                 f"Fineness Modulus = {payload['fineness_modulus']:.2f} "
-                "(ACI 211.1-22 §4.3.5 → Table 5.3.6)"
+                "(ACI 211.1-22 clause 4.3.5 → Table 5.3.6)"
             )
         if payload.get("grading_zone") is not None:
             lines.append(
@@ -600,7 +600,7 @@ class PSDResultPanel(QWidget):
         if payload.get("pct_passing_600um") is not None:
             lines.append(
                 f"Passing 600 µm = {payload['pct_passing_600um']:.1f}% "
-                "(BRE 331 §1.2.5 → Figure 6)"
+                "(BRE 331 clause 1.2.5 → Figure 6)"
             )
         if payload.get("nominal_size_mm") is not None:
             lines.append(
@@ -610,7 +610,7 @@ class PSDResultPanel(QWidget):
         if payload.get("bs_source_type"):
             lines.append(
                 f"Aggregate source = {payload['bs_source_type']} "
-                "(BRE 331 §1.2.4 → Tables 2–3)"
+                "(BRE 331 clause 1.2.4 → Tables 2–3)"
             )
         for grade in payload.get("bs_sand_grades") or []:
             lines.append(f"Sand grading {grade} (BS 882 Table 4)")
@@ -758,7 +758,7 @@ class PSDResultPanel(QWidget):
 
         self._results_group.setVisible(True)
 
-    # ── Fineness-modulus derivation (ACI 211.1-22 §4.3.5 / ASTM C136) ──
+    # ── Fineness-modulus derivation (ACI 211.1-22 clause 4.3.5 / ASTM C136) ──
 
     def _fill_fm_derivation(self, result: PSDResult, fm_required: bool = True) -> None:
         """Render exactly how the FM handed to ACI mix design is obtained.
@@ -767,7 +767,7 @@ class PSDResultPanel(QWidget):
         requirement (IS 383:2016 grades by zone; ASTM C33 coarse has no
         FM clause) — in that case the FM is not even calculated.
 
-        Working shown step by step, mirroring ACI PRC-211.1-22 §4.3.5 and
+        Working shown step by step, mirroring ACI PRC-211.1-22 clause 4.3.5 and
         the ASTM C136 procedure implemented in :func:`compute_psd`:
 
             FM = Σ(cumulative % retained on 4.75, 2.36, 1.18, 0.600,
@@ -860,7 +860,7 @@ class PSDResultPanel(QWidget):
         v = QVBoxLayout(card)
         v.setContentsMargins(12, 8, 12, 8)
         v.setSpacing(2)
-        lbl = QLabel(label.upper())
+        lbl = QLabel(sentence_case_si_units(label))
         lbl.setWordWrap(True)
         lbl.setObjectName("psd-stat-label")
         val = QLabel(value)
@@ -888,8 +888,8 @@ class PSDResultPanel(QWidget):
         """
         self._display_standard = standard
         self._plot_group.setTitle(
-            "Gradation Curve (Linear — BS display policy)"
-            if standard == "bs882" else "Gradation Curve (Semi-Log)"
+            "Gradation curve (linear — BS display policy)"
+            if standard == "bs882" else "Gradation curve (semi-log)"
         )
         if self._last_result is None:
             self._draw_placeholder()
@@ -928,8 +928,8 @@ class PSDResultPanel(QWidget):
 
         bs = bool(band_key and band_key[0] == "bs882")
         self._plot_group.setTitle(
-            "Gradation Curve (Linear — BS display policy)" if bs
-            else "Gradation Curve (Semi-Log)"
+            "Gradation curve (linear — BS display policy)" if bs
+            else "Gradation curve (semi-log)"
         )
         # BS display policy: direct numerical mm positions and straight
         # segments. Other standards retain their existing log smoothing.
@@ -979,69 +979,23 @@ class PSDResultPanel(QWidget):
         # The line passes exactly through every measured %passing and is
         # not extended past the finest/coarsest sieve of the analysis;
         # the measured points remain visible as markers drawn on top.
+        # App policy: the input table shows only band-required sieves, so
+        # every plotted point carries a requirement — no projected spans
+        # or hollow "no requirement" markers are drawn.
         sizes = result.sieve_sizes
         passing = ([report_whole_percent(p) for p in result.percent_passing]
                    if bs else result.percent_passing)
         pts = sorted(zip(sizes, passing))
-        # Main vs projected line: the solid main line connects only the
-        # sieves that carry a grading requirement in the selected band,
-        # so it can be compared dot-for-dot with the shaded envelope. A
-        # sieve with no requirement (ASTM C33 Table 2 dash / IS 383
-        # Table 7 blank / unlisted BS aperture, e.g. 12.5 mm for Size 67)
-        # is joined to its neighbours by a dotted projected span instead:
-        # the laboratory measurement is still shown, but the excursion
-        # can no longer be mistaken for an out-of-band failure. When
-        # every sieve is specified (all fine-aggregate bands) the main
-        # line simply runs through every point and no projection appears.
-        if band:
-            main_pts = [(s, p) for s, p in pts if s in band]
-        else:
-            main_pts = list(pts)
         ax.plot(
-            [s for s, _ in main_pts], [p for _, p in main_pts],
+            [s for s, _ in pts], [p for _, p in pts],
             color=_PRIMARY, linewidth=2.2,
             label="Your gradation", zorder=5,
         )
-        if band:
-            _projected_label = "Projected (no requirement)"
-            for (s0, p0), (s1, p1) in zip(pts, pts[1:]):
-                if s0 in band and s1 in band:
-                    continue
-                ax.plot(
-                    [s0, s1], [p0, p1], color=_PRIMARY, linewidth=1.6,
-                    linestyle=(0, (2, 2)), alpha=0.55, zorder=4,
-                    label=_projected_label,
-                )
-                _projected_label = "_nolegend_"
-        # Checked vs unchecked sieves (ASTM C33 Table 2 dashes / IS 383
-        # Table 7 blanks / BS 882 unlisted apertures): sieves absent from
-        # ``band`` carry no grading requirement — they stay available for
-        # laboratory input and mass balance but are excluded from
-        # conformance. Draw them as hollow markers with their own legend
-        # entry so a point outside the interpolated shade (e.g. 12.5 mm
-        # for Size 67 with 0 g retained) is not mistaken for a failure.
-        # The measured curve itself stays one continuous line through
-        # every sieve so the laboratory result is never misrepresented.
-        if band:
-            checked = [(s, p) for s, p in zip(sizes, passing) if s in band]
-            unchecked = [(s, p) for s, p in zip(sizes, passing)
-                         if s not in band]
-        else:
-            checked = list(zip(sizes, passing))
-            unchecked = []
-        if checked:
-            ax.plot(
-                [s for s, _ in checked], [p for _, p in checked],
-                linestyle="none", marker="o", color=_PRIMARY,
-                markersize=6, zorder=6,
-            )
-        if unchecked:
-            ax.plot(
-                [s for s, _ in unchecked], [p for _, p in unchecked],
-                linestyle="none", marker="o", markerfacecolor="#ffffff",
-                markeredgecolor=_PRIMARY, markeredgewidth=1.6,
-                markersize=7, zorder=6, label="No requirement (\u2014)",
-            )
+        ax.plot(
+            [s for s, _ in pts], [p for _, p in pts],
+            linestyle="none", marker="o", color=_PRIMARY,
+            markersize=6, zorder=6,
+        )
 
         # ── Out-of-band markers + summary for the banner below the plot
         # (IS 383 grading tables / ASTM C33 Tables 1 and 2) ──
@@ -1137,7 +1091,7 @@ class PSDResultPanel(QWidget):
     def _plot_characteristic_diameters(self, ax, result: PSDResult) -> None:
         """Plot D10, D30, D60 characteristic sizes with straight lines to both axes.
 
-        Per ACI 211.1-22 §4.3.5 / ASTM D6913 / IS 383:
+        Per ACI 211.1-22 clause 4.3.5 / ASTM D6913 / IS 383:
         - D10: 10% passing effective diameter (used for Cu and Cc)
         - D30: 30% passing diameter (used for Cc)
         - D60: 60% passing diameter (used for Cu)
@@ -1314,7 +1268,7 @@ class PSDResultPanel(QWidget):
             writer.writerow(["Units", "mm; g; % by mass"])
             for name, value in (self._export_metadata or {}).get("bs882", {}).items():
                 writer.writerow([name, value])
-            writer.writerow(["Reporting", "BS 812-103.1 §10 whole passing %"])
+            writer.writerow(["Reporting", "BS 812-103.1 clause 10 whole passing %"])
         else:
             std_names = {"is383": "IS 383:2016",
                          "astm_c33": "ASTM C33/C33M"}
@@ -1491,7 +1445,7 @@ class ParticleSizeDistributionTab(QWidget):
             control.toggled.connect(self._on_quality_changed)
 
     def _build_controls(self) -> QGroupBox:
-        grp = QGroupBox("Sieve Analysis — Setup")
+        grp = QGroupBox("Sieve analysis — setup")
         form = QGridLayout(grp)
         form.setContentsMargins(12, 16, 12, 12)
         form.setSpacing(8)
@@ -1541,13 +1495,16 @@ class ParticleSizeDistributionTab(QWidget):
         return grp
 
     def _build_table(self) -> QGroupBox:
-        grp = QGroupBox("Input — Mass Retained on Each Sieve")
+        grp = QGroupBox("Input — Mass retained on each sieve")
         v = QVBoxLayout(grp)
         v.setContentsMargins(12, 16, 12, 12)
 
         hint = QLabel(
-            "Enter the mass retained (g) on each sieve as measured during the "
-            "test. Results appear in the panel on the right."
+            "Enter the mass retained (g) on each shown sieve as measured "
+            "during the test. Only sieves with a requirement in the "
+            "selected reference band are listed — the plot, D10/D30/D60 "
+            "and conformance use these sieves only. Results appear in the "
+            "panel on the right."
         )
         hint.setWordWrap(True)
         hint.setObjectName("dialog-note")
@@ -1557,12 +1514,12 @@ class ParticleSizeDistributionTab(QWidget):
         self.table.setColumnCount(6)
         self.table.setHorizontalHeaderLabels(
             [
-                "Sieve Size",
-                "Mass Retained (g)",
-                "% Retained",
-                "Cumulative % Retained",
-                "% Passing",
-                "Standard % Passing",
+                "Sieve size",
+                "Mass retained (g)",
+                "% retained",
+                "Cumulative % retained",
+                "% passing",
+                "Standard % passing",
             ]
         )
         self.table.horizontalHeader().setSectionResizeMode(
@@ -1690,7 +1647,7 @@ class ParticleSizeDistributionTab(QWidget):
         complete or interpret a check. Fields left at "not tested" simply
         skip their clause.
         """
-        grp = QGroupBox("Quality Requirements")
+        grp = QGroupBox("Quality requirements")
         v = QVBoxLayout(grp)
         v.setContentsMargins(12, 16, 12, 12)
         v.setSpacing(8)
@@ -1738,7 +1695,7 @@ class ParticleSizeDistributionTab(QWidget):
 
         # Grading restrictions (Clause 6.2 checked automatically; 6.4 needs
         # the source's base fineness modulus).
-        g1 = QGroupBox("Grading Restrictions (6.2 / 6.4)")
+        g1 = QGroupBox("Grading restrictions (6.2 / 6.4)")
         f1 = QGridLayout(g1)
         f1.setContentsMargins(12, 16, 12, 12)
         f1.setSpacing(8)
@@ -1798,7 +1755,7 @@ class ParticleSizeDistributionTab(QWidget):
         v.addWidget(g1)
 
         # Deleterious substances — Table 1 (Clause 7.1).
-        g2 = QGroupBox("Deleterious Substances — Table 1")
+        g2 = QGroupBox("Deleterious substances — Table 1")
         f2 = QGridLayout(g2)
         f2.setContentsMargins(12, 16, 12, 12)
         f2.setSpacing(8)
@@ -1913,7 +1870,7 @@ class ParticleSizeDistributionTab(QWidget):
         v.addWidget(g2)
 
         # Organic impurities (7.2) and soundness (8.1).
-        g3 = QGroupBox("Organic Impurities & Soundness")
+        g3 = QGroupBox("Organic impurities & soundness")
         f3 = QGridLayout(g3)
         f3.setContentsMargins(12, 16, 12, 12)
         f3.setSpacing(8)
@@ -2020,7 +1977,7 @@ class ParticleSizeDistributionTab(QWidget):
         v.addWidget(g3)
 
         # Reactive materials (7.3).
-        g4 = QGroupBox("Reactive Materials (§7.3)")
+        g4 = QGroupBox("Reactive materials (clause 7.3)")
         f4 = QGridLayout(g4)
         f4.setContentsMargins(12, 16, 12, 12)
         f4.setSpacing(8)
@@ -2076,7 +2033,7 @@ class ParticleSizeDistributionTab(QWidget):
         v.setSpacing(8)
 
         # Class designation — Table 3 (Clause 11.1).
-        g1 = QGroupBox("Class Designation — Table 3 (11.1)")
+        g1 = QGroupBox("Class designation — Table 3 (11.1)")
         f1 = QGridLayout(g1)
         f1.setContentsMargins(12, 16, 12, 12)
         f1.setSpacing(8)
@@ -2116,7 +2073,7 @@ class ParticleSizeDistributionTab(QWidget):
         v.addWidget(g1)
 
         # Deleterious substances — Table 3.
-        g2 = QGroupBox("Deleterious Substances — Table 3")
+        g2 = QGroupBox("Deleterious substances — Table 3")
         f2 = QGridLayout(g2)
         f2.setContentsMargins(12, 16, 12, 12)
         f2.setSpacing(8)
@@ -2316,7 +2273,7 @@ class ParticleSizeDistributionTab(QWidget):
         v.addWidget(g3)
 
         # Physical properties — abrasion (Footnote A) and soundness (fn B).
-        g4 = QGroupBox("Abrasion & Soundness — Table 3 (Fn A/B)")
+        g4 = QGroupBox("Abrasion & soundness — Table 3 (Fn A/B)")
         f4 = QGridLayout(g4)
         f4.setContentsMargins(12, 16, 12, 12)
         f4.setSpacing(8)
@@ -2420,7 +2377,7 @@ class ParticleSizeDistributionTab(QWidget):
         v.addWidget(g4)
 
         # Reactive materials (11.2).
-        g5 = QGroupBox("Reactive Materials (§11.2)")
+        g5 = QGroupBox("Reactive materials (clause 11.2)")
         f5 = QGridLayout(g5)
         f5.setContentsMargins(12, 16, 12, 12)
         f5.setSpacing(8)
@@ -2524,7 +2481,7 @@ class ParticleSizeDistributionTab(QWidget):
 
     def _build_is_source_group(self, prefix: str, fine: bool) -> QGroupBox:
         """Source classification — selects the Table 2 column."""
-        grp = QGroupBox("Source Classification (Table 2 / Clause 3)")
+        grp = QGroupBox("Source classification (Table 2 / Clause 3)")
         f = QGridLayout(grp)
         f.setContentsMargins(12, 16, 12, 12)
         f.setSpacing(8)
@@ -2570,7 +2527,7 @@ class ParticleSizeDistributionTab(QWidget):
     def _build_is_table2_group(self, prefix: str, fine: bool) -> QGroupBox:
         """Table 2 (Clause 5.2.1) deleterious substances (+ mica if fine)."""
         kind = "Fine" if fine else "Coarse"
-        grp = QGroupBox(f"Deleterious Substances — Table 2 ({kind})")
+        grp = QGroupBox(f"Deleterious substances — Table 2 ({kind})")
         f = QGridLayout(grp)
         f.setContentsMargins(12, 16, 12, 12)
         f.setSpacing(8)
@@ -2668,8 +2625,7 @@ class ParticleSizeDistributionTab(QWidget):
             ), row, 0, 1, 2)
             row += 1
 
-        total = QLabel("Total deleterious (excl. mica): —")
-        total.setWordWrap(True)
+        total = WrapLabel("Total deleterious (excl. mica): —")
         total.setObjectName("callout-panel")
         setattr(self, f"{prefix}_total_label", total)
         f.addWidget(self._label_with_info(
@@ -2687,7 +2643,7 @@ class ParticleSizeDistributionTab(QWidget):
 
     def _build_is_organic_group(self, prefix: str) -> QGroupBox:
         """Clause 5.2 Note 4 — organic impurities (fine aggregate)."""
-        grp = QGroupBox("Organic Impurities (Clause 5.2 Note 4)")
+        grp = QGroupBox("Organic impurities (Clause 5.2 Note 4)")
         f = QGridLayout(grp)
         f.setContentsMargins(12, 16, 12, 12)
         f.setSpacing(8)
@@ -2740,7 +2696,7 @@ class ParticleSizeDistributionTab(QWidget):
 
     def _build_is_shape_group(self, prefix: str) -> QGroupBox:
         """Clause 5.3 — combined flakiness and elongation index."""
-        grp = QGroupBox("Flakiness & Elongation (Clause 5.3)")
+        grp = QGroupBox("Flakiness & elongation (Clause 5.3)")
         f = QGridLayout(grp)
         f.setContentsMargins(12, 16, 12, 12)
         f.setSpacing(8)
@@ -2750,8 +2706,7 @@ class ParticleSizeDistributionTab(QWidget):
             setattr(self, f"{prefix}_{name}_spin", spin)
             return spin
 
-        combined = QLabel("Combined FI + EI: —")
-        combined.setWordWrap(True)
+        combined = WrapLabel("Combined FI + EI: —")
         combined.setObjectName("callout-panel")
         setattr(self, f"{prefix}_combined_shape_label", combined)
 
@@ -2790,7 +2745,7 @@ class ParticleSizeDistributionTab(QWidget):
     def _build_is_soundness_group(self, prefix: str) -> QGroupBox:
         """Clause 5.5.1 — soundness, 5 cycles (guide limits of the Note)."""
         fine = prefix == "is_fine"
-        grp = QGroupBox("Soundness (Clause 5.5.1, 5 Cycles)")
+        grp = QGroupBox("Soundness (Clause 5.5.1, 5 cycles)")
         f = QGridLayout(grp)
         f.setContentsMargins(12, 16, 12, 12)
         f.setSpacing(8)
@@ -2829,7 +2784,7 @@ class ParticleSizeDistributionTab(QWidget):
 
     def _build_is_aar_group(self, prefix: str) -> QGroupBox:
         """Clause 5.6 — alkali-aggregate reaction."""
-        grp = QGroupBox("Alkali-Aggregate Reaction (Clause 5.6)")
+        grp = QGroupBox("Alkali-aggregate reaction (Clause 5.6)")
         f = QGridLayout(grp)
         f.setContentsMargins(12, 16, 12, 12)
         f.setSpacing(8)
@@ -2894,7 +2849,7 @@ class ParticleSizeDistributionTab(QWidget):
 
     def _build_is_mechanical_group(self) -> QGroupBox:
         """Clause 5.4 — crushing value, impact value, abrasion."""
-        grp = QGroupBox("Mechanical Properties (Clause 5.4)")
+        grp = QGroupBox("Mechanical properties (Clause 5.4)")
         f = QGridLayout(grp)
         f.setContentsMargins(12, 16, 12, 12)
         f.setSpacing(8)
@@ -2994,7 +2949,7 @@ class ParticleSizeDistributionTab(QWidget):
     def _build_is_manufactured_group(self, prefix: str) -> QGroupBox:
         """Clause 5.7 / Table 3 — additional requirements for manufactured
         aggregates (shown only when the source is manufactured)."""
-        grp = QGroupBox("Manufactured Aggregate (§5.7)")
+        grp = QGroupBox("Manufactured aggregate (clause 5.7)")
         f = QGridLayout(grp)
         f.setContentsMargins(12, 16, 12, 12)
         f.setSpacing(8)
@@ -3420,25 +3375,106 @@ class ParticleSizeDistributionTab(QWidget):
         dialog = ASTM_C33ComplianceDialog(
             checks, aggregate_kind, self, standard_name=standard_name
         )
-        dialog.exec()
+        open_detached(dialog)
 
     # ── Dynamic table rebuild ────────────────────────────────────────
 
     def _current_sieves(self) -> list[float]:
+        """Sieves shown in the mass-retained input table.
+
+        App policy (user request): only sieves that carry a grading
+        requirement in the selected reference band are shown — sieves
+        with no requirement (ASTM C33 Table 2 dash / IS 383 Table 7
+        blank / unlisted BS 882 aperture) are hidden from input and
+        therefore absent from the plot and the D10/D30/D60
+        interpolation, which is computed from these sieves only so the
+        D guides sit exactly on the drawn line.
+
+        Deviation from AGENTS.md PSD-tab rules (documented per the
+        "deviation" clause): the ground-truth guidance keeps
+        no-requirement sieves available for input/mass balance. Here
+        the total covers the visible (band-required) stack + pan, so
+        any mass that would have sat on a hidden sieve must be
+        combined into the nearest visible sieve or the pan by the
+        operator. Preserved masses are kept by aperture when the band
+        changes (see :meth:`_rebuild_table`).
+        """
         standard = self.standard_combo.currentData()
         aggregate_type = self.agg_combo.currentData()
         sieves = list(STANDARD_SIEVES_BY_CODE[standard][aggregate_type])
+        bs_extended = False
         if standard == "bs882":
             if self.bs_quality.extended_check.isChecked():
                 sieves = list(BS812_EXTENDED_SIEVES)
+                bs_extended = True
             if self.bs_quality.sieve75_check.isChecked():
                 sieves = sorted(set(sieves) | {0.075}, reverse=True)
             else:
                 sieves = [s for s in sieves if s != 0.075]
+        # BS 812 extended Table 1 stack is an explicit opt-in to refine the
+        # curve with non-grading sieves (see BS882QualityWidget help); show
+        # the full stack in that case instead of band-filtering it away.
+        if bs_extended:
+            return sieves
+        # Filter to the selected band's required sieves. During early
+        # construction (band combo still empty) fall back to the full
+        # standard stack.
+        try:
+            band_key = self.band_combo.currentData()
+            band = self._current_band(band_key) if band_key is not None else {}
+        except Exception:
+            band = {}
+        if band:
+            required = sorted(band.keys(), reverse=True)
+            # BS 812 washed reconciliation needs the 75 µm sieve as the
+            # finest row (clause 7.2.2.1); keep it for input even though no
+            # Table 3/4 band requires it.
+            if (
+                standard == "bs882"
+                and getattr(self, "bs_quality", None) is not None
+                and self.bs_quality.method_combo.currentData() == "washed"
+                and 0.075 in sieves
+                and 0.075 not in band
+            ):
+                required = sorted(set(required) | {0.075}, reverse=True)
+            # Keep only apertures that exist in the standard stack so a
+            # stale band key can never inject a foreign sieve series.
+            in_stack = set(sieves)
+            return [s for s in required if s in in_stack] or sieves
         return sieves
 
-    def _rebuild_table(self) -> None:
-        """Rebuild the input table rows for the current aggregate type."""
+    def _rebuild_table(self, *, preserve: bool = True) -> None:
+        """Rebuild the input table rows for the current aggregate type.
+
+        Only band-required sieves are shown (see :meth:`_current_sieves`).
+        Masses are preserved by aperture identity across rebuilds so
+        switching the reference band never silently discards laboratory
+        data; new rows start at zero. Pass ``preserve=False`` to reset
+        all masses (Clear action).
+        """
+        # Preserve laboratory masses by aperture (plus pan) across the
+        # rebuild so a band switch keeps every overlapping sieve value.
+        prev_masses: dict[float, str] = {}
+        prev_pan = "0"
+        if preserve:
+            try:
+                old_rows = max(0, self.table.rowCount() - 2)
+                for i in range(old_rows):
+                    key_item = self.table.item(i, 0)
+                    val_item = self.table.item(i, 1)
+                    if key_item is None:
+                        continue
+                    key = key_item.data(Qt.ItemDataRole.UserRole)
+                    if isinstance(key, (int, float)) and val_item is not None:
+                        prev_masses[float(key)] = val_item.text()
+                pan_item = (
+                    self.table.item(self.table.rowCount() - 2, 1)
+                    if self.table.rowCount() >= 2 else None
+                )
+                if pan_item is not None:
+                    prev_pan = pan_item.text()
+            except Exception:
+                pass
         self.table.blockSignals(True)
         self.table.setRowCount(0)
 
@@ -3453,7 +3489,7 @@ class ParticleSizeDistributionTab(QWidget):
             self.table.setItem(i, 0, size_item)
 
             # Mass retained (editable) — styled to stand out as the input column
-            mass_item = QTableWidgetItem("0")
+            mass_item = QTableWidgetItem(prev_masses.get(float(s), "0"))
             mass_item.setFlags(
                 Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsEditable
             )
@@ -3472,7 +3508,7 @@ class ParticleSizeDistributionTab(QWidget):
         pan_size = QTableWidgetItem("Pan (passing finest)")
         pan_size.setFlags(Qt.ItemFlag.ItemIsEnabled)
         self.table.setItem(pan_row, 0, pan_size)
-        pan_mass = QTableWidgetItem("0")
+        pan_mass = QTableWidgetItem(prev_pan)
         pan_mass.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsEditable)
         pan_mass.setBackground(QColor("#eff6ff"))
         pan_mass.setForeground(QColor("#1e40af"))
@@ -3568,8 +3604,12 @@ class ParticleSizeDistributionTab(QWidget):
     _BAND_INFO_COMMON = (
         "Limits and sieve rows always follow the selected standard — "
         "never mix one standard's sieves with another's limits.\n\n"
-        "A dash (—) means no requirement at that sieve: it stays "
-        "available for input but is ignored for conformance."
+        "Only sieves with a requirement in the selected band are shown "
+        "for input and plotted; a dash (—) means no requirement, so "
+        "that sieve is hidden. Combine any hidden-sieve mass into the "
+        "nearest shown sieve or the pan — the total covers shown rows "
+        "+ pan. D10/D30/D60 are interpolated from the shown sieves only, "
+        "so the guides sit exactly on the drawn line."
     )
 
     # IS 383:2016 Table 9 zone envelopes (% passing), coarsest → finest.
@@ -3585,7 +3625,7 @@ class ParticleSizeDistributionTab(QWidget):
     }
 
     # BS 882:1992 Table 4 sand envelopes (% passing). Overall limits apply
-    # to every sand; each of C/M/F is intersected with Overall (§5.2.1).
+    # to every sand; each of C/M/F is intersected with Overall (clause 5.2.1).
     _BS_OVERALL_SAND = (
         "10 mm 100; 5 mm 89–100; 150 µm 0–15 "
         "(20% for crushed-rock fines, except heavy-duty floors)"
@@ -3616,12 +3656,12 @@ class ParticleSizeDistributionTab(QWidget):
         if standard == "bs882" and agg == "fine":
             grade = key[2] if key and len(key) > 2 else "Overall"
             body = (
-                "BS 882:1992 Table 4 — sand grading (§5.2).\n\n"
+                "BS 882:1992 Table 4 — sand grading (clause 5.2).\n\n"
                 "Two layers: (1) Overall limits every sand must meet "
                 f"({self._BS_OVERALL_SAND}); "
                 "(2) one additional grading — C, M or F — which the sand "
                 "must additionally sit inside for at least 9 of 10 "
-                "consecutive samples (§5.2.1; a single sample cannot prove "
+                "consecutive samples (clause 5.2.1; a single sample cannot prove "
                 "it). The three gradings overlap: one sand may satisfy "
                 "more than one.\n\n"
                 "C = Coarse sand; M = Medium sand; F = Fine sand — "
@@ -3630,9 +3670,9 @@ class ParticleSizeDistributionTab(QWidget):
                 f"• M (medium): {self._BS_SAND_GRADES['M'][1]}\n"
                 f"• F (fine): {self._BS_SAND_GRADES['F'][1]}\n"
                 "(each combined with the Overall limits above).\n\n"
-                "Heavy-duty floor finishes require C or M (§5.2.2). A sand "
+                "Heavy-duty floor finishes require C or M (clause 5.2.2). A sand "
                 "inside Overall but in no C/M/F needs an agreed envelope "
-                "(Table 4 note). BRE 331 §1.2.5 expects a C/M/F sand; "
+                "(Table 4 note). BRE 331 clause 1.2.5 expects a C/M/F sand; "
                 "Figure 6 then uses % passing 600 µm."
             )
             if grade in self._BS_SAND_GRADES:
@@ -3649,7 +3689,7 @@ class ParticleSizeDistributionTab(QWidget):
             size = key[3] if key and len(key) > 3 else key[-1] if key else "?"
             return (
                 head + "\n\n"
-                "BS 882:1992 Table 3 — coarse aggregate (§5.1).\n\n"
+                "BS 882:1992 Table 3 — coarse aggregate (clause 5.1).\n\n"
                 "Graded aggregates (40–5, 20–5, 14–5 mm) are blended sizes; "
                 "single-sized aggregates (40, 20, 14, 10, 5 mm) are "
                 "nominal fractions. 5 mm single-sized is used mainly in "
@@ -3934,7 +3974,9 @@ class ParticleSizeDistributionTab(QWidget):
         self._astm_checks = []
 
     def _on_band_changed(self) -> None:
-        self._update_standard_limit_column()
+        # Visible rows follow the selected band, so a band switch rebuilds
+        # the table (masses preserved by aperture in _rebuild_table).
+        self._rebuild_table()
         self._update_band_info()
         if self.standard_combo.currentData() != "bs882":
             self._invalidate_analysis()
@@ -3945,7 +3987,7 @@ class ParticleSizeDistributionTab(QWidget):
         # Contract: clearing this tab also unlocks and resets every
         # mix-design field that was fed from a PSD result.
         self._result_panel.clear_all_inputs.emit()
-        self._rebuild_table()
+        self._rebuild_table(preserve=False)
         self._last_result = None
         self._astm_checks = []
         self._result_panel.clear()
@@ -4043,10 +4085,10 @@ class ParticleSizeDistributionTab(QWidget):
         self.bs_quality.show_checks(self._bs_checks)
         self._result_panel._export_metadata = self._gather_history_input()
         # Snapshot the BRE 331 handoff: the lab record the sieve curve
-        # alone cannot supply (BRE §1.2.4 aggregate type from the BS 882
+        # alone cannot supply (BRE clause 1.2.4 aggregate type from the BS 882
         # source classification) plus the compliance gates (Tables 3/4
-        # grading, Table 6 fines, §4.2 FI) and, for sand, every fully
-        # matching C/M/F grading (BRE §1.2.5 expects a C/M/F sand).
+        # grading, Table 6 fines, clause 4.2 FI) and, for sand, every fully
+        # matching C/M/F grading (BRE clause 1.2.5 expects a C/M/F sand).
         passing = dict(zip(result.sieve_sizes, result.percent_passing))
         rock = quality.source_type == "crushed_rock"
         sand_grades: tuple[str, ...] = ()
@@ -4220,14 +4262,15 @@ class ParticleSizeDistributionTab(QWidget):
         if inp.get("standard") == "bs882":
             self.bs_quality.restore(inp.get("bs882", {}))
             self._rebuild_table()
-        # 3) Sieve masses — rows exist for this stack after step 1
+        # 3) Sieve masses — rows exist for this stack after step 1.
+        # Matched by aperture identity (not row index) so records saved
+        # with the former full-stack layout still restore into the
+        # band-filtered table; missing apertures default to zero.
         sieves = self._current_sieves()
         masses = inp.get("masses") or []
         by_aperture = dict(zip(inp.get("sieves", sieves), masses))
         for i in range(len(sieves)):
-            m = (by_aperture.get(sieves[i], 0.0)
-                 if inp.get("standard") == "bs882"
-                 else masses[i] if i < len(masses) else 0.0)
+            m = by_aperture.get(sieves[i], 0.0)
             item = self.table.item(i, 1)
             if item is not None:
                 # repr() round-trips the float exactly; f"{m:g}" would clip
@@ -4478,8 +4521,9 @@ class ParticleSizeDistributionTab(QWidget):
     def _label(self, text: str) -> QLabel:
         # Cased in Python rather than by Qt's text-transform (which maps
         # µ to a capital Mu that reads as "M") so unit-bearing labels
-        # like "75-µm" keep their micro symbol under the uppercase style.
-        lbl = QLabel(uppercase_preserving_si_units(text))
+        # like "75-µm" keep their micro symbol, and abbreviations such
+        # as "IS", "W/C" or "MPa" keep their canonical casing.
+        lbl = QLabel(sentence_case_si_units(text))
         lbl.setObjectName("form-label")
         # Wrap so labels reflow when the sidebar is narrowed instead of
         # forcing the form wider than the sidebar's 360px floor.

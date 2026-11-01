@@ -1,6 +1,6 @@
 """Independent IS regressions for audit C03/C06/C07/C08.
 
-Sources: IS 10262:2019 §§5.1.1–5.1.2, 5.4.1, 5.5.1–5.5.2,
+Sources: IS 10262:2019 clauses 5.1.1–5.1.2, 5.4.1, 5.5.1–5.5.2,
 5.7–5.8, 6.2.4–6.2.9, 9.6.1; Annexes B-7 and C-7.
 """
 
@@ -25,7 +25,7 @@ def _step(result, description):
 
 @pytest.mark.parametrize("selected_ratio", [0.49, 0.50, 0.60])
 def test_effective_water_rejected_regardless_of_selection_branch(selected_ratio):
-    """§5.1.1 note: below/equal/above initial cap must all check final water."""
+    """clause 5.1.1 note: below/equal/above initial cap must all check final water."""
     inp = _input(exposure_class="moderate", w_c_ratio=selected_ratio,
                  admixture_water_kg=5.0)
     with pytest.raises(ValueError, match="Effective water-cement ratio.*durability maximum"):
@@ -55,7 +55,7 @@ def test_effective_water_with_headroom_is_accepted(scms):
 
 
 def test_effective_water_check_uses_final_raised_binder():
-    """§5.4.1: the preliminary increase provides real durability headroom."""
+    """clause 5.4.1: the preliminary increase provides real durability headroom."""
     inp = _input(exposure_class="moderate", w_c_ratio=0.50,
                  admixture_water_kg=5.0, scms=(SCM(replacement_percent=30.0),))
     result = IS10262MixDesign().design(inp)
@@ -69,7 +69,7 @@ def test_effective_water_check_uses_final_raised_binder():
 ])
 @pytest.mark.parametrize("with_input", [True, False])
 def test_trial_variants_deliver_labelled_binder_ratio(route, scm_type, percent, sg, with_input):
-    """§5.8: never reapply §5.4.1's preliminary bump to an actual trial ratio."""
+    """clause 5.8: never reapply clause 5.4.1's preliminary bump to an actual trial ratio."""
     kwargs = dict(scms=(SCM(type=scm_type, replacement_percent=percent,
                            specific_gravity=sg),))
     if route == "high_strength":
@@ -112,7 +112,7 @@ def test_trial_variants_deliver_labelled_binder_ratio(route, scm_type, percent, 
 def test_trial_variants_preserve_placement_and_fraction_override(
     high_strength, base_fraction, placing, reduction, override
 ):
-    """Independent §5.5.1 slope and §5.5.2/§6.2.7 pump readout."""
+    """Independent clause 5.5.1 slope and clause 5.5.2/clause 6.2.7 pump readout."""
     inp = _input(target_strength_mpa=70.0 if high_strength else 30.0,
                  w_c_ratio=0.30 if high_strength else 0.45,
                  placing_method=placing, pump_ca_reduction_percent=reduction,
@@ -133,7 +133,7 @@ def test_trial_variants_preserve_placement_and_fraction_override(
 
 @pytest.mark.parametrize("reduction", [None, 0.0, 3.0])
 def test_mass_trial_pump_uses_only_explicit_reduction(reduction):
-    """§9: no tabulated pump cut; preserve an explicit project assumption."""
+    """clause 9: no tabulated pump cut; preserve an explicit project assumption."""
     inp = _input(mass_concrete=True, placing_method="pump",
                  coarse_aggregate=CoarseAggregate(nominal_max_size_mm=80),
                  pump_ca_reduction_percent=reduction)
@@ -156,7 +156,7 @@ MULTI_SCMS = (
 
 @pytest.mark.parametrize("minimum_governs", [False, True])
 def test_multiple_scm_design_is_order_independent_and_closes_yield(minimum_governs):
-    """§5.7: sum each constituent's mass/(SG×1000), not the first SG."""
+    """clause 5.7: sum each constituent's mass/(SG×1000), not the first SG."""
     inp = _input(scms=MULTI_SCMS, admixture=Admixture(dosage_percent=1.0))
     if minimum_governs:
         inp = replace(inp, w_c_ratio=0.55, exposure_class="mild",

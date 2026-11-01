@@ -229,7 +229,7 @@ def test_result_panel_rerenders_on_unit_change(fresh_prefs):
 
 
 def test_result_panel_shows_ca_split_columns(fresh_prefs):
-    """DOE single-size split renders sizes-above/contents-below (BRE §5.5)."""
+    """DOE single-size split renders sizes-above/contents-below (BRE clause 5.5)."""
     from app.widgets.result_panel import ResultPanel
     from concrete_mix.codes.doe import DOEMixDesign
     from concrete_mix.models.materials import FineAggregate
@@ -246,10 +246,10 @@ def test_result_panel_shows_ca_split_columns(fresh_prefs):
     html = panel._ca_split_label.text()
     # Column order: sizes above, contents below; unused 40 mm dashed.
     assert html.index("10 mm") < html.index("20 mm") < html.index("40 mm")
-    # CA total 1310 kg/m³ at the assumed Item 4.1 RD (mean of the default
-    # FA 2.65 / CA 2.70 SSD SGs) splits 1:2 into 435 + 875 kg/m³ (§5.5);
-    # the 5 kg grid puts the smaller third at 435 and the remainder at 875.
-    assert "435" in html and "875" in html
+    # CA total 1315 kg/m³ at the assumed Item 4.1 RD (mean of the default
+    # FA 2.65 / CA 2.70 SSD SGs) splits 1:2 into 440 + 875 kg/m³ (clause 5.5);
+    # the 5 kg grid puts the smaller third at 440 and the remainder at 875.
+    assert "440" in html and "875" in html
     assert sum(result.ca_split_kg.values()) == pytest.approx(result.coarse_aggregate_kg)
     assert "1 : 2" in html
 

@@ -69,7 +69,7 @@ def estimate_project_cost(
     coarse_aggregate_cost = (
         float(bill.total_coarse_aggregate_bulk_m3) * prices.coarse_aggregate_per_m3
     )
-    # A DOE/BRE 331 §5.5 single-size split is ordered as separate stockpile
+    # A DOE/BRE 331 clause 5.5 single-size split is ordered as separate stockpile
     # deliveries. A single "Coarse Aggregate" line tells the supplier nothing
     # about what to deliver, so the invoice is split per size. One quoted
     # rate still applies to every size -- see the warning below.
@@ -102,7 +102,7 @@ def estimate_project_cost(
         warnings.append("INCOMPLETE ESTIMATE: SCM has no price; totals exclude SCM.")
     if split_rows:
         warnings.append(
-            "Coarse aggregate is a single-size split (BRE 331:1997 §5.5) and is "
+            "Coarse aggregate is a single-size split (BRE 331:1997 clause 5.5) and is "
             "ordered as "
             + ", ".join(
                 f"{row['material_type']} ({row['qty']:.2f} m³)" for row in split_rows

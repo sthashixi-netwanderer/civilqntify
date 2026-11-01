@@ -67,7 +67,7 @@ Additional bounded probes reproduced the findings below. UI probes were offscree
 
 **Evidence:** `concrete_mix/codes/aci_trial.py:452–465`; parallel logic in `concrete_mix/codes/aci211.py:827–839`.
 
-The code adds `2.97 × (target_air − measured_air)` kg/m³ of water. ACI §5.3.10.2 requires reducing water when air is increased, and increasing it when air is decreased.
+The code adds `2.97 × (target_air − measured_air)` kg/m³ of water. ACI clause 5.3.10.2 requires reducing water when air is increased, and increasing it when air is decreased.
 
 **Reproduction:** an air-entrained ACI design has 5% target air; supply a measured 3%. The evaluator recommends **+5.9 kg/m³** water instead of approximately **−5.9 kg/m³**. This was independently rechecked in the parent audit.
 
@@ -85,7 +85,7 @@ The trial-point ratio uses water divided by Portland cement alone. Subsequent pr
 
 **Impact:** a successful trial can produce an unjustified major binder reduction.
 
-**Fix:** use the same strength-basis denominator through design, feedback inversion and recalculation; distinguish pfa strength and durability/Figure-6 ratios explicitly. Reference BRE §§6.3.3,9.2.2,9.3.3,10.3.
+**Fix:** use the same strength-basis denominator through design, feedback inversion and recalculation; distinguish pfa strength and durability/Figure-6 ratios explicitly. Reference BRE clauses 6.3.3,9.2.2,9.3.3,10.3.
 
 ### C03 — P1: IS admixture water can exceed the exposure maximum without rejection
 
@@ -107,7 +107,7 @@ print((r.water_kg + 5) / (r.cement_kg + r.scm_kg))
 
 The parent audit observed acceptance at approximately **0.5156**, above the 0.50 maximum. An initial ratio below the cap can also cross it after admixture water is counted.
 
-**Fix:** enforce the final effective ratio against the applicable limit regardless of which earlier branch selected the ratio. Reference IS §5.1.1 note and §6.2.4.
+**Fix:** enforce the final effective ratio against the applicable limit regardless of which earlier branch selected the ratio. Reference IS clause 5.1.1 note and clause 6.2.4.
 
 ### C04 — P1: DOE accepts a standard deviation below the required statistical minimum
 
@@ -117,18 +117,20 @@ The parent audit observed acceptance at approximately **0.5156**, above the 0.50
 
 **Impact:** an API caller can understate the strength margin. The current GUI makes this DOE field display-only, so this particular override is primarily API-reachable.
 
-**Fix:** enforce BRE §5.1: use Line A with fewer than 20 results; established deviations with at least 20 results must not be below Line B.
+**Fix:** enforce BRE clause 5.1: use Line A with fewer than 20 results; established deviations with at least 20 results must not be below Line B.
+
+*Update (2026-10-30):* clause 7.4 Example 4 shows a known s from previous control data with **no record count** is used directly (Item 1.2), so `resolve_standard_deviation` now applies known s (floored at Line B) unless an explicit n < 20 states the small-sample case — Figure 3 remains the fallback when no s is known. Also fixed upstream of the max-cement refusal: the DOE engine now compares the reported Item 3.1 value (nearest 5 kg, e.g. 580) against the Item 3.2 maximum, as on the completed design form.
 
 ### Additional confirmed calculation findings
 
 | ID | Priority | Evidence | Reproduction / impact and required correction |
 |---|---|---|---|
-| C05 | P2 | `concrete_mix/codes/aci_trial.py:483–525` | Strength feedback calculates and reports a water increment but never applies it. In the reviewed 30 MPa case, the ledger reports +86.9 cement and +40.4 water, but next-trial water stays 202 kg/m³ and w/c changes from about 0.465 to 0.387. Implement the stated constant-w/cm efficiency procedure consistently; ACI §5.3.10.3. |
-| C06 | P2 | `concrete_mix/codes/is10262.py:1158–1163,1211–1217,1248–1254` | SCM trials apply a preliminary 10% binder increase a second time. Fly-ash trials labelled w/cm 0.35 and 0.43 actually produce about 0.318 and 0.391. GGBS trial variants also receive a bump the base path omits. Assert actual water/binder equals the requested trial ratio; IS §§5.4.1,5.8. |
-| C07 | P2 | `concrete_mix/codes/is10262.py:1129–1146,1227–1232,1264–1269` | IS trials 3/4 omit the pump-related coarse-aggregate reduction. A pumped baseline coarse fraction of about 0.572 changes to unreduced fractions about 0.644/0.628. Preserve placement assumptions while varying trial w/cm; IS §§5.5.2,5.8. |
+| C05 | P2 | `concrete_mix/codes/aci_trial.py:483–525` | Strength feedback calculates and reports a water increment but never applies it. In the reviewed 30 MPa case, the ledger reports +86.9 cement and +40.4 water, but next-trial water stays 202 kg/m³ and w/c changes from about 0.465 to 0.387. Implement the stated constant-w/cm efficiency procedure consistently; ACI clause 5.3.10.3. |
+| C06 | P2 | `concrete_mix/codes/is10262.py:1158–1163,1211–1217,1248–1254` | SCM trials apply a preliminary 10% binder increase a second time. Fly-ash trials labelled w/cm 0.35 and 0.43 actually produce about 0.318 and 0.391. GGBS trial variants also receive a bump the base path omits. Assert actual water/binder equals the requested trial ratio; IS clauses 5.4.1,5.8. |
+| C07 | P2 | `concrete_mix/codes/is10262.py:1129–1146,1227–1232,1264–1269` | IS trials 3/4 omit the pump-related coarse-aggregate reduction. A pumped baseline coarse fraction of about 0.572 changes to unreduced fractions about 0.644/0.628. Preserve placement assumptions while varying trial w/cm; IS clauses 5.5.2,5.8. |
 | C08 | P2 | `concrete_mix/codes/aci211.py:640–648,663–670`; `concrete_mix/codes/is10262.py:769–774` | Multiple SCMs are volumetrically treated using the first SCM's SG; ACI paste calculation also uses an unsuitable arithmetic-average SG. Reversing 30% fly ash / 30% GGBS changes ACI fine aggregate 846.0 → 903.6 and IS 596 → 625 kg/m³. Independently summed volumes deviate from 1 m³. Use the sum of each constituent's absolute volume. This is reachable through the multi-SCM input model, not the simplified single-SCM interface. |
-| C09 | P2 | `concrete_mix/codes/doe_trial.py:93–104` | DOE trial density reconstructs from coarse SG alone instead of the combined RD used in design. With design RD 2.4 and measured density matching design at 2250 kg/m³, feedback assumes 2475 and applies factor 0.9091 instead of 1.0. Carry the actual design density; BRE Item 4.1 and §6.3.2. |
-| C10 | P2 | `concrete_mix/codes/doe_trial.py:323–376` | Surface-wet scheduling reduces added water without increasing aggregate batch masses. A reviewed 0.05 m³ case emits fine/coarse masses 32.0/68.2 kg rather than about 33.58/69.27 kg. Correct both aggregate and water masses, with a consistent dry/SSD basis; BRE §6.1. |
+| C09 | P2 | `concrete_mix/codes/doe_trial.py:93–104` | DOE trial density reconstructs from coarse SG alone instead of the combined RD used in design. With design RD 2.4 and measured density matching design at 2250 kg/m³, feedback assumes 2475 and applies factor 0.9091 instead of 1.0. Carry the actual design density; BRE Item 4.1 and clause 6.3.2. |
+| C10 | P2 | `concrete_mix/codes/doe_trial.py:323–376` | Surface-wet scheduling reduces added water without increasing aggregate batch masses. A reviewed 0.05 m³ case emits fine/coarse masses 32.0/68.2 kg rather than about 33.58/69.27 kg. Correct both aggregate and water masses, with a consistent dry/SSD basis; BRE clause 6.1. |
 | C11 | P2 | `concrete_mix/codes/tables/aci_tables.py:248–263`; `concrete_mix/codes/aci211.py:506–520` | Non-air-entrained ACI strength lookup silently clamps above the highest table point. Specified strengths 50,70,90 MPa yield targets 56,76,96 but identical w/c 0.34 and cement 594.1 kg/m³, with no warning. Reject or explicitly flag unsupported table use and require material-specific data. This does not establish the actual attainable strength. |
 | C12 | P2 | `concrete_mix/models/materials.py:192–196`; `concrete_mix/models/mix_input.py:428–430` | Individual SCM percentages are checked, but their sum is not. Two 70% SCMs are accepted; reviewed outputs contain negative cement, including −76.5 kg/m³ for ACI and −183 for IS. Validate total replacement and constituent masses before proportioning. |
 | C13 | P2 | `concrete_mix/models/materials.py:133–152,165–182` | Physical/finite checks are missing for moisture, absorption and dry-rodded density. Absorption −100% causes division by zero; negative ACI bulk density produces negative coarse mass; NaN propagates. Reject nonfinite/nonphysical values at the public model/API boundary, not only in GUI controls. |
@@ -156,7 +158,7 @@ The design-mix route labels `mass/(SG × 1000)` as bulk sand volume and directly
 
 **Reproduction:** 700 kg sand produces **0.264 m³**. At a measured bulk density of 1600 kg/m³, purchasing volume would be **0.4375 m³**. The density is an illustrative measured input, not a universal standard constant. The ratio workflow uses bulk-volume semantics instead, so the two workflows are inconsistent.
 
-**Fix:** distinguish absolute, dry bulk and as-delivered quantities; collect/carry the appropriate measured bulk density and moisture basis. ACI §4.7.7.2 distinguishes the volume concepts.
+**Fix:** distinguish absolute, dry bulk and as-delivered quantities; collect/carry the appropriate measured bulk density and moisture basis. ACI clause 4.7.7.2 distinguishes the volume concepts.
 
 ### Q03 — P1: SCM is accepted in quantities but omitted from cost
 
@@ -360,7 +362,7 @@ Prioritize independent properties over ever-larger examples that duplicate imple
 
 ## 8. Standards baseline and remaining uncertainty
 
-The audit used `AGENTS.md`, the root ACI/IS/BRE extracts, BS 882/BS 812 extracts, and supplied IS 383/ASTM C33 documents. Relevant direct checks included ACI §5.3.10.2–.3, IS §5.1.1 note and BRE §5.1. The supplied BS 882 scan ends after printed page 7; the supplied ASTM document is the older C33–99ae1 edition. Matching those extracts does not establish compliance with a complete current edition.
+The audit used `AGENTS.md`, the root ACI/IS/BRE extracts, BS 882/BS 812 extracts, and supplied IS 383/ASTM C33 documents. Relevant direct checks included ACI clause 5.3.10.2–.3, IS clause 5.1.1 note and BRE clause 5.1. The supplied BS 882 scan ends after printed page 7; the supplied ASTM document is the older C33–99ae1 edition. Matching those extracts does not establish compliance with a complete current edition.
 
 Not completed:
 

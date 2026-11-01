@@ -21,6 +21,7 @@ from concrete_mix.codes.tables.is_tables import (
     site_assumed_std_dev,
 )
 from concrete_mix.codes.tables.aci_tables import modification_factor_k
+from concrete_mix.utils import latex_math
 
 
 @dataclass(frozen=True)
@@ -35,6 +36,19 @@ class TargetStrengthResult:
     margin_mpa: float
     formula: str
     reference: str
+    formula_latex: str = ""
+
+    def __post_init__(self) -> None:
+        if not self.formula_latex and self.formula:
+            object.__setattr__(
+                self, "formula_latex", latex_math.to_latex(self.formula)
+            )
+
+    @property
+    def latex(self) -> str:
+        if self.formula_latex:
+            return self.formula_latex
+        return latex_math.to_latex(self.formula)
 
 
 def calculate_target_strength(
@@ -56,15 +70,15 @@ def calculate_target_strength(
     standard formulas for the mode-specific UI.
 
     A user-supplied ``margin_mpa`` (DOE only, from established site records
-    per BRE 331:1997 §4.4) bypasses the k × s computation entirely: no
+    per BRE 331:1997 clause 4.4) bypasses the k × s computation entirely: no
     defective percentage, standard deviation, or test-cube count is needed
     and the target is simply ``ceil(fc + M)`` per Calculation C2. It is
     ignored for the IS/ACI branches, which have no margin concept.
 
     References:
         IS 10262:2019 target-strength relation and Tables 1–2
-        ACI PRC-211.1-22 §4.7.4 and ACI 318 target-strength provisions
-        BRE 331:1997 §4.4, §5.1, and Figure 3
+        ACI PRC-211.1-22 clause 4.7.4 and ACI 318 target-strength provisions
+        BRE 331:1997 clause 4.4, clause 5.1, and Figure 3
     """
     code = code.lower()
     fck = float(characteristic_strength_mpa)
@@ -138,12 +152,12 @@ def calculate_target_strength(
             standard_deviation_mpa=standard_deviation,
             margin_mpa=target - fck,
             formula=formula,
-            reference="ACI PRC-211.1-22 §4.7.4 / ACI 318 Table 26.4.3.1",
+            reference="ACI PRC-211.1-22 clause 4.7.4 / ACI 318 Table 26.4.3.1",
         )
 
     if code == "doe":
         if margin_mpa is not None:
-            # Known-margin path (BRE 331:1997 §4.4): M comes straight from
+            # Known-margin path (BRE 331:1997 clause 4.4): M comes straight from
             # site records, so k (defectives), s and n are all bypassed.
             margin = float(margin_mpa)
             if not math.isfinite(margin) or margin <= 0.0:
@@ -153,7 +167,7 @@ def calculate_target_strength(
             target = DOEMixDesign().calculate_target_mean_strength(fck, margin_mpa=margin)
             formula = (
                 f"fm = fc + M = {fck:.2f} + {margin:.2f} "
-                f"→ {target:.0f} (user-specified M, rounded up, C2)"
+                f"→ {target:.1f} (user-specified M, rounded up, C2)"
             )
             return TargetStrengthResult(
                 code=code,
@@ -163,7 +177,7 @@ def calculate_target_strength(
                 standard_deviation_mpa=None,
                 margin_mpa=margin,
                 formula=formula,
-                reference="BRE 331:1997 §4.4, §5.1 (Calculation C2)",
+                reference="BRE 331:1997 clause 4.4, clause 5.1 (Calculation C2)",
             )
         if not 0.5 <= defective_percent <= 15.0:
             raise ValueError("Defective percent must be between 0.5 and 15%")
@@ -175,8 +189,13 @@ def calculate_target_strength(
             num_test_cubes=num_test_cubes,
             defective_percent=defective_percent,
         )
-        line = ("Line A" if num_test_cubes is None or num_test_cubes < 20
-                else "record / Line B minimum")
+        if (std_deviation is not None and std_deviation > 0
+                and (num_test_cubes is None or num_test_cubes >= 20)):
+            line = "previous control data / Line B minimum"
+        elif num_test_cubes is None or num_test_cubes < 20:
+            line = "Line A"
+        else:
+            line = "Line B"
         formula = (
             f"fm = fc + k × s = {fck:.2f} + {k:.2f} × "
             f"{standard_deviation:.2f} ({line}, n={num_test_cubes})"
@@ -189,7 +208,7 @@ def calculate_target_strength(
             standard_deviation_mpa=standard_deviation,
             margin_mpa=target - fck,
             formula=formula,
-            reference="BRE 331:1997 §4.4, §5.1, Figure 3",
+            reference="BRE 331:1997 clause 4.4, clause 5.1, Figure 3",
         )
 
     raise ValueError(f"Unknown target-strength standard: {code}")

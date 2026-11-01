@@ -130,8 +130,8 @@ class MixDesignInput:
     """Apply the Table 5.3.3.1 −8% rounded-aggregate water cut (ACI only).
 
     ACI PRC-211.1-22 Table 5.3.3.1 lists −8% mixing water for rounded
-    coarse aggregate. The guide's own examples are split — §9.2 Example 1
-    keeps tabulated water for rounded aggregate while §9.3 Example 2
+    coarse aggregate. The guide's own examples are split — clause 9.2 Example 1
+    keeps tabulated water for rounded aggregate while clause 9.3 Example 2
     applies the −8% (22 lb of its 280 → 227 lb ledger) — so the engine
     defaults to the tabulated value (Example-1 parity) and applies the cut
     only when this flag is set. False (default) preserves legacy behavior.
@@ -139,7 +139,7 @@ class MixDesignInput:
     target_paste_volume_pct: float | None = None
     """Target paste volume as % of concrete volume (ACI only, optional).
 
-    Triggers the Example 4 (§9.5) redesign: cementitious contents solved
+    Triggers the Example 4 (clause 9.5) redesign: cementitious contents solved
     for the target PV at the design w/cm and SCM fraction, water = w/cm ×
     cementitious, aggregates rebalanced by volume. AASHTO PP 84 cites 25%
     for slab warping/cracking control. None (default) keeps the
@@ -148,7 +148,7 @@ class MixDesignInput:
     trial_density_kg_m3: float | None = None
     """Measured fresh density of a trial batch in kg/m³ (ACI only, optional).
 
-    Enables the §5.3.10 yield check (ASTM C138): relative yield
+    Enables the clause 5.3.10 yield check (ASTM C138): relative yield
     Ry = design volume / (batch mass / measured density); 0.98–1.02
     is the working tolerance. None (default) skips trial adjustments.
     """
@@ -161,8 +161,8 @@ class MixDesignInput:
     air_pct: float = 0.0
     """Entrained air content in % of concrete volume (DOE only).
 
-    BRE 331:1997 §8 air-entrained design (3–7% typical). 0.0 (default) is
-    non-air-entrained concrete; above 0 the §8 modifications apply
+    BRE 331:1997 clause 8 air-entrained design (3–7% typical). 0.0 (default) is
+    non-air-entrained concrete; above 0 the clause 8 modifications apply
     (inflated target strength, lower-class water, density reduction).
     """
     vebe_s: float | None = None
@@ -176,24 +176,24 @@ class MixDesignInput:
     """Split of total coarse aggregate into single sizes (DOE only, optional).
 
     "10+20" (1:2, requires 20 mm NMSA) or "10+20+40" (1:1.5:3, requires
-    40 mm NMSA) per BRE 331:1997 §5.5. None (default) leaves CA undivided.
+    40 mm NMSA) per BRE 331:1997 clause 5.5. None (default) leaves CA undivided.
     """
     placing_method: str = "chute"
     """Concrete placing method (IS 10262 ordinary/mass grades).
 
     "chute" (default, non-pumpable) or "pump". Pumping — or congested
     reinforcement — reduces the Table 5 coarse-aggregate fraction by up to
-    10% (IS 10262:2019 §5.5.2) or the Table 10 fraction by up to 5%
-    (§6.2.7); see pump_ca_reduction_percent for the applied amount.
+    10% (IS 10262:2019 clause 5.5.2) or the Table 10 fraction by up to 5%
+    (clause 6.2.7); see pump_ca_reduction_percent for the applied amount.
     """
     pump_ca_reduction_percent: float | None = None
     """Pumped-placing CA reduction in percent, 0–10 (IS 10262 only).
 
     Honoured only when placing_method is "pump". None (default) applies the
-    standard maximum for the route — 10% ordinary (§5.5.2), 5%
-    high-strength (§6.2.7) — as in the worked examples; mass sizes have no
+    standard maximum for the route — 10% ordinary (clause 5.5.2), 5%
+    high-strength (clause 6.2.7) — as in the worked examples; mass sizes have no
     tabulated reduction and only warn unless an explicit value is given.
-    An explicit value above the route maximum is rejected (§5.5.2 "up to").
+    An explicit value above the route maximum is rejected (clause 5.5.2 "up to").
     """
     site_control: str = "good"
     """Degree of site control (IS 10262 Table 2 Note 1).
@@ -210,14 +210,14 @@ class MixDesignInput:
     mass_concrete: bool = False
     """Design as mass concrete per IS 10262:2019 Section 9 (IS only).
 
-    Uses Tables 11/12/13, the §9.2 wet-sieving target allowance for 80/150
-    mm aggregate, and the §9.10 mortar check. Valid NMSA: 40/80/150 mm.
+    Uses Tables 11/12/13, the clause 9.2 wet-sieving target allowance for 80/150
+    mm aggregate, and the clause 9.10 mortar check. Valid NMSA: 40/80/150 mm.
     """
     scc_class: str | None = None
     """Target slump-flow class for self-compacting concrete (IS only).
 
     "SF1" (550–650 mm), "SF2" (660–750 mm) or "SF3" (760–850 mm) per
-    IS 10262:2019 §7.2.1. None (default) disables the SCC checks.
+    IS 10262:2019 clause 7.2.1. None (default) disables the SCC checks.
     """
     scc_slump_flow_mm: float | None = None
     """Measured slump-flow in mm for SCC acceptance (IS only, optional)."""
@@ -231,7 +231,7 @@ class MixDesignInput:
     age_days: int = 28
     min_cement_kg: float | None = None
     max_cement_kg: float | None = None
-    std_deviation: float | None = None  # Sample standard deviation (MPa): DOE Figure 3 override; ACI Tables 4.7.4.3-4.7.4.4 sample s (e.g. §9.3 Example 2: 300 psi = 2.07 MPa)
+    std_deviation: float | None = None  # Sample standard deviation (MPa): DOE Figure 3 override; ACI Tables 4.7.4.3-4.7.4.4 sample s (e.g. clause 9.3 Example 2: 300 psi = 2.07 MPa)
     margin_mpa: float | None = None  # DOE: user-specified margin (MPa), overrides k×s calculation
     num_test_cubes: int | None = None  # DOE: number of test cubes (n) for std-dev determination
     # BRE 331 Figure 3: n<20 → Line A (s = 0.4×fc for fc≤20, else 8 MPa);
@@ -242,7 +242,7 @@ class MixDesignInput:
     # mean of the fine/coarse SSD specific gravities. Ignored by ACI/IS.
 
     def __post_init__(self) -> None:
-        # Replacement is by mass of total binder (ACI §7 / §5.3.5).
+        # Replacement is by mass of total binder (ACI clause 7 / clause 5.3.5).
         # App scope requires a positive Portland-cement remainder; these
         # procedures do not proportion a 100% SCM binder.
         if not 0.0 <= self.total_scm_replacement_percent < 100.0:
@@ -378,7 +378,7 @@ class MixDesignInput:
         ):
             raise ValueError(
                 f"Pump CA reduction '{self.pump_ca_reduction_percent}' not valid. "
-                "Use 0–10% (IS 10262:2019 §5.5.2 'up to 10%')"
+                "Use 0–10% (IS 10262:2019 clause 5.5.2 'up to 10%')"
             )
         if self.site_control not in ("good", "fair"):
             raise ValueError(

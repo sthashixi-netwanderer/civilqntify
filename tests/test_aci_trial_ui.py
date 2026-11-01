@@ -41,7 +41,7 @@ def _aci_design():
 
 
 def test_aci_result_panel_shows_trial_prompt(qt):
-    """When an ACI result is displayed, the §5.3.9 trial frame is visible."""
+    """When an ACI result is displayed, the clause 5.3.9 trial frame is visible."""
     panel = ResultPanel()
     panel.display_result(_aci_design())
 
@@ -95,7 +95,7 @@ def test_dialog_populates_schedule(qt):
 
 
 def test_dialog_evaluation_renders_adjustments(qt):
-    """Entering measurements renders the §5.3.10 assessment."""
+    """Entering measurements renders the clause 5.3.10 assessment."""
     dlg = ACITrialMixesDialog(_aci_design())
     dlg._volume_spin.setValue(0.05)
     dlg._density_spin.setValue(2350.0)
@@ -109,12 +109,12 @@ def test_dialog_evaluation_renders_adjustments(qt):
     assert "Adjustment 1" in text
     assert "Next-trial proportions" in text
     # Without a strength result the next trial holds the design w/cm
-    # (§5.3.10.4 / §9.2.9.3: cement = water ÷ w/cm).
+    # (clause 5.3.10.4 / clause 9.2.9.3: cement = water ÷ w/cm).
     assert dlg._evaluation["next_trial"]["w_c_ratio"] == pytest.approx(
         _aci_design().w_c_ratio, abs=0.005
     )
 
-    # §5.3.10.3 adds both cementitious and its corresponding water
+    # clause 5.3.10.3 adds both cementitious and its corresponding water
     # increment on top of Step 5, maintaining the selected w/cm.
     dlg._strength_spin.setValue(20.0)
     dlg._on_calculate()
@@ -133,10 +133,10 @@ def test_dialog_evaluation_renders_adjustments(qt):
 
 def test_save_trial_record_links_to_design(qt, monkeypatch):
     """Save writes an aci_trial record chained to the parent design."""
-    from PyQt6.QtWidgets import QMessageBox
+    from app.widgets import aci_trial_mixes_dialog as acimod
 
-    monkeypatch.setattr(QMessageBox, "information", staticmethod(lambda *a, **k: None))
-    monkeypatch.setattr(QMessageBox, "critical", staticmethod(lambda *a, **k: None))
+    monkeypatch.setattr(acimod.QMessageBox, "information", staticmethod(lambda *a, **k: None))
+    monkeypatch.setattr(acimod.QMessageBox, "critical", staticmethod(lambda *a, **k: None))
 
     db = HistoryDB()  # lands in the temp HOME set above
     res = _aci_design()

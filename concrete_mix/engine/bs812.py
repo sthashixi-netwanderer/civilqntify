@@ -16,7 +16,7 @@ def report_whole_percent(value: float) -> int:
 
 
 def washed_fines_percent(original_dry_mass: float, washed_dry_mass: float) -> float:
-    """Return 100(M1-M2)/M1, washing alone (§7.2.1, BS 882 Table 6)."""
+    """Return 100(M1-M2)/M1, washing alone (clause 7.2.1, BS 882 Table 6)."""
     if not isfinite(original_dry_mass) or original_dry_mass <= 0:
         raise ValueError("Original dry mass M1 must be finite and positive")
     if (not isfinite(washed_dry_mass)
@@ -34,7 +34,7 @@ def compute_bs812_psd(
     washed_dry_mass: float | None = None,
     method: str = "dry",
 ) -> PSDResult:
-    """Calculate §8 PSD using original dry mass M1, never recovered mass.
+    """Calculate clause 8 PSD using original dry mass M1, never recovered mass.
 
     Args:
         mass_retained: Raw dry-sieved masses in grams, coarsest first.
@@ -42,7 +42,7 @@ def compute_bs812_psd(
         pan_mass: Raw dry pan mass, excluding washing loss.
         original_dry_mass: Original oven-dry mass M1 in grams.
         washed_dry_mass: Oven-dry washed residue M2, required for washed mode.
-        method: ``dry`` (§7.3) or ``washed`` (§7.2).
+        method: ``dry`` (clause 7.3) or ``washed`` (clause 7.2).
 
     Returns:
         PSDResult with raw retained masses and corrected pan (raw pan +
@@ -52,7 +52,7 @@ def compute_bs812_psd(
         ValueError: Invalid measurements or unreconciled dry residue. As an
             app integrity policy (not a BS laboratory tolerance), sums must
             agree to numerical precision; no unexplained loss is allocated
-            to fines. The washed stack must end at 75 µm (§7.2.2.1).
+            to fines. The washed stack must end at 75 µm (clause 7.2.2.1).
     """
     if method not in ("dry", "washed"):
         raise ValueError("method must be 'dry' or 'washed'")

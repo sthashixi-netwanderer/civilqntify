@@ -8,33 +8,33 @@ Displays an HTML report in a styled dialog with:
 
 from __future__ import annotations
 
-from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
-    QDialog,
     QHBoxLayout,
-    QLabel,
     QPushButton,
     QTextBrowser,
-    QVBoxLayout,
     QWidget,
 )
 
+from app.widgets.frameless_dialog import FramelessDialog
 
-class ReportPreviewDialog(QDialog):
-    """Modal dialog for previewing HTML reports before PDF export."""
+
+class ReportPreviewDialog(FramelessDialog):
+    """Modeless dialog for previewing HTML reports before PDF export."""
 
     def __init__(self, parent=None, title: str = "Report Preview") -> None:
-        super().__init__(parent)
-        self.setWindowTitle(title)
-        self.setMinimumSize(900, 700)
+        super().__init__(parent, title=title)
+        # The QTextBrowser reflows the HTML and scrolls internally, so the
+        # window can shrink well below the initial size on small screens.
+        self.setMinimumSize(600, 420)
         self.resize(1000, 800)
-        self.setModal(True)
-
+        # Modeless: opened through open_detached as an independent window,
+        # so the main window stays usable and the window switcher can move
+        # between this preview and the rest of the app.
         self._html_content: str = ""
         self._build_ui()
 
     def _build_ui(self) -> None:
-        layout = QVBoxLayout(self)
+        layout = self.content_layout
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
@@ -44,10 +44,6 @@ class ReportPreviewDialog(QDialog):
         action_bar.setFixedHeight(50)
         action_bar_layout = QHBoxLayout(action_bar)
         action_bar_layout.setContentsMargins(16, 8, 16, 8)
-
-        title_label = QLabel("Report Preview")
-        title_label.setObjectName("dialog-title")
-        action_bar_layout.addWidget(title_label)
 
         action_bar_layout.addStretch()
 

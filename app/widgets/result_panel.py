@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import html
+
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QFrame,
@@ -19,7 +21,13 @@ from PyQt6.QtWidgets import (
 )
 
 from concrete_mix import MixDesignResult
+from concrete_mix.utils import latex_math
+from app.styles import sentence_case_si_units
 from app.unit_preferences import UnitPreferences, get_unit_prefs
+from app.widgets.frameless_dialog import open_detached
+from app.widgets.latex_delegate import MathDelegate
+from app.widgets.latex_delegate import prewarm as prewarm_math
+from app.widgets.wrap_label import WrapLabel
 
 
 class StatCard(QFrame):
@@ -46,7 +54,7 @@ class StatCard(QFrame):
         layout.setContentsMargins(10, 8, 10, 8)
         layout.setSpacing(2)
 
-        self._label = QLabel(label)
+        self._label = QLabel(sentence_case_si_units(label))
         self._label.setObjectName("result-label")
         self._label.setWordWrap(True)
         self._label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
@@ -116,9 +124,8 @@ class TargetStrengthResultPanel(QWidget):
         self._ts_scroll = scroll
         self._ts_container = container
 
-        title = QLabel("Target Strength")
+        title = WrapLabel("Target strength")
         title.setObjectName("section-title")
-        title.setWordWrap(True)
         outer.addWidget(title)
 
         subtitle = QLabel(
@@ -138,10 +145,10 @@ class TargetStrengthResultPanel(QWidget):
         self._cards: dict[str, StatCard] = {}
         self._ts_card_order: list[str] = []
         for key, label in (
-            ("characteristic", "Characteristic Strength"),
-            ("std_dev", "Standard Deviation"),
-            ("margin", "Strength Margin"),
-            ("target", "Target Mean Strength"),
+            ("characteristic", "Characteristic strength"),
+            ("std_dev", "Standard deviation"),
+            ("margin", "Strength margin"),
+            ("target", "Target mean strength"),
         ):
             card = StatCard(label)
             self._cards[key] = card
@@ -151,9 +158,8 @@ class TargetStrengthResultPanel(QWidget):
         self._reflow_ts_cards(force=True)
         outer.addWidget(self._ts_grid_container)
 
-        self._formula_label = QLabel()
+        self._formula_label = WrapLabel()
         self._formula_label.setObjectName("callout-panel")
-        self._formula_label.setWordWrap(True)
         self._formula_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         self._formula_label.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.MinimumExpanding)
         outer.addWidget(self._formula_label)
@@ -247,9 +253,19 @@ class TargetStrengthResultPanel(QWidget):
                 strength_unit,
             )
 
+        calc_latex = getattr(self._result, "latex", "") or self._result.formula
+        # Typeset the working: prose stays as text, maths runs are drawn as
+        # inline images (matplotlib mathtext, no TeX install needed). If the
+        # raster cannot be produced, fall back to the LaTeX source so the
+        # working is never hidden.
+        calc_html = latex_math.fragment_html(calc_latex)
+        if not calc_html:
+            calc_html = (
+                "<span style='font-family:monospace;'>"
+                f"{html.escape(calc_latex).replace(chr(10), '<br/>')}</span>"
+            )
         self._formula_label.setText(
-            f"<b>{self._result.standard_name}</b><br/>"
-            f"{self._result.formula.replace(chr(10), '<br/>')}"
+            f"<b>{self._result.standard_name}</b><br/>{calc_html}"
         )
         self._reference_label.setText(f"Reference: {self._result.reference}")
 
@@ -276,7 +292,7 @@ class ResultPanel(QWidget):
     # Trial-card framing: inactive cards stay hidden; the card matching
     # the result's design standard gets an accent border + "active"
     # marker so it is unmistakable which protocol applies
-    # (IS 10262:2019 Cl. 5.8 / BRE 331:1997 §6 / ACI PRC-211.1-22 Ch. 8).
+    # (IS 10262:2019 Cl. 5.8 / BRE 331:1997 clause 6 / ACI PRC-211.1-22 Ch. 8).
     _TRIAL_FRAME_BASE_STYLE = ""
     _TRIAL_FRAME_ACTIVE_STYLE = ""
 
@@ -317,9 +333,8 @@ class ResultPanel(QWidget):
         self._scroll_container = container
 
         # Warnings banner (hidden by default)
-        self._warning_banner = QLabel()
+        self._warning_banner = WrapLabel()
         self._warning_banner.setObjectName("warning-banner")
-        self._warning_banner.setWordWrap(True)
         self._warning_banner.setVisible(False)
         # allow banner to expand vertically when wrapping
         self._warning_banner.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.MinimumExpanding)
@@ -335,16 +350,15 @@ class ResultPanel(QWidget):
         trial_layout.setContentsMargins(10, 8, 10, 8)
         trial_layout.setSpacing(6)
 
-        trial_title = QLabel("IS 10262:2019 Clause 5.8 — Trial Mixes Protocol")
+        trial_title = WrapLabel("IS 10262:2019 Clause 5.8 — Trial Mixes Protocol")
         trial_title.setObjectName("section-title")
-        trial_title.setWordWrap(True)
         trial_title.setMinimumWidth(0)
         trial_title.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.MinimumExpanding)
         trial_layout.addWidget(trial_title)
         # Base title kept so the active-standard highlight can be
         # applied/restored without losing the clause reference.
         self._is_trial_title = trial_title
-        self._is_trial_title_base = "IS 10262:2019 Clause 5.8 — Trial Mixes Protocol"
+        self._is_trial_title_base = "IS 10262:2019 Clause 5.8 — Trial mixes protocol"
 
         self._is_trial_lbl = QLabel()
         self._is_trial_lbl.setWordWrap(True)
@@ -360,7 +374,7 @@ class ResultPanel(QWidget):
 
         outer.addWidget(self._is_trial_frame)
 
-        # BRE 331:1997 §6 Trial Mixes Prompt (DOE results only, hidden by default)
+        # BRE 331:1997 clause 6 Trial Mixes Prompt (DOE results only, hidden by default)
         self._doe_trial_frame = QFrame()
         self._doe_trial_frame.setObjectName("trial-frame")
         self._doe_trial_frame.setVisible(False)
@@ -369,14 +383,13 @@ class ResultPanel(QWidget):
         doe_trial_layout.setContentsMargins(10, 8, 10, 8)
         doe_trial_layout.setSpacing(6)
 
-        doe_trial_title = QLabel("BRE 331:1997 §6 — Trial Mixes")
+        doe_trial_title = WrapLabel("BRE 331:1997 clause 6 — Trial Mixes")
         doe_trial_title.setObjectName("section-title")
-        doe_trial_title.setWordWrap(True)
         doe_trial_title.setMinimumWidth(0)
         doe_trial_title.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.MinimumExpanding)
         doe_trial_layout.addWidget(doe_trial_title)
         self._doe_trial_title = doe_trial_title
-        self._doe_trial_title_base = "BRE 331:1997 §6 — Trial Mixes"
+        self._doe_trial_title_base = "BRE 331:1997 clause 6 — Trial mixes"
 
         self._doe_trial_lbl = QLabel()
         self._doe_trial_lbl.setWordWrap(True)
@@ -384,7 +397,7 @@ class ResultPanel(QWidget):
         self._doe_trial_lbl.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.MinimumExpanding)
         doe_trial_layout.addWidget(self._doe_trial_lbl)
 
-        self._btn_view_doe_trials = QPushButton("Open Trial Mixes Workbook (§6)")
+        self._btn_view_doe_trials = QPushButton("Open Trial Mixes Workbook (clause 6)")
         self._btn_view_doe_trials.setObjectName("secondary")
         self._btn_view_doe_trials.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self._btn_view_doe_trials.clicked.connect(self._on_view_doe_trials)
@@ -401,14 +414,13 @@ class ResultPanel(QWidget):
         aci_trial_layout.setContentsMargins(10, 8, 10, 8)
         aci_trial_layout.setSpacing(6)
 
-        aci_trial_title = QLabel("ACI PRC-211.1-22 — Trial Batching")
+        aci_trial_title = WrapLabel("ACI PRC-211.1-22 — Trial Batching")
         aci_trial_title.setObjectName("section-title")
-        aci_trial_title.setWordWrap(True)
         aci_trial_title.setMinimumWidth(0)
         aci_trial_title.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.MinimumExpanding)
         aci_trial_layout.addWidget(aci_trial_title)
         self._aci_trial_title = aci_trial_title
-        self._aci_trial_title_base = "ACI PRC-211.1-22 — Trial Batching"
+        self._aci_trial_title_base = "ACI PRC-211.1-22 — Trial batching"
 
         self._aci_trial_lbl = QLabel()
         self._aci_trial_lbl.setWordWrap(True)
@@ -416,7 +428,7 @@ class ResultPanel(QWidget):
         self._aci_trial_lbl.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.MinimumExpanding)
         aci_trial_layout.addWidget(self._aci_trial_lbl)
 
-        self._btn_view_aci_trials = QPushButton("Open Trial Batching Workbook (§5.3.9–5.3.10)")
+        self._btn_view_aci_trials = QPushButton("Open Trial Batching Workbook (clause 5.3.9–5.3.10)")
         self._btn_view_aci_trials.setObjectName("secondary")
         self._btn_view_aci_trials.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self._btn_view_aci_trials.clicked.connect(self._on_view_aci_trials)
@@ -433,9 +445,8 @@ class ResultPanel(QWidget):
         est_layout.setContentsMargins(12, 10, 12, 10)
         est_layout.setSpacing(4)
 
-        est_title = QLabel("Target Strength Estimation")
+        est_title = WrapLabel("Target strength estimation")
         est_title.setObjectName("section-title")
-        est_title.setWordWrap(True)
         est_layout.addWidget(est_title)
 
         self._strength_est_html = QLabel()
@@ -446,9 +457,8 @@ class ResultPanel(QWidget):
         outer.addWidget(self._strength_est_frame)
 
         # Material quantities — responsive card grid
-        self._cards_label = QLabel("Material Quantities (per m³)")
+        self._cards_label = WrapLabel("Material quantities (per m³)")
         self._cards_label.setObjectName("section-title")
-        self._cards_label.setWordWrap(True)
         outer.addWidget(self._cards_label)
 
         # Container for the responsive grid — we keep the grid as an
@@ -486,39 +496,35 @@ class ResultPanel(QWidget):
 
         outer.addWidget(self._cards_container)
 
-        # DOE single-size coarse aggregate split (BRE 331:1997 §5.5) —
+        # DOE single-size coarse aggregate split (BRE 331:1997 clause 5.5) —
         # BRE-style column table: sizes above, contents below.
-        self._ca_split_label = QLabel()
+        self._ca_split_label = WrapLabel()
         self._ca_split_label.setObjectName("section-title")
-        self._ca_split_label.setWordWrap(True)
         self._ca_split_label.setTextFormat(Qt.TextFormat.RichText)
         self._ca_split_label.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.MinimumExpanding)
         self._ca_split_label.setVisible(False)
         outer.addWidget(self._ca_split_label)
 
         # Mix ratio display
-        self._mix_ratio_label = QLabel()
+        self._mix_ratio_label = WrapLabel()
         self._mix_ratio_label.setObjectName("section-title")
-        self._mix_ratio_label.setWordWrap(True)
         self._mix_ratio_label.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.MinimumExpanding)
         self._mix_ratio_label.setVisible(False)
         outer.addWidget(self._mix_ratio_label)
 
         # Total volume section
-        self._total_label = QLabel()
+        self._total_label = WrapLabel()
         self._total_label.setObjectName("section-title")
-        self._total_label.setWordWrap(True)
         self._total_label.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.MinimumExpanding)
         outer.addWidget(self._total_label)
 
         # Calculation steps tree — responsive header
-        steps_label = QLabel("Calculation Steps")
+        steps_label = WrapLabel("Calculation steps")
         steps_label.setObjectName("section-title")
-        steps_label.setWordWrap(True)
         outer.addWidget(steps_label)
 
         self._steps_tree = QTreeWidget()
-        self._steps_tree.setHeaderLabels(["#", "Description", "Formula", "Result", "Unit", "Reference"])
+        self._steps_tree.setHeaderLabels(["#", "Description", "Calculation (LaTeX)", "Result", "Unit", "Reference"])
         self._steps_tree.setAlternatingRowColors(True)
         self._steps_tree.setRootIsDecorated(False)
         self._steps_tree.setColumnCount(6)
@@ -527,7 +533,7 @@ class ResultPanel(QWidget):
         self._steps_tree.setMinimumWidth(0)
         # Tall enough to show typical step lists without an inner
         # scrollbar; _fit_steps_height() grows it further per result.
-        # IS 10262:2019 §9 / ACI 211.1-22 §9.3 calculation steps.
+        # IS 10262:2019 clause 9 / ACI 211.1-22 clause 9.3 calculation steps.
         self._steps_tree.setMinimumHeight(260)
         # Responsive column sizing: Description & Formula stretch, others adapt
         header = self._steps_tree.header()
@@ -539,6 +545,11 @@ class ResultPanel(QWidget):
         header.setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)
         # Keep Formula readable but not dominating at narrow widths
         header.resizeSection(2, 160)
+        # Typeset the Calculation column: MathDelegate paints each step's
+        # LaTeX fragment as Computer Modern maths instead of source text.
+        # Kept on ``self`` because the view does not own the delegate.
+        self._steps_delegate = MathDelegate(self._steps_tree, column=2)
+        self._steps_tree.setItemDelegateForColumn(2, self._steps_delegate)
         self._steps_tree.setWordWrap(True)
         # stretch=1 lets the tree absorb viewport space; the trailing
         # spacer stays at stretch 0 so it never steals half the space
@@ -817,7 +828,7 @@ class ResultPanel(QWidget):
             f"{est['coarse_agg_kg'] / est['cement_kg']:.1f}"
         )
         label_text = (
-            f"<b>Mix Ratio</b><br>"
+            f"<b>Mix ratio</b><br>"
             f"<span style='font-size:16px;'>{ratio_parts} "
             f"<span style='color:#6b7280;'>({wc_ratio:.3f})</span></span>"
         )
@@ -847,7 +858,7 @@ class ResultPanel(QWidget):
     def _render_ca_split(self, result: MixDesignResult, vol: float) -> None:
         """Render the DOE single-size CA split as a BRE-style column table.
 
-        BRE 331:1997 §5.5 subdivides the coarse content only when single
+        BRE 331:1997 clause 5.5 subdivides the coarse content only when single
         sized 10/20/40 mm materials are combined (1:2, or 1:1.5:3). Sizes
         read across the top with each fraction's content below — unused
         sizes show "—", as in the standard's summary tables.
@@ -870,7 +881,7 @@ class ResultPanel(QWidget):
 
         dots = "<span style='color:#9ca3af;'>··········</span>"
         self._ca_split_label.setText(
-            f"<b>Coarse Aggregate ({mu}) — Single-Size Split</b><br/>"
+            f"<b>Coarse aggregate ({mu}) — single-size split</b><br/>"
             "<table width='100%' cellpadding='2'>"
             "<tr>"
             "<td align='center'><span style='color:#4b5563;'>10 mm</span></td>"
@@ -883,7 +894,7 @@ class ResultPanel(QWidget):
             f"<td align='center'>{cell('40 mm')}</td></tr>"
             "</table>"
             f"<span style='font-size:11px; color:#6b7280;'>Ratio {ratio} "
-            f"(BRE 331:1997 §5.5)</span>"
+            f"(BRE 331:1997 clause 5.5)</span>"
         )
         self._ca_split_label.setVisible(True)
 
@@ -915,26 +926,26 @@ class ResultPanel(QWidget):
                 f"• <b>Trial 1</b>: Calculated proportions (W/C {wc:.2f}) — test slump/flow, observe bleeding/segregation & finish.<br/>"
                 f"• <b>Trial 2</b>: Adjust water/admixture if slump deviates, holding free W/C constant at {wc:.2f}.<br/>"
                 f"• <b>Trials 3 & 4</b>: Same water as Trial 2 with W/C varied by ±10% (<b>{wc3:.2f}</b> & <b>{wc4:.2f}</b>) to develop compressive strength vs. W/C curve.<br/>"
-                "• <b>Final Proportions & §5.8.1 Reporting</b>: Select final mix satisfying strength & IS 456 Table 5 durability, perform site field trials, and document full trial records."
+                "• <b>Final Proportions & clause 5.8.1 Reporting</b>: Select final mix satisfying strength & IS 456 Table 5 durability, perform site field trials, and document full trial records."
             )
             self._is_trial_lbl.setText(html)
             self._is_trial_frame.setVisible(True)
         else:
             self._is_trial_frame.setVisible(False)
 
-        # BRE 331:1997 §6 Trial Mixes Prompt (DOE only)
+        # BRE 331:1997 clause 6 Trial Mixes Prompt (DOE only)
         is_doe_code = "doe" in result.code_used.lower() or "bre" in result.code_used.lower()
         if is_doe_code:
             wc = result.w_c_ratio
             doe_html = (
-                "<b>Trial Mixes (BRE 331:1997 §6):</b><br/>"
+                "<b>Trial Mixes (BRE 331:1997 clause 6):</b><br/>"
                 "The trial mix checks that the selected materials behave as the design assumes — "
-                "its feedback is an essential part of the design process (§6).<br/>"
+                "its feedback is an essential part of the design process (clause 6).<br/>"
                 f"• <b>Batch</b>: scale the design quantities to the trial volume (typically 0.05 m³, "
                 f"six 150 mm cubes + slump/Vebe/density tests) at w/c {wc:.2f}, with optional w/c "
                 "variant batches at the same water content.<br/>"
-                "• <b>Test</b> (§6.2): slump/Vebe, fresh density, cubes per BS 1881 Parts 102/104/107/108/116.<br/>"
-                "• <b>Adjust</b> (§6.3): water by Table 3 workability, unit proportions by the "
+                "• <b>Test</b> (clause 6.2): slump/Vebe, fresh density, cubes per BS 1881 Parts 102/104/107/108/116.<br/>"
+                "• <b>Adjust</b> (clause 6.3): water by Table 3 workability, unit proportions by the "
                 "measured/assumed density ratio, and the w/c via the Figure 7 strength adjustment — "
                 "then use the proportions, modify slightly, or re-trial."
             )
@@ -948,15 +959,15 @@ class ResultPanel(QWidget):
         if is_aci_code:
             wc = result.w_c_ratio
             aci_html = (
-                "<b>Trial Batching (ACI PRC-211.1-22 Ch. 8, §5.3.9–5.3.10):</b><br/>"
+                "<b>Trial Batching (ACI PRC-211.1-22 Ch. 8, clause 5.3.9–5.3.10):</b><br/>"
                 "Trial batches demonstrate that the proportions produce the required "
-                "properties; iterate until everything is within tolerance (§4.1).<br/>"
-                f"• <b>Batch</b> (§5.3.9): Table 5.3.9.1 batch weights with the "
+                "properties; iterate until everything is within tolerance (clause 4.1).<br/>"
+                f"• <b>Batch</b> (clause 5.3.9): Table 5.3.9.1 batch weights with the "
                 f"(1+MC%)/(1+A%) moisture adjustment at w/cm {wc:.2f} — water to batch = "
                 "mixing water minus the free water on the aggregates.<br/>"
                 "• <b>Test</b>: slump, density/yield, air per ASTM C143/C138/C173/C231; "
                 "prepare per ASTM C192.<br/>"
-                "• <b>Adjust</b> (§5.3.10): re-estimate the mixing water (net water ÷ "
+                "• <b>Adjust</b> (clause 5.3.10): re-estimate the mixing water (net water ÷ "
                 "yield ± 10 lb/yd³ per inch of slump), correct air, apply the cement "
                 "efficiency for strength, and recalculate the next-trial proportions."
             )
@@ -969,7 +980,7 @@ class ResultPanel(QWidget):
         # is unmistakable which trial protocol applies (the other cards
         # stay hidden; the accent + ACTIVE marker disambiguate the visible
         # one, including in accessibility trees that still list hidden
-        # frames). Refs: IS 10262:2019 Cl. 5.8, BRE 331:1997 §6, ACI Ch. 8.
+        # frames). Refs: IS 10262:2019 Cl. 5.8, BRE 331:1997 clause 6, ACI Ch. 8.
         if is_is_code:
             self._highlight_trial_frames("is")
         elif is_doe_code:
@@ -981,7 +992,7 @@ class ResultPanel(QWidget):
 
         # Update header to show volume
         vol_display = up.convert_volume_m3(vol)
-        self._cards_label.setText(f"Material Quantities (for {vol_display:.3f} {up.volume_unit()})")
+        self._cards_label.setText(f"Material quantities (for {vol_display:.3f} {up.volume_unit()})")
 
         # Material cards — scale by volume and convert mass values
         self._cards["cement"].set_value(
@@ -1011,7 +1022,7 @@ class ResultPanel(QWidget):
         wc = result.w_c_ratio
         ratio_parts = f"{ratio['cement']:.1f} : {ratio['fine_aggregate']:.1f} : {ratio['coarse_aggregate']:.1f}"
         label_text = (
-            f"<b>Mix Ratio</b><br>"
+            f"<b>Mix ratio</b><br>"
             f"<span style='font-size:16px;'>{ratio_parts} <span style='color:#6b7280;'>({wc:.3f})</span></span>"
         )
         self._mix_ratio_label.setText(label_text)
@@ -1039,18 +1050,23 @@ class ResultPanel(QWidget):
         # Calculation steps — keep headers responsive (Description stretches)
         self._steps_tree.clear()
         for step in result.steps:
+            formula_latex = step.latex or step.formula
             item = QTreeWidgetItem([
                 str(step.step_number),
                 step.description,
-                step.formula,
+                formula_latex,
                 f"{step.result:.2f}",
                 step.unit,
                 step.clause_ref,
             ])
             # Allow wrapping for long descriptions
             item.setToolTip(1, step.description)
-            item.setToolTip(2, step.formula)
+            item.setToolTip(2, formula_latex)
             self._steps_tree.addTopLevelItem(item)
+        # Rasterise every working now, on the GUI thread, so the delegate has
+        # its images before the first paint: otherwise the table would fill in
+        # row by row as each formula is typeset.
+        prewarm_math([step.latex or step.formula for step in result.steps])
         # Resize only compact columns; keep Description stretched
         for col in (0, 3, 4, 5):
             self._steps_tree.resizeColumnToContents(col)
@@ -1150,10 +1166,10 @@ class ResultPanel(QWidget):
 
         inp = getattr(self._result, "_input", None)
         dlg = ISTrialMixesDialog(self._result, inp=inp, parent=self)
-        dlg.exec()
+        open_detached(dlg)
 
     def _on_view_doe_trials(self) -> None:
-        """Open the BRE 331:1997 §6 Trial Mixes workbook dialog."""
+        """Open the BRE 331:1997 clause 6 Trial Mixes workbook dialog."""
         if self._result is None:
             return
         from app.widgets.doe_trial_mixes_dialog import DOETrialMixesDialog
@@ -1162,7 +1178,7 @@ class ResultPanel(QWidget):
         dlg = DOETrialMixesDialog(
             self._result, inp=inp, design_calc_id=self._design_calc_id, parent=self,
         )
-        dlg.exec()
+        open_detached(dlg)
 
     def _on_view_aci_trials(self) -> None:
         """Open the ACI PRC-211.1-22 Trial Batching workbook dialog."""
@@ -1174,7 +1190,7 @@ class ResultPanel(QWidget):
         dlg = ACITrialMixesDialog(
             self._result, inp=inp, design_calc_id=self._design_calc_id, parent=self,
         )
-        dlg.exec()
+        open_detached(dlg)
 
     def _on_send_to_quant(self) -> None:
         """Emit signal to transfer mix design data to quantification tab."""

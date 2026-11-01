@@ -8,11 +8,11 @@ and asserts:
   2. the ResultPanel cards display exactly what the engine produced.
 
 Reference documents (read-only ground truth, see AGENTS.md):
-  - BRE 331:1997 §7 Examples 1-4 (DOE method)
+  - BRE 331:1997 clause 7 Examples 1-4 (DOE method)
   - IS 10262:2019 Annex A (M40 PPC), B (M40 fly ash), C (M40 GGBS),
     D (high-strength), E (SCC M30), F (mass M15)
-  - ACI PRC-211.1-22 §9.2 Ex1, §9.3 Ex2 (binary fly ash), §9.4 Ex3
-    (efficiency factor), §9.5 Ex4 (target paste volume)
+  - ACI PRC-211.1-22 clause 9.2 Ex1, clause 9.3 Ex2 (binary fly ash), clause 9.4 Ex3
+    (efficiency factor), clause 9.5 Ex4 (target paste volume)
 """
 
 import os
@@ -70,8 +70,9 @@ def _assert_kwargs_roundtrip(tab, inp):
 
 
 # ---------------------------------------------------------------------------
-# BRE 331:1997 §7.1 — Example 1: unrestricted design
-# Printed: target 46, w/c 0.47, W 160, C 340, FA 515, CA 1385.
+# BRE 331:1997 clause 7.1 — Example 1: unrestricted design
+# Printed: target 46 (app 45.7 at 0.1 MPa), w/c 0.47, W 160, C 340, FA 515,
+# CA 1385.
 # Figure 6 digitisation reads 27.7% fines (chart reading 27%).
 # ---------------------------------------------------------------------------
 class TestGUIBREExample1:
@@ -90,7 +91,7 @@ class TestGUIBREExample1:
             w_c_ratio=0.55, min_cement_kg=290.0,
         )
         r = DOEMixDesign().design(inp)
-        assert r.target_mean_strength_mpa == 46.0
+        assert r.target_mean_strength_mpa == 45.7
         assert r.w_c_ratio == 0.47
         assert r.water_kg == 160
         assert r.cement_kg == 340
@@ -102,7 +103,7 @@ class TestGUIBREExample1:
 
 
 # ---------------------------------------------------------------------------
-# BRE 331:1997 §7.2 — Example 2: restricted by maximum W/C (0.50)
+# BRE 331:1997 clause 7.2 — Example 2: restricted by maximum W/C (0.50)
 # Printed: target 35, w/c 0.50, W 160, C 320, FA 405, CA 1440.
 # ---------------------------------------------------------------------------
 class TestGUIBREExample2:
@@ -131,7 +132,7 @@ class TestGUIBREExample2:
 
 
 # ---------------------------------------------------------------------------
-# BRE 331:1997 §7.3 — Example 3: restricted by minimum cement (290)
+# BRE 331:1997 clause 7.3 — Example 3: restricted by minimum cement (290)
 # Slump 0-10 -> W 115, C 230 -> governed to 290, modified w/c 0.40,
 # fines "15 to 18, say 17" %.
 # ---------------------------------------------------------------------------
@@ -161,8 +162,8 @@ class TestGUIBREExample3:
 
 
 # ---------------------------------------------------------------------------
-# BRE 331:1997 §7.4 — Example 4: restricted by maximum cement (550)
-# §5.3: 580 > 550 -> "not possible to proceed". GUI must surface the
+# BRE 331:1997 clause 7.4 — Example 4: restricted by maximum cement (550)
+# clause 5.3: 580 > 550 -> "not possible to proceed". GUI must surface the
 # refusal, never a stale result.
 # ---------------------------------------------------------------------------
 class TestGUIBREExample4:
@@ -194,7 +195,7 @@ class TestGUIBREExample4:
 
 
 # ---------------------------------------------------------------------------
-# BRE 331:1997 §7.1 — 50 litre trial batch + oven-dry conversion
+# BRE 331:1997 clause 7.1 — 50 litre trial batch + oven-dry conversion
 # SSD trial: 17.0 / 8.0 / 25.7 / 69.2; oven-dry: 25.2 / 68.5 + 1.2 kg water
 # (FA A=2%, CA A=1%).
 # ---------------------------------------------------------------------------
@@ -228,7 +229,7 @@ class TestGUIBRETrialBatch:
         assert abs(_card_float(tab._result_panel, "water") - 8.0) < 0.15
         assert abs(_card_float(tab._result_panel, "fine_agg") - 25.7) < 0.6
         assert abs(_card_float(tab._result_panel, "coarse_agg") - 69.2) < 0.6
-        assert abs(_card_float(tab._result_panel, "target") - 46.0) < 0.15
+        assert abs(_card_float(tab._result_panel, "target") - 45.7) < 0.15
         from concrete_mix.engine.moisture_correction import correct_for_moisture
         assert abs(correct_for_moisture(25.7, 2.0, 0.0) - 25.2) < 0.15
         assert abs(correct_for_moisture(69.2, 1.0, 0.0) - 68.5) < 0.15
@@ -237,7 +238,7 @@ class TestGUIBRETrialBatch:
 # ---------------------------------------------------------------------------
 # IS 10262:2019 Annex A — M40 PPC (A-1 to A-12)
 # Printed: target 48.25, w/c 0.36, W 148, C 412, FA 648, CA 1234, adm 4.12.
-# App policy ceils target 48.25 -> 49 (conservative, +3 kg cement).
+# App policy rounds target 48.25 -> 48.3 (C 410, within 0.5 % of 412).
 # ---------------------------------------------------------------------------
 class TestGUIISAnnexA:
     def _input(self):
@@ -257,20 +258,19 @@ class TestGUIISAnnexA:
 
     def test_engine_and_gui(self, tab):
         r = IS10262MixDesign().design(self._input())
-        assert r.target_mean_strength_mpa == 49
+        assert r.target_mean_strength_mpa == 48.3
         assert r.w_c_ratio == 0.36
         assert r.water_kg == 148.0
-        assert abs(r.cement_kg - 415) < 3
-        assert abs(r.fine_aggregate_kg - 648) < 15
-        assert abs(r.coarse_aggregate_kg - 1234) < 15
+        assert abs(r.cement_kg - 410) < 3
+        assert abs(r.fine_aggregate_kg - 650) < 15
+        assert abs(r.coarse_aggregate_kg - 1237) < 15
         _assert_kwargs_roundtrip(tab, self._input())
         _assert_gui_fidelity(tab, r)
 
 
 # ---------------------------------------------------------------------------
 # IS 10262:2019 Annex B — M40 + 30% fly ash, slump 120 (B-1 to B-15)
-# Printed at exact 48.25: W 155, total 474 (142 FA + 332 OPC).
-# Ceiled target 49 -> total ~481 (144 + 337).
+# Printed: W 155, total 474 (142 FA + 332 OPC); target 48.3 reproduces it.
 # ---------------------------------------------------------------------------
 class TestGUIISAnnexB:
     def test_engine_and_gui(self, tab):
@@ -290,9 +290,9 @@ class TestGUIISAnnexB:
         )
         r = IS10262MixDesign().design(inp)
         assert abs(r.water_kg - 155.3) < 0.8
-        assert abs((r.cement_kg + r.scm_kg) - 481) < 5
-        assert abs(r.scm_kg - 144) < 3
-        assert abs(r.cement_kg - 337) < 3
+        assert abs((r.cement_kg + r.scm_kg) - 474) < 5
+        assert abs(r.scm_kg - 142) < 3
+        assert abs(r.cement_kg - 332) < 3
         _assert_kwargs_roundtrip(tab, inp)
         _assert_gui_fidelity(tab, r)
 
@@ -359,7 +359,7 @@ class TestGUIISAnnexD:
 
 
 # ---------------------------------------------------------------------------
-# IS 10262:2019 Annex E — SCC M30 (E-3 target 38.25 -> ceil 39)
+# IS 10262:2019 Annex E — SCC M30 (E-3 target 38.25 -> 38.3)
 # ---------------------------------------------------------------------------
 class TestGUIISAnnexE:
     def test_engine_and_gui(self, tab):
@@ -378,14 +378,14 @@ class TestGUIISAnnexE:
                 water_reduction_percent=23.0),
         )
         r = IS10262MixDesign().design(inp)
-        assert r.target_mean_strength_mpa == 39
+        assert r.target_mean_strength_mpa == 38.3
         _assert_kwargs_roundtrip(tab, inp)
         _assert_gui_fidelity(tab, r)
 
 
 # ---------------------------------------------------------------------------
 # IS 10262:2019 Annex F — mass concrete M15, 150 mm NMSA (F-3 to F-6)
-# Target 20.77 (ceil 21); reported 21 x 1.25 = 26.25 via the S9.2
+# Target 20.77 → 20.8; reported 20.8 x 1.25 = 26.0 via the S9.2
 # wet-sieving allowance for 150 mm cube tests; w/c 0.61 capped to 0.60.
 # ---------------------------------------------------------------------------
 class TestGUIISAnnexF:
@@ -402,17 +402,17 @@ class TestGUIISAnnexF:
                 shape=AggregateShape.ROUNDED_GRAVEL),
         )
         r = IS10262MixDesign().design(inp)
-        assert r.target_mean_strength_mpa == 26.25
+        assert r.target_mean_strength_mpa == 26.0
         assert r.w_c_ratio <= 0.60 + 1e-9
         _assert_kwargs_roundtrip(tab, inp)
         _assert_gui_fidelity(tab, r)
 
 
 # ---------------------------------------------------------------------------
-# ACI PRC-211.1-22 §9.2 Example 1 — 2500 psi, 40 mm rounded, FM 2.80
+# ACI PRC-211.1-22 clause 9.2 Example 1 — 2500 psi, 40 mm rounded, FM 2.80
 # Printed: W 300 lb (178 kg), air 1%, f'cr 3500 psi, w/cm 0.62, C 484 lb
 # (287 kg), CA 1927 lb SSD (1143 kg), FA 1308 lb (776 kg).
-# App policy ceils f'cr to whole MPa (25 MPa -> w/cm ~0.61, C ~291).
+# App policy rounds f'cr to 24.2 MPa -> w/cm 0.624, C 285, FA 780.
 # ---------------------------------------------------------------------------
 class TestGUIACIExample1:
     def test_engine_and_gui(self, tab):
@@ -429,19 +429,19 @@ class TestGUIACIExample1:
                 shape=AggregateShape.ROUNDED_GRAVEL),
         )
         r = ACI211MixDesign().design(inp)
-        assert abs(r.target_mean_strength_mpa - 25) < 0.1
+        assert abs(r.target_mean_strength_mpa - 24.2) < 0.1
         assert abs(r.water_kg - 178.0) < 1.5
         assert r.air_volume_percent == 1.0
-        assert abs(r.w_c_ratio - 0.61) < 0.02
-        assert abs(r.cement_kg - 291.1) < 4.0
+        assert abs(r.w_c_ratio - 0.6242) < 0.02
+        assert abs(r.cement_kg - 285.2) < 4.0
         assert abs(r.coarse_aggregate_kg - 1141.7) < 8.0
-        assert abs(r.fine_aggregate_kg - 775.1) < 25
+        assert abs(r.fine_aggregate_kg - 780.0) < 25
         _assert_kwargs_roundtrip(tab, inp)
         _assert_gui_fidelity(tab, r)
 
 
 # ---------------------------------------------------------------------------
-# ACI PRC-211.1-22 §9.3 Example 2 — binary fly-ash mixture (S1, F3, W1)
+# ACI PRC-211.1-22 clause 9.3 Example 2 — binary fly-ash mixture (S1, F3, W1)
 # Printed: base water 280 lb - 14 (WRA 5%) - 17 (fly ash 6%) - 22
 # (rounded 8%) = 227 lb; w/cm 0.37; CM 614 lb (491 + 123);
 # CA 1951 SSD; FA 1124 SSD; air 5.5%.
@@ -483,7 +483,7 @@ class TestGUIACIExample2:
 
 
 # ---------------------------------------------------------------------------
-# ACI PRC-211.1-22 §9.4 Example 3 — cementitious efficiency factor
+# ACI PRC-211.1-22 clause 9.4 Example 3 — cementitious efficiency factor
 # Trial: 4200 psi at 564 lb -> 7.45 psi/lb; +300 psi needs +40 lb CM
 # (604 lb), w/cm 0.53 -> 0.50 at constant 300 lb water.
 # ---------------------------------------------------------------------------
@@ -502,7 +502,7 @@ class TestGUIACIExample3:
 
 
 # ---------------------------------------------------------------------------
-# ACI PRC-211.1-22 §9.5 Example 4 — target paste volume
+# ACI PRC-211.1-22 clause 9.5 Example 4 — target paste volume
 # Reference mix: paste 8.20 ft3 / 27 = 30.4%; redesign holds w/cm 0.40
 # and 50% slag while hitting PV 25%.
 # ---------------------------------------------------------------------------
@@ -546,7 +546,7 @@ class TestGUIACIExample4:
 
 
 # ---------------------------------------------------------------------------
-# ACI §5.3.9.1 moisture correction — batch weights (Ex1: MC 2%/6%, A 0.5/0.7)
+# ACI clause 5.3.9.1 moisture correction — batch weights (Ex1: MC 2%/6%, A 0.5/0.7)
 # ---------------------------------------------------------------------------
 class TestGUIACIBatchWeights:
     def test_batch_formula(self):

@@ -5,10 +5,29 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Optional
 
+from concrete_mix.utils import latex_math
+
 
 @dataclass(frozen=True)
 class CalculationStep:
-    """A single calculation step with reference to the code clause."""
+    """A single calculation step with reference to the code clause.
+
+    Attributes:
+        step_number: Position in the calculation. Typed ``int`` but the code
+            implementations also emit sub-steps such as ``1.1`` or ``4.06``.
+        description: Prose name of the quantity being computed.
+        formula: The working, as hand-written ASCII (``W = 2/3x160 + ...``).
+            This is the source of truth and is what the reports and the
+            assertions in the test suite read.
+        inputs: Values that fed the step.
+        result: Computed value.
+        unit: Unit of ``result``; an empty string for dimensionless ratios.
+        clause_ref: Citation of the governing clause.
+        formula_latex: Optional hand-written LaTeX override. Almost every step
+            leaves this empty and lets :attr:`latex` derive LaTeX from
+            :attr:`formula`; supply it only where the ASCII working does not
+            convert cleanly.
+    """
     step_number: int
     description: str
     formula: str
@@ -16,6 +35,25 @@ class CalculationStep:
     result: float
     unit: str
     clause_ref: str = ""
+    formula_latex: str = ""
+
+    def __post_init__(self) -> None:
+        if not self.formula_latex and self.formula:
+            object.__setattr__(
+                self, "formula_latex", latex_math.to_latex(self.formula)
+            )
+
+    @property
+    def latex(self) -> str:
+        """The step's working as a LaTeX fragment, maths wrapped in ``$...$``.
+
+        Falls back to converting :attr:`formula` so that steps recorded before
+        this field existed — every row in an existing history database, for
+        instance — still render as maths without being rewritten.
+        """
+        if self.formula_latex:
+            return self.formula_latex
+        return latex_math.to_latex(self.formula)
 
     def __str__(self) -> str:
         return f"Step {self.step_number}: {self.description} = {self.result:.2f} {self.unit}"
@@ -56,7 +94,7 @@ class MixDesignResult:
     admixture_type: Optional[str] = None
     admixture_dosage_percent: Optional[float] = None
     water_reduction_percent: Optional[float] = None
-    # DOE single-size coarse aggregate split (BRE 331:1997 §5.5, C5 note):
+    # DOE single-size coarse aggregate split (BRE 331:1997 clause 5.5, C5 note):
     # per-m³ masses keyed by single size, e.g. {"10 mm": 460.0, "20 mm": 925.0}.
     # None when a single graded stock is used (no subdivision).
     ca_split_kg: Optional[dict[str, float]] = None

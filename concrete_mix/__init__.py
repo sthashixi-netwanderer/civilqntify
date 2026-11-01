@@ -38,15 +38,16 @@ from concrete_mix.models.materials import (
 from concrete_mix.models.mix_input import MixDesignInput
 from concrete_mix.models.mix_result import CalculationStep, MixDesignResult
 from concrete_mix.codes.is10262 import calculate_is10262_trial_mixes
+from concrete_mix.engine.moisture_correction import free_to_total_moisture
 
 from concrete_mix.validation.validators import validate_mix_input
 
 # Mapping from Ghana cement grades to calculation codes
 GHANA_CEMENT_MAP = {
-    "GRADE_32_5R": {"is10262": "OPC_33", "aci211": "TYPE_I"},
-    "GRADE_42_5R": {"is10262": "OPC_43", "aci211": "TYPE_III"},
-    "GRADE_42_5N": {"is10262": "OPC_43", "aci211": "TYPE_I"},
-    "GRADE_52_5N": {"is10262": "OPC_53", "aci211": "TYPE_I"},
+    "GRADE_32_5R": {"is10262": "OPC_33", "aci211": "TYPE_I", "doe": "OPC_33"},
+    "GRADE_42_5R": {"is10262": "OPC_43", "aci211": "TYPE_III", "doe": "OPC_43"},
+    "GRADE_42_5N": {"is10262": "OPC_43", "aci211": "TYPE_I", "doe": "OPC_43"},
+    "GRADE_52_5N": {"is10262": "OPC_53", "aci211": "TYPE_I", "doe": "OPC_53"},
 }
 
 
@@ -154,10 +155,14 @@ def design_mix_simple(
         fine_agg_fm: Fineness Modulus (ACI method), default 2.70
         fine_agg_grading_zone: Grading zone (IS method), e.g. "II"
         fine_agg_absorption: Fine aggregate absorption (%), default 1.0
-        fine_agg_moisture: Fine aggregate free moisture (%), default 0.0
+        fine_agg_moisture: Fine aggregate free moisture above SSD (%),
+            default 0.0 (0 = SSD). Converted to the model's total-moisture
+            basis at this boundary; the conversion is code-specific (see
+            :func:`concrete_mix.engine.moisture_correction.free_to_total_moisture`).
         coarse_agg_sg: Coarse aggregate specific gravity, default 2.70
         coarse_agg_absorption: Coarse aggregate absorption (%), default 0.5
-        coarse_agg_moisture: Coarse aggregate free moisture (%), default 0.0
+        coarse_agg_moisture: Coarse aggregate free moisture above SSD (%),
+            default 0.0 (0 = SSD)
         coarse_agg_bulk_density: Dry rodded bulk density (kg/m³), default 1600
         aggregate_shape: Coarse aggregate shape (IS/DOE), default "gravel"
         fine_agg_shape: Fine aggregate shape (DOE only). If None, uses aggregate_shape.
@@ -182,18 +187,18 @@ def design_mix_simple(
         concrete_temp_c: fresh concrete temperature, °C (ACI T5.3.3.1; 22.5 = baseline)
         manufactured_sand: fine aggregate is manufactured sand (ACI +5% water)
         prestressed: prestressed reinforcement present (ACI chloride scope)
-        trial_density_kg_m3: measured trial fresh density (ACI §5.3.10 yield check)
-        trial_slump_mm: measured trial slump (ACI §5.3.10.1)
-        trial_air_pct: measured trial air (ACI §5.3.10.2)
-        trial_strength_mpa: measured trial 28-day strength (ACI §5.3.10.3)
-        air_pct: entrained air % (DOE §8; 0 = non-air-entrained)
+        trial_density_kg_m3: measured trial fresh density (ACI clause 5.3.10 yield check)
+        trial_slump_mm: measured trial slump (ACI clause 5.3.10.1)
+        trial_air_pct: measured trial air (ACI clause 5.3.10.2)
+        trial_strength_mpa: measured trial 28-day strength (ACI clause 5.3.10.3)
+        air_pct: entrained air % (DOE clause 8; 0 = non-air-entrained)
         vebe_s: Vebe time in seconds as workability basis (DOE; None = slump)
-        ca_split: "10+20" or "10+20+40" CA subdivision (DOE §5.5)
-        placing_method: "chute" or "pump" (IS §5.5.2 CA reduction)
+        ca_split: "10+20" or "10+20+40" CA subdivision (DOE clause 5.5)
+        placing_method: "chute" or "pump" (IS clause 5.5.2 CA reduction)
         site_control: "good" or "fair" (IS Table 2 Note 1, fair adds 1 MPa)
         admixture_water_kg: liquid-admixture water in kg/m³ (IS Cl. 5.1 note)
-        mass_concrete: design as mass concrete (IS §9; NMSA 40/80/150)
-        scc_class: target slump-flow class "SF1"/"SF2"/"SF3" (IS §7.2.1)
+        mass_concrete: design as mass concrete (IS clause 9; NMSA 40/80/150)
+        scc_class: target slump-flow class "SF1"/"SF2"/"SF3" (IS clause 7.2.1)
         scc_slump_flow_mm: measured slump-flow (IS SCC acceptance)
         scc_lbox_ratio: measured L-box ratio (IS SCC, ≥0.80 passes)
         scc_segregation_pct: measured sieve-segregation SR % (IS SCC)
@@ -256,7 +261,7 @@ def design_mix_simple(
         )
 
     # BRE 331:1997 Stages 1-5 (Table 3, C3, Figure 5, Figure 6) assume no
-    # chemical admixture; §5.3 introduces a water-reducing admixture only as
+    # chemical admixture; clause 5.3 introduces a water-reducing admixture only as
     # an explicit option when the C3 cement content exceeds the specified
     # maximum. "None" must therefore mean a plain mix: any stray
     # water-reduction/dosage values (e.g. left over in the UI spins after
@@ -298,7 +303,9 @@ def design_mix_simple(
     fa = FineAggregate(
         specific_gravity=fine_agg_sg,
         absorption_percent=fine_agg_absorption,
-        moisture_content_percent=fine_agg_moisture,
+        moisture_content_percent=free_to_total_moisture(
+            fine_agg_moisture, fine_agg_absorption, code
+        ),
         fineness_modulus=fine_agg_fm,
         grading_zone=fine_agg_grading_zone,
         pct_passing_600um=fine_agg_pct_passing_600um,
@@ -308,7 +315,9 @@ def design_mix_simple(
         specific_gravity=coarse_agg_sg,
         nominal_max_size_mm=nmsa,
         absorption_percent=coarse_agg_absorption,
-        moisture_content_percent=coarse_agg_moisture,
+        moisture_content_percent=free_to_total_moisture(
+            coarse_agg_moisture, coarse_agg_absorption, code
+        ),
         bulk_density_kg_m3=coarse_agg_bulk_density,
         shape=agg_shape,
     )

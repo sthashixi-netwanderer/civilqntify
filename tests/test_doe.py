@@ -101,7 +101,7 @@ class TestDOEMarginAndDeviation:
         assert get_k_value(1.0) == 2.33
 
     def test_user_provided_std_deviation(self):
-        """An established deviation above Line B is usable (§5.1)."""
+        """An established deviation above Line B is usable (clause 5.1)."""
         designer = DOEMixDesign()
 
         cement = Cement(type=CementType.OPC_43)
@@ -117,15 +117,15 @@ class TestDOEMarginAndDeviation:
             coarse_aggregate=coarse_agg,
             fine_aggregate=fine_agg,
             has_production_data=True,
-            num_test_cubes=30,  # Established record required by BRE §5.1.
+            num_test_cubes=30,  # Established record required by BRE clause 5.1.
             defective_percent=5.0,  # k = 1.64
             std_deviation=5.0,  # Above the Line B minimum
         )
 
         result = designer.design(inp)
 
-        # Expected: fm = 30 + 1.64 * 5.0 = 38.2 → 39 MPa (C2, rounded up)
-        assert result.target_mean_strength_mpa == 39.0
+        # Expected: fm = 30 + 1.64 * 5.0 = 38.2 MPa (one decimal)
+        assert result.target_mean_strength_mpa == 38.2
 
     def test_auto_std_deviation_when_not_provided(self):
         """Test that auto standard deviation from Figure 3 is used when std_deviation is None."""
@@ -150,8 +150,8 @@ class TestDOEMarginAndDeviation:
 
         result = designer.design(inp)
 
-        # Expected: fm = 30 + 1.64 * 8.0 = 43.12 → 44 MPa (C2, rounded up)
-        assert result.target_mean_strength_mpa == 44.0
+        # Expected: fm = 30 + 1.64 * 8.0 = 43.12 → 43.2 (rounded up to 0.1)
+        assert result.target_mean_strength_mpa == 43.2
 
     def test_mixed_aggregate_types_water_formula(self):
         """Test weighted water formula when fine and coarse aggregates differ (BRE 331:1997 Note to Table 3).
@@ -248,8 +248,8 @@ class TestDOEWorkedExamples:
 
         result = designer.design(inp)
 
-        # Expected (§7.1):
-        # Target mean = 30 + 1.96*8 = 45.68 → 46 N/mm² (C2, rounded up)
+        # Expected (clause 7.1):
+        # Target mean = 30 + 1.96*8 = 45.68 → 45.7 N/mm² (rounded up to 0.1)
         # Reference strength at 0.5 = 42 N/mm²
         # W/C ratio = 0.47 (Figure 4 read, 2 dp)
         # Water content = 160 kg/m³
@@ -260,7 +260,7 @@ class TestDOEWorkedExamples:
         # Fine aggregate = 525 kg/m³ (doc 515 — one 5-kg quantum)
         # Coarse aggregate = 1375 kg/m³ (doc 1385 — one 5-kg quantum)
 
-        assert result.target_mean_strength_mpa == 46.0
+        assert result.target_mean_strength_mpa == 45.7
         assert abs(result.w_c_ratio - 0.47) < 0.01
         assert result.water_kg == 160.0
         assert result.cement_kg == 340.0
@@ -374,7 +374,7 @@ class TestDOEWorkedExamples:
             defective_percent=2.5,
         )
 
-        assert result.target_mean_strength_mpa == 46.0
+        assert result.target_mean_strength_mpa == 45.7
         assert abs(result.w_c_ratio - 0.47) < 0.01
         assert result.water_kg == 160.0
         assert result.cement_kg == 340.0
@@ -382,7 +382,7 @@ class TestDOEWorkedExamples:
         assert result.coarse_aggregate_kg == 1375.0
 
     def test_doe_admixture_water_reduction(self):
-        """Verify that water-reducing admixture in DOE reduces water and calculates batch mass (BRE 331 §5.3)."""
+        """Verify that water-reducing admixture in DOE reduces water and calculates batch mass (BRE 331 clause 5.3)."""
         from concrete_mix.models.materials import Admixture
         designer = DOEMixDesign()
         inp_plain = MixDesignInput(
@@ -414,10 +414,10 @@ class TestDOEWorkedExamples:
 
 
 # ---------------------------------------------------------------------------
-# BRE 331:1997 §8 — air-entrained DOE design (Table 8 replication)
+# BRE 331:1997 clause 8 — air-entrained DOE design (Table 8 replication)
 # ---------------------------------------------------------------------------
 class TestDOEAirEntrained:
-    """§8.6 worked example: fc30, 1% defectives, s=5, 4.5% air, 20 mm
+    """clause 8.6 worked example: fc30, 1% defectives, s=5, 4.5% air, 20 mm
     (coarse crushed / fine uncrushed), 25 mm slump, 50% passing 600 µm."""
 
     def _table8_input(self):
@@ -437,7 +437,7 @@ class TestDOEAirEntrained:
                 nominal_max_size_mm=20, specific_gravity=2.65,
                 shape=AggregateShape.ANGULAR),
             defective_percent=1.0,
-            num_test_cubes=30,  # Established s=5 record (§8.6).
+            num_test_cubes=30,  # Established s=5 record (clause 8.6).
             std_deviation=5.0,
             air_pct=4.5,
             w_c_ratio=0.55,  # Item 1.8 durability cap (not binding here)
@@ -445,27 +445,31 @@ class TestDOEAirEntrained:
         )
 
     def test_modified_target(self):
-        """§8.6 chain: C2 gives 30 + 2.33×5 = 41.65 → 42 (rounded up);
-        Item 1.4.2 modified target = 42/(1 − 0.055×4.5) = 55.81."""
+        """clause 8.6 chain: C2 gives 30 + 2.33×5 = 41.65 → 41.7;
+        Item 1.4.2 modified target = 41.7/(1 − 0.055×4.5) = 55.41."""
         designer = DOEMixDesign()
         result = designer.design(self._table8_input())
-        assert abs(result.target_mean_strength_mpa - 42.0) < 0.05
+        assert abs(result.target_mean_strength_mpa - 41.7) < 0.05
         s31 = next(s for s in result.steps if s.step_number == 3.1)
-        assert abs(s31.result - 55.81) < 0.1
+        assert abs(s31.result - 55.41) < 0.1
 
     def test_table8_masses(self):
-        """Table 8: w/c 0.45, W 145, C 320, total aggregate 1875 (600+1275)."""
+        """Table 8 chain at the app's 0.1 MPa target.
+
+        The standard rounds 41.65 → 42 and reads w/c 0.45. The app's
+        one-decimal policy gives 41.7, so Figure 4 reads 0.46 and
+        C = 145/0.46 = 315 (Table 8 prints 320 at 0.45). Total aggregate
+        stays 1880 (2340 − 315 − 145): 620 fine + 1260 coarse against the
+        table's 600 + 1275 — one 5-kg quantum of Figure 6 tolerance.
+        """
         designer = DOEMixDesign()
         result = designer.design(self._table8_input())
         assert result.water_kg == 145.0
-        assert result.cement_kg == 320.0
-        # Total aggregate 1875 matches the form exactly (2340 − 320 − 145);
-        # the Figure 6 read of 32.75% vs the form's "say 32%" puts FA/CA at
-        # 615/1260 vs the table's 600/1275 — one 5-kg quantum of tolerance.
-        assert result.fine_aggregate_kg == 615.0
+        assert result.cement_kg == 315.0
+        assert result.fine_aggregate_kg == 620.0
         assert abs(result.coarse_aggregate_kg - 1260.0) <= 5.0
-        # Table 8 reads w/c 0.45 off Figure 4.
-        assert abs(result.w_c_ratio - 0.45) < 0.005
+        # One-decimal target → Figure 4 reads 0.46 (standard: 0.45 at 42).
+        assert abs(result.w_c_ratio - 0.46) < 0.005
         assert result.air_volume_percent == 4.5
 
     def test_air_outside_3_to_7_warns(self):
@@ -486,7 +490,7 @@ class TestDOEAirEntrained:
 
 
 # ---------------------------------------------------------------------------
-# BRE 331 Table 3 — Vebe basis, and §5.5 CA splits
+# BRE 331 Table 3 — Vebe basis, and clause 5.5 CA splits
 # ---------------------------------------------------------------------------
 class TestDOEVebeAndSplit:
     def test_vebe_class_matches_slump_class(self):
@@ -522,7 +526,7 @@ class TestDOEVebeAndSplit:
         assert parts["10 mm"] + parts["20 mm"] == result.coarse_aggregate_kg
 
     def test_ca_split_carried_on_result(self):
-        """Step 13.1 parts are carried on the result for the panel (BRE §5.5)."""
+        """Step 13.1 parts are carried on the result for the panel (BRE clause 5.5)."""
         designer = DOEMixDesign()
         result = designer.design(
             MixDesignInput(code="doe", target_strength_mpa=30.0,
@@ -572,7 +576,7 @@ class TestDOEVebeAndSplit:
         assert not any(s.step_number == 13.1 for s in result.steps)
 
     def test_trial_batch_reference_step(self):
-        """Every DOE design carries the 0.05 m³ §6.1 trial quantities."""
+        """Every DOE design carries the 0.05 m³ clause 6.1 trial quantities."""
         designer = DOEMixDesign()
         result = designer.design(
             MixDesignInput(code="doe", target_strength_mpa=30.0, slump_mm=20.0,
@@ -582,10 +586,10 @@ class TestDOEVebeAndSplit:
         assert abs(s14.inputs["cement"] - result.cement_kg * 0.05) < 0.01
         assert s14.inputs["absorption_water"] > 0  # default absorptions apply
 # ---------------------------------------------------------------------------
-# BRE 331:1997 §9 — pfa design (§9.4 replication) and §10 ggbs
+# BRE 331:1997 clause 9 — pfa design (clause 9.4 replication) and clause 10 ggbs
 # ---------------------------------------------------------------------------
 class TestDOEPfaGgbs:
-    """§9.4 example: fc35, specified margin 12, 30% pfa, 20 mm uncrushed,
+    """clause 9.4 example: fc35, specified margin 12, 30% pfa, 20 mm uncrushed,
     slump 10–30, 70% passing 600 µm, Item 3.8 cap 0.60, min 300."""
 
     def _pfa94_input(self):
@@ -609,7 +613,7 @@ class TestDOEPfaGgbs:
             margin_mpa=12.0,
             w_c_ratio=0.60,
             min_cement_kg=300.0,
-            # §9.3.4 states the Item 4.1 value outright: "Using the relative
+            # clause 9.3.4 states the Item 4.1 value outright: "Using the relative
             # density of 2.60, the free-water content of 145 kg/m³, and
             # Figure 5: the wet density = 2420 kg/m³".
             aggregate_relative_density_ssd=2.60,
@@ -659,14 +663,14 @@ class TestDOEPfaGgbs:
             fine_aggregate=FineAggregate(pct_passing_600um=70.0),
         )
         result = designer.design(inp)
-        assert result.water_kg == 155.0  # 160 − 5 (§10.2.1)
+        assert result.water_kg == 155.0  # 160 − 5 (clause 10.2.1)
         # C3 total 155/0.55 = 281.8 → 280 to the nearest 5 kg; mass-for-mass
-        # split 60/40 → 168 cement + 112 ggbs (§10.3; no worked example in
+        # split 60/40 → 168 cement + 112 ggbs (clause 10.3; no worked example in
         # the standard — pinned from the documented rounding chain).
         assert result.cement_kg == 168.0
         assert abs(result.scm_kg - 112.0) < 0.6
         s75 = next(s for s in result.steps if s.step_number == 7.5)
-        assert "§10.3" in s75.clause_ref
+        assert "clause 10.3" in s75.clause_ref
 
     def test_ggbs_above_40_blocked(self):
         from concrete_mix.models.materials import SCM, SCMType
@@ -699,8 +703,36 @@ class TestDOEPfaGgbs:
         assert pfa_water_reduction(30, 0) == 15.0
         assert pfa_water_reduction(25, 2) == 15.0  # interpolated 10→20
         assert pfa_water_reduction(50, 3) == 30.0
+
+    def test_pfa_non28_age_refused(self):
+        """9.2.2: k = 0.30 is the 28-day factor — no other age has a k.
+
+        Consistent with the ggbs > 40% refusal: the standard gives no
+        procedure, so the engine must not silently extrapolate.
+        """
+        from concrete_mix.models.materials import SCM, SCMType
+
+        designer = DOEMixDesign()
+        for age in (3, 7, 91):
+            inp = self._pfa94_input()
+            object.__setattr__(inp, "age_days", age)
+            with pytest.raises(ValueError, match="9\.2\.2"):
+                designer.design(inp)
+
+    def test_pfa_step_citations(self):
+        """Stage 1 cites Table 10 (clause 9.3.1) and the steps carry the
+        BS 3892-1 compliance assumption (clause 9.1)."""
+        designer = DOEMixDesign()
+        result = designer.design(self._pfa94_input())
+        step4 = next(s for s in result.steps if s.step_number == 4)
+        assert "Table 10" in step4.description + step4.clause_ref
+        assert "9.3.1" in step4.clause_ref
+        cited = " ".join(
+            f"{s.clause_ref} {s.description} {s.formula}" for s in result.steps
+        )
+        assert "BS 3892-1" in cited
 # ---------------------------------------------------------------------------
-# BRE 331:1997 §1.2.4 two-class aggregate mapping (gap-audit Phase 1)
+# BRE 331:1997 clause 1.2.4 two-class aggregate mapping (gap-audit Phase 1)
 # ---------------------------------------------------------------------------
 class TestDOEAggregateMapping:
     """Sub-angular/irregular aggregates are uncrushed; only angular/crushed rock is crushed."""
@@ -799,20 +831,20 @@ class TestDOEFigure3AnyGrade:
             MixDesignInput(code="doe", target_strength_mpa=4.0, slump_mm=30.0)
 
     def test_m15_end_to_end_uses_line_a_ramp(self):
-        """M15, n=10: s = 0.4×15 = 6.0 → M = 9.84 → fm = 24.84 → 25 (C2)."""
+        """M15, n=10: s = 0.4×15 = 6.0 → M = 9.84 → fm = 24.84 → 24.9."""
         designer = DOEMixDesign()
         inp = MixDesignInput(code="doe", target_strength_mpa=15.0,
                              slump_mm=30.0, num_test_cubes=10,
                              fine_aggregate=FineAggregate(pct_passing_600um=70.0))
         result = designer.design(inp)
-        assert abs(result.target_mean_strength_mpa - 25.0) < 0.01
+        assert abs(result.target_mean_strength_mpa - 24.9) < 0.01
         s1 = next(s for s in result.steps if s.step_number == 1)
         assert abs(s1.result - 6.0) < 1e-9
         assert "Line A" in s1.description
         assert "0.4" in s1.formula
 
     def test_m12_line_b_ramp_in_steps(self):
-        """M12, n=30: s = 0.2×12 = 2.4 → fm = 15.936 → 16 (C2 rounded up)."""
+        """M12, n=30: s = 0.2×12 = 2.4 → fm = 15.936 → 16.0."""
         designer = DOEMixDesign()
         result = designer.design(MixDesignInput(
             code="doe", target_strength_mpa=12.0, slump_mm=20.0,
@@ -839,7 +871,7 @@ class TestDOEFigure3AnyGrade:
 
         r = calculate_target_strength("doe", 15.0, num_test_cubes=10)
         assert r.standard_deviation_mpa == pytest.approx(6.0)
-        assert r.target_mean_strength_mpa == pytest.approx(25.0)
+        assert r.target_mean_strength_mpa == pytest.approx(24.9)
         assert "Line A" in r.formula
 
 
@@ -907,8 +939,8 @@ class TestDOEItem41RelativeDensity:
         result = designer.design(MixDesignInput(
             code="doe", target_strength_mpa=10.0, slump_mm=20.0,
             fine_aggregate=FineAggregate(pct_passing_600um=70.0)))
-        # s = 0.4×10 = 4.0 → M = 6.56 → fm = ceil(16.56) = 17.
-        assert result.target_mean_strength_mpa == pytest.approx(17.0)
+        # s = 0.4×10 = 4.0 → M = 6.56 → fm = 16.56 → 16.6.
+        assert result.target_mean_strength_mpa == pytest.approx(16.6)
         assert result.cement_kg > 0 and result.water_kg > 0
 
     def test_item41_ignored_by_aci_and_is(self):

@@ -13,7 +13,7 @@ Conventions in this manual:
 
 ---
 
-## 1. Launch, main window, toolbar
+## 1. Launch, main window, title bar
 
 ### 1.1 Start the app
 
@@ -22,6 +22,8 @@ python main.py
 ```
 
 Window title is `CivilQntify`, minimum 1024×640, default 1360×820. Status bar shows `Ready` on start.
+
+The operating-system title bar is replaced by a custom theme-matched title bar. It shows the app mark, `CivilQntify`, the version badge and the `CONCRETE MIX DESIGN` tagline on the left; the right side holds the optional `Weather` button, the gear settings button and the window controls (`Minimize`, `Maximize`/`Restore Down`, `Close`). Drag the empty part of the bar to move the window, double-click it to maximize or restore, and drag any window edge to resize.
 
 ### 1.2 Top-level tabs (`QTabWidget`)
 
@@ -34,12 +36,15 @@ Window title is `CivilQntify`, minimum 1024×640, default 1360×820. Status bar 
 
 Switching to `History` refreshes it automatically.
 
-### 1.3 Toolbar (`Main Toolbar`)
+### 1.3 Title-bar actions
 
-Left to right:
+Right to left:
 
-1. `Weather` button. Tooltip: `View Weather Data`. Fixed 80×36. Opens the `Weather Data` dialog (§9). Hidden when `Show weather button in toolbar` is off in Settings.
-2. Gear icon button (no text, `settings.svg`). Tooltip: `Unit Settings`. Fixed 36×36. Opens `Settings` (§8).
+1. `Weather` button. Tooltip: `View Weather Data`. Fixed 80×30. Opens the `Weather Data` dialog (clause 9). Hidden by default; turn it on with `Show weather button in title bar` in Settings.
+2. Gear icon button (no text, `settings.svg`). Tooltip: `Unit Settings`. Fixed 32×30. Opens `Settings` (clause 8).
+3. Window controls: `Minimize`, `Maximize`/`Restore Down`, `Close`. Hovering `Close` turns it red.
+
+All application dialogs (`Settings`, `Weather Data`, trial-mix workbooks, compliance reports, report previews, history details, message prompts and the history rename prompt) use the same title-bar design with their own title. Message prompts and the rename prompt keep a close control; workbooks and reports also have their normal action buttons. Native file pickers (`Open` / `Save`) keep the operating-system dialog by design.
 
 ### 1.4 Data handoff (automatic banners)
 
@@ -60,8 +65,8 @@ Left pane is a sub-tab widget with two pages; right pane is a result stack.
 
 Left sub-tabs:
 
-- `PSD` — tooltip `Particle Size Distribution`. Sieve analysis (§3).
-- `Concrete Mix Design` — the proportioning form (§4–§6).
+- `PSD` — tooltip `Particle Size Distribution`. Sieve analysis (clause 3).
+- `Concrete Mix Design` — the proportioning form (clause 4–clause 6).
 
 Right stack (`QStackedWidget`):
 
@@ -69,7 +74,7 @@ Right stack (`QStackedWidget`):
 - Page 1 `TargetStrengthResultPanel` — target-strength-only mode.
 - Page 2 PSD results — shown while the `PSD` left tab is active.
 
-`Calculation` (§4.1) decides which result page is shown after calculate. `PSD` left tab always shows the PSD result page regardless of `Calculation`.
+`Calculation` (clause 4.1) decides which result page is shown after calculate. `PSD` left tab always shows the PSD result page regardless of `Calculation`.
 
 ---
 
@@ -136,7 +141,7 @@ Eachspin shows `not tested` at its minimum. Leave untouched any clause you did n
 
 - Group `Results Summary` (hidden until computed). Stat cards: `Fineness Modulus`, `D10`, `D30`, `D60`, `Cu (Uniformity)`, `Cc (Curvature)`, `% Passing 600 µm (DOE)`, `Total Mass`. Badge is exactly one of: `✓ Conforms to selected band`, `✗ {n} sieve(s) out of band`, `— No band to check`.
 - Group `Gradation Curve (Semi-Log)` — retitled `Gradation Curve (Linear — BS display policy)` for BS 882. Empty text: `Enter sieve masses, then click Compute & Plot`. Out-of-band sieves get predicted corrective text in the corrections label.
-- Group `Fineness Modulus — from Sieve Analysis (ACI 211.1-22 §4.3.5)` (hidden until computed). Headers `Sieve` / `Cumulative % Retained`; missing rows show `— not included`; footers `Σ  sum of cumulative % retained` and `FM = Σ ÷ 100`. FM-ok note ends with `Press "Use in Mix Design" ...`; FM-missing note lists which sieves to add.
+- Group `Fineness Modulus — from Sieve Analysis (ACI 211.1-22 clause 4.3.5)` (hidden until computed). Headers `Sieve` / `Cumulative % Retained`; missing rows show `— not included`; footers `Σ  sum of cumulative % retained` and `FM = Σ ÷ 100`. FM-ok note ends with `Press "Use in Mix Design" ...`; FM-missing note lists which sieves to add.
 - Bottom buttons (all disabled until a successful compute; `Clear` disables them again):
   - `Use in Mix Design` — tooltip lists the three code routings (ACI FM → Table 5.3.6; IS zone → Table 5; DOE %passing-600µm → Figure 6; BS also carries lab record). Fills the mix form and switches to `Concrete Mix Design`. For BS 882 the button stays disabled until the lab-record checks pass.
   - `Export CSV` — saves the computed grading.
@@ -185,10 +190,10 @@ Typical PSD workflow:
 | `Concrete Type` | `Reinforced Concrete` (default), `Plain Concrete` | Selects which IS 456 Table 5 row applies. |
 | `Exposure Class (IS 456)` | `None` (default), `Mild`, `Moderate`, `Severe`, `Very Severe`, `Extreme` | Drives the `Max Free W/C Ratio` display `W/C ≤ x.xx  |  Min Grade: ...`. |
 | `Max Free W/C Ratio` | display `—` | Read-only durability cap from Concrete Type × Exposure. |
-| `Placing Method` | `Chute (non-pumpable)` (default), `Pumping` | `Pumping` (or congested steel) reduces Table 5 CA fraction (§5.5.2). |
+| `Placing Method` | `Chute (non-pumpable)` (default), `Pumping` | `Pumping` (or congested steel) reduces Table 5 CA fraction (clause 5.5.2). |
 | `Pump CA Reduction` | `Auto` checkbox (checked) + spin 0–10 % default 10.0, disabled while Auto is on | Auto = 10 % ordinary / 5 % high-strength. Uncheck to type an explicit % (rejected above the route max; mass sizes need explicit %). Only honoured when `Placing Method = Pumping`. Tooltip: `Checked: 10% ordinary / 5% high-strength (worked-example values). Unchecked: use the explicit % beside it.` |
 | `Site Control` | `Good site control` (default), `Fair site control (+1 MPa SD)` | Fair adds 1 MPa to assumed SD (Table 2 Note 1). |
-| `Mass Concrete` | bare checkbox, visible label `Mass Concrete` | Dams/rafts/mass pours; uses Table 12 water. Tooltip: `Mass concrete (IS 10262 §9): dams, rafts, mass pours — uses Table 12 water content.` |
+| `Mass Concrete` | bare checkbox, visible label `Mass Concrete` | Dams/rafts/mass pours; uses Table 12 water. Tooltip: `Mass concrete (IS 10262 clause 9): dams, rafts, mass pours — uses Table 12 water content.` |
 | `Aggregate Shape` (Step 2 but IS-gated) | `Rounded Gravel`, `Gravel`, `Sub Angular`, `Angular` (default), `Crushed Fragments` | Table 6 water demand. |
 | `Grading Zone` ↔ `CA Volume Fraction (Table 5)` (Step 2, IS-gated swap) | Zone `I/II/III/IV` (default II) **or** `Zone X — f.ff` rows when NMSA is tabulated | Only one shows at a time. The visible Table 5 row drives the zone the engine consumes. |
 | `Admix. Water (kg/m³)` (Step 3, IS-gated) | spin 0–50, default 0.0 | Liquid-admixture water counted in W/C at durability limits (Cl. 5.1 note). 0 = none/included. |
@@ -214,8 +219,8 @@ Checkboxes are bare boxes with the visible label beside them.
 | `Target Paste Volume (%)` | spin 0–45, default 0.0 | 0 = off. Example 4 route; AASHTO PP 84 cites 25 %. |
 | `Concrete Temp (°C)` | spin −10–60, default 22.5 | 22.5 = baseline; hot/cold shifts water. |
 | `Form Width (narrowest)`, `Slab Depth`, `Clear Bar Spacing (min)` | spins, default 0.0 | 0 = skip the NMSA-limit check. Otherwise NMSA must satisfy 1/5 / 1/3 / 3/4 rules. |
-| `Fineness Modulus`, `Manufactured Sand`, `Dry-Rodded Bulk Density` | Step 2, ACI-gated — see §5.1 | |
-| `Trial Check (optional) — ACI §5.3.10` group | Step-3-adjacent, ACI-gated — see §6.1 | |
+| `Fineness Modulus`, `Manufactured Sand`, `Dry-Rodded Bulk Density` | Step 2, ACI-gated — see clause 5.1 | |
+| `Trial Check (optional) — ACI clause 5.3.10` group | Step-3-adjacent, ACI-gated — see clause 6.1 | |
 
 
 ![Mix form — DOE (BRE 331:1997) variant](user_manual_images/fresh_2026-09-20/01c_mix_doe.png)
@@ -225,11 +230,13 @@ Checkboxes are bare boxes with the visible label beside them.
 |---|---|---|
 | `Defective Percent (%)` | spin 1–10, default 5.0 | Defective rate for margin (C2). Deactivated when `Margin is known` is on. |
 | `Number of Test Cubes (n)` | spin 1–200, default 20 | n < 20 → Line A (s = 0.4×fc or 8 MPa); n ≥ 20 → Line B (0.2×fc or 4 MPa). |
-| `Std Deviation (MPa) — Applied` | display `—` | Read-only s actually applied; shows `—  (Margin M known — s not used)` when overridden. |
-| `Margin is known` | unchecked checkbox | On: `Defective %`, `Number of Test Cubes`, applied-SD deactivate; target fm = fc + `Margin M`. |
-| `Margin M (MPa)` | spin 0.5–40, default 10.0, disabled until checked | Known margin from site records (§4.4, C2). |
+| `Std Deviation (MPa) — Applied` | display `—` | Read-only s actually applied; shows the known-s basis when `Std deviation is known` is on, and `—  (Margin M known — s not used)` when the margin overrides. |
+| `Std deviation is known (previous data)` | unchecked checkbox | On: `Std Deviation s (MPa)` activates and `Number of Test Cubes` deactivates — the entered s governs (BRE 331 clause 4.4, Item 1.2; Example 4 uses an expected s = 5 from previous control data). `Defective %` stays active (k pairs with the known s). |
+| `Std Deviation s (MPa)` | spin 0.5–20, default 5.0, hidden until checked | Known s from previous control data. Values below the Figure 3 line-B floor (0.2×fc for fc ≤ 20, else 4 MPa) are raised to it; the applied-SD display shows the floor. |
+| `Margin is known` | unchecked checkbox | On: `Defective %`, `Number of Test Cubes`, applied-SD and the known-s route deactivate; target fm = fc + `Margin M`. |
+| `Margin M (MPa)` | spin 0.5–40, default 10.0, disabled until checked | Known margin from site records (clause 4.4, C2). |
 | `Age (Days)` | `3 Days`, `7 Days`, `28 Days` (default), `91 Days` | Strength-age for Figure 4. |
-| `Min Cement (kg/m³)` / `Max Cement (kg/m³)` | spins 0–1000, default 0.0 | 0 = no limit. Durability/economy caps. |
+| `Min Cement (kg/m³)` / `Max Cement (kg/m³)` | spins 0–1000, default 0.0 | 0 = no limit. Min: a calculated cement below the limit is raised to it (durability). Max: a calculated cement (Item 3.1, nearest 5 kg) above the limit stops the design — BRE 331 clause 5.3, Example 4 (capping it would miss the target strength); reconsider cement class, aggregate type/size, workability or a water-reducing admixture. |
 | `Max W/C (Durability)` | spin 0–1, default 0.00 | 0 = no override. Caps the Figure 4 W/C. |
 | `Entrained Air (%)` | spin 0–10, default 0.0 | Freeze-thaw air. |
 | `Vebe Time (s)` | spin 0–120, default 0.0 | 0 = use slump. Non-zero re-points slump to the governing class representative and selects the Table 3 / Figure 6 class. |
@@ -239,7 +246,7 @@ Checkboxes are bare boxes with the visible label beside them.
 | `Fine Aggregate Type` | `Uncrushed (Natural Sand)` (default), `Crushed (Crushed Rock Sand)` | Table 3 water. Mixed FA/CA types use W = 2/3 Wf + 1/3 Wc. |
 | `Coarse Aggregate Type` | `Uncrushed (Gravel)` (default), `Crushed (Crushed Rock)` | Table 2 reference strength + Table 3 water. |
 | `Aggregate Rel. Density (SSD)` | spin 0–3.5, `Auto` at 0 | Auto = mean of FA/CA SG (Item 4.1). Type a tested Item 4.1 value or leave Auto. |
-| `CA Split (single sizes)` | `Single stock (no split)` (default), `10 + 20 mm  (1 : 2)`, `10 + 20 + 40 mm  (1 : 1.5 : 3)` | §5.5 subdivision. 10+20 needs 20 mm NMSA; triple needs 40 mm. |
+| `CA Split (single sizes)` | `Single stock (no split)` (default), `10 + 20 mm  (1 : 2)`, `10 + 20 + 40 mm  (1 : 1.5 : 3)` | clause 5.5 subdivision. 10+20 needs 20 mm NMSA; triple needs 40 mm. |
 
 ---
 
@@ -249,14 +256,14 @@ Checkboxes are bare boxes with the visible label beside them.
 
 | Label | Range / default | Notes |
 |---|---|---|
-| `Cement Type` | see §4.2 | Grade labels adapt to Standard. |
+| `Cement Type` | see clause 4.2 | Grade labels adapt to Standard. |
 | `Cement Specific Gravity` | 2.8–3.5, default 3.15 | OPC = 3.15. V = mass/(SG×1000) metric, mass/(SG×62.4) ACI. |
 | `Fine Aggregate SG` | 2.2–3.0, default 2.65 | SSD relative density. Typical 2.50–2.75. |
 | `Fineness Modulus` (ACI only) | 1.0–4.0, default 2.70 | Σ retained/100. Coarse 2.8–3.2, medium 2.4–2.8, fine 2.0–2.4. Fill from PSD `Use in Mix Design` when available. |
 | `Manufactured Sand` (ACI only) | bare checkbox | Adds 5 % water (Table 5.3.3.1). |
-| `Grading Zone` / `CA Volume Fraction (Table 5)` (IS only, swapped) | see §4.3 | |
-| `FA Passing 600 µm (%) *` + `Figure 6 Fine Agg. (%)` (DOE only) | see §4.5 | |
-| `Fine Aggregate Type` (DOE only) | see §4.5 | |
+| `Grading Zone` / `CA Volume Fraction (Table 5)` (IS only, swapped) | see clause 4.3 | |
+| `FA Passing 600 µm (%) *` + `Figure 6 Fine Agg. (%)` (DOE only) | see clause 4.5 | |
+| `Fine Aggregate Type` (DOE only) | see clause 4.5 | |
 | `FA Absorption (%)` | 0–10, default 1.0 | SSD absorption (IS 2386 / ASTM C128). Typical 0.5–3 %. |
 | `FA Free Moisture (%)` | 0–20, default 0.0 | + = wet (cuts mixing water); 0 = SSD; field negatives handled as dry where the engine allows. |
 
@@ -265,13 +272,13 @@ Checkboxes are bare boxes with the visible label beside them.
 | Label | Range / default | Notes |
 |---|---|---|
 | `Coarse Aggregate SG` | 2.2–3.2, default 2.70 | Granite 2.65–2.80, limestone 2.50–2.70, basalt 2.80–3.00. |
-| `Coarse Aggregate Type` (DOE only) | see §4.5 | |
-| `Aggregate Shape` (IS only) | see §4.3 | |
+| `Coarse Aggregate Type` (DOE only) | see clause 4.5 | |
+| `Aggregate Shape` (IS only) | see clause 4.3 | |
 | `Dry-Rodded Bulk Density` (ACI only) | 1000–2000, default 1600 | ASTM C29 DRUW × Table 5.3.6 fraction = CA weight. Typical 1400–1750. |
-| `Aggregate Rel. Density (SSD)` (DOE only) | `Auto` | see §4.5. |
+| `Aggregate Rel. Density (SSD)` (DOE only) | `Auto` | see clause 4.5. |
 | `CA Absorption (%)` | 0–10, default 0.5 | Typical 0.2–2 %. |
 | `CA Free Moisture (%)` | 0–20, default 0.0 | Same sign convention as FA. |
-| `CA Split (single sizes)` (DOE only) | see §4.5 | |
+| `CA Split (single sizes)` (DOE only) | see clause 4.5 | |
 
 ---
 
@@ -293,34 +300,34 @@ Checkboxes are bare boxes with the visible label beside them.
 
 Changing admixture type/dosage auto-recomputes `Reduced Water`.
 
-### 6.2 Group: `Trial Check (optional) — ACI §5.3.10` (ACI only)
+### 6.2 Group: `Trial Check (optional) — ACI clause 5.3.10` (ACI only)
 
-All 0 = not measured. Enter measured values to get §5.3.10 post-trial adjustments at design scale.
+All 0 = not measured. Enter measured values to get clause 5.3.10 post-trial adjustments at design scale.
 
 | Label | Range | Effect |
 |---|---|---|
 | `Trial Density (measured)` | 0–3000 | ASTM C138 fresh density → yield check Ry = design/actual (tolerance 0.98–1.02). |
-| `Trial Slump (measured)` | 0–250 | Re-estimates water ±10 lb/yd³ per inch (§5.3.10.1). Needs trial density. |
-| `Trial Air % (measured)` | 0–15 | ∓5 lb/yd³ per 1 % air (§5.3.10.2). Air-entrained only. |
-| `Trial Strength (measured)` | 0–120 | Re-estimates cement via efficiency, W/C held (§5.3.10.3). |
+| `Trial Slump (measured)` | 0–250 | Re-estimates water ±10 lb/yd³ per inch (clause 5.3.10.1). Needs trial density. |
+| `Trial Air % (measured)` | 0–15 | ∓5 lb/yd³ per 1 % air (clause 5.3.10.2). Air-entrained only. |
+| `Trial Strength (measured)` | 0–120 | Re-estimates cement via efficiency, W/C held (clause 5.3.10.3). |
 
-This group feeds design-time steps 10.1–10.4. The full batch-scale workbook is the `🧪 Open Trial Batching Workbook (§5.3.9–5.3.10)` button on the result (§7.2).
+This group feeds design-time steps 10.1–10.4. The full batch-scale workbook is the `🧪 Open Trial Batching Workbook (clause 5.3.9–5.3.10)` button on the result (clause 7.2).
 
 ### 6.3 Group: `SCC Checks (optional, IS)` (IS only)
 
-Tooltip: `SCC fresh-property checks (IS only): slump-flow class (§7.2.1), L-box (§7.2.2), segregation SR (§7.2.3) and V-funnel (§7.2.4) per IS 1199 (Part 6).`
+Tooltip: `SCC fresh-property checks (IS only): slump-flow class (clause 7.2.1), L-box (clause 7.2.2), segregation SR (clause 7.2.3) and V-funnel (clause 7.2.4) per IS 1199 (Part 6).`
 
 | Label | Items / range |
 |---|---|
-| `SCC Target Class` | `None` (default), `SF1 — 550–650 mm`, `SF2 — 660–750 mm`, `SF3 — 760–850 mm`. Any selection activates §§7–8 checks. |
-| `Slump-Flow (measured, mm)` | 0–1000, default 0.0 (0 = not measured). Checked against the class (§7.2.1). |
-| `L-Box Ratio (measured)` | 0–1, default 0.0. Minimum 0.80 (§7.2.2). |
-| `Segregation SR % (measured)` | 0–100, default 0.0. SR1 15–20 %, SR2 <15 % (§7.2.3). |
-| `V-Funnel Time (measured, s)` | 0–120, default 0.0. V1 ≤ 8 s, V2 8–25 s (§7.2.4). |
+| `SCC Target Class` | `None` (default), `SF1 — 550–650 mm`, `SF2 — 660–750 mm`, `SF3 — 760–850 mm`. Any selection activates clauses 7–8 checks. |
+| `Slump-Flow (measured, mm)` | 0–1000, default 0.0 (0 = not measured). Checked against the class (clause 7.2.1). |
+| `L-Box Ratio (measured)` | 0–1, default 0.0. Minimum 0.80 (clause 7.2.2). |
+| `Segregation SR % (measured)` | 0–100, default 0.0. SR1 15–20 %, SR2 <15 % (clause 7.2.3). |
+| `V-Funnel Time (measured, s)` | 0–120, default 0.0. V1 ≤ 8 s, V2 8–25 s (clause 7.2.4). |
 
 ### 6.4 Group: `Report Details`
 
-Only `Project Name` (see §4.2). Never affects numbers.
+Only `Project Name` (see clause 4.2). Never affects numbers.
 
 ### 6.5 Action bar (pinned below the scroll)
 
@@ -345,8 +352,8 @@ Sections in order:
 
 1. Trial protocol card (only the card matching the result standard shows):
    - `IS 10262:2019 Clause 5.8 — Trial Mixes Protocol` + `📋 View 4-Trial Batches Protocol & Reporting Guide (Clause 5.8)`.
-   - `BRE 331:1997 §6 — Trial Mixes` + `🧪 Open Trial Mixes Workbook (§6)`.
-   - `ACI PRC-211.1-22 — Trial Batching` + `🧪 Open Trial Batching Workbook (§5.3.9–5.3.10)`.
+   - `BRE 331:1997 clause 6 — Trial Mixes` + `🧪 Open Trial Mixes Workbook (clause 6)`.
+   - `ACI PRC-211.1-22 — Trial Batching` + `🧪 Open Trial Batching Workbook (clause 5.3.9–5.3.10)`.
 2. `Target Strength Estimation` — fm, margin, formula.
 3. `Material Quantities (per m³)` — retitled `Material Quantities (for {vol} {unit})` when Volume ≠ 1. Cards: `Cement`, `Water`, `Fine Aggregate`, `Coarse Aggregate`, `SCM`, `Admixture`, `W/C Ratio`, `Air Content`, `Target Strength` (each `—` until calculated; hover shows value + unit).
 4. DOE `CA Split` rich-text line when a split is active.
@@ -360,9 +367,9 @@ Bottom buttons (disabled until a result exists):
 |---|---|
 | `Export CSV` | Save quantities + steps CSV (parent `_export_csv`). |
 | `Export PDF` | Open `ReportPreviewDialog`, then save PDF with header, inputs, curve, steps. |
-| `Send to Quantification` | Push the result to `Material Quantification` (§10). |
+| `Send to Quantification` | Push the result to `Material Quantification` (clause 10). |
 
-### 7.3 Trial workbooks (opened from §7.2 trial-card buttons)
+### 7.3 Trial workbooks (opened from clause 7.2 trial-card buttons)
 
 Only the card matching the result standard is shown, titled `ACTIVE - ...` (accent border). Each workbook is a modal dialog with scrollable content and a `Close` button (default). IS sizes 880×680 (min 700×520); ACI/DOE 940×760 (min 760×560).
 
@@ -387,27 +394,27 @@ Group `Clause 5.8.1 Mandatory Reporting Checklist`: intro `Ensure the final mix 
 
 Buttons: `Copy Trial Batches to Clipboard`, `Export Trial Batches (CSV)`, `Close`. No history save — IS trials travel inside the mix report/PDF.
 
-### 7.3.2 DOE workbook (`DOE (BRE 331:1997) §6 — Trial Mixes Workbook`)
+### 7.3.2 DOE workbook (`DOE (BRE 331:1997) clause 6 — Trial Mixes Workbook`)
 
-Launch: `🧪 Open Trial Mixes Workbook (§6)`. Header `BRE 331:1997 §6 — Trial Mixes` (0.05 m³ batch → six 150 mm cubes + slump/Vebe + density; §6.3 adjustments: Table 3 workability, density correction, Figure 7 w/c).
+Launch: `🧪 Open Trial Mixes Workbook (clause 6)`. Header `BRE 331:1997 clause 6 — Trial Mixes` (0.05 m³ batch → six 150 mm cubes + slump/Vebe + density; clause 6.3 adjustments: Table 3 workability, density correction, Figure 7 w/c).
 
-Group `Trial Batch Schedule (§6.1)`: `Trial volume (m³):` (0.005–0.500, default 0.05; tooltip: §6.1 six-cube requirement), `Add ±w/c variant batches` checkbox + `w/c step:` (0.01–0.10, default 0.05), `Aggregate moisture condition (BS 1881 Part 125):` combo (`Saturated surface-dry (design basis)` default, `Oven-dry`, `Air-dried`, `Surface-wet / saturated`). Table columns: `Trial Batch` / `W/C` / `Cement (kg)` / `Water added (kg)` / `Fine Agg (kg)` / `Coarse Agg (kg)` / `Admixture (kg)` + grey schedule note.
+Group `Trial Batch Schedule (clause 6.1)`: `Trial volume (m³):` (0.005–0.500, default 0.05; tooltip: clause 6.1 six-cube requirement), `Add ±w/c variant batches` checkbox + `w/c step:` (0.01–0.10, default 0.05), `Aggregate moisture condition (BS 1881 Part 125):` combo (`Saturated surface-dry (design basis)` default, `Oven-dry`, `Air-dried`, `Surface-wet / saturated`). Table columns: `Trial Batch` / `W/C` / `Cement (kg)` / `Water added (kg)` / `Fine Agg (kg)` / `Coarse Agg (kg)` / `Admixture (kg)` + grey schedule note.
 
-Group `Trial Results & §6.3 Adjustments`: `Water actually added (kg):`, `Measured slump (mm):` (BS 1881:Part 102), `Vebe (s):` (Part 104), `Fresh density (kg/m³):` (Part 107), `Mean cube strength (MPa):` (Part 116), `Test age (days):` (3–91, defaults to the design age), then `Calculate Adjustments` → rich-text §6.3 evaluation (blank spins show `—` and are skipped).
+Group `Trial Results & clause 6.3 Adjustments`: `Water actually added (kg):`, `Measured slump (mm):` (BS 1881:Part 102), `Vebe (s):` (Part 104), `Fresh density (kg/m³):` (Part 107), `Mean cube strength (MPa):` (Part 116), `Test age (days):` (3–91, defaults to the design age), then `Calculate Adjustments` → rich-text clause 6.3 evaluation (blank spins show `—` and are skipped).
 
-Group `Tests on Trial Mixes — §6.2 Checklist`: intro `Tests on the fresh concrete, specimen making, curing and testing follow BS 1881. Record the actual water/cement ratio used, the fresh density and all cube results.` plus pre-checked `Preparation of trial mixes — BS 1881:Part 125 (BRE 331:1997 §6.1)` / `Slump test — BS 1881:Part 102 (BRE 331:1997 §6.2)` / `Vebe time test — BS 1881:Part 104 (BRE 331:1997 §6.2)` / `Density (fresh concrete) — BS 1881:Part 107 (BRE 331:1997 §6.2)` / `Making test cubes — BS 1881:Part 108 (BRE 331:1997 §6.2)` / `Normal curing — BS 1881:Part 111 (BRE 331:1997 §6.2)` / `Compression testing of cubes — BS 1881:Part 116 (BRE 331:1997 §6.2)`.
+Group `Tests on Trial Mixes — clause 6.2 Checklist`: intro `Tests on the fresh concrete, specimen making, curing and testing follow BS 1881. Record the actual water/cement ratio used, the fresh density and all cube results.` plus pre-checked `Preparation of trial mixes — BS 1881:Part 125 (BRE 331:1997 clause 6.1)` / `Slump test — BS 1881:Part 102 (BRE 331:1997 clause 6.2)` / `Vebe time test — BS 1881:Part 104 (BRE 331:1997 clause 6.2)` / `Density (fresh concrete) — BS 1881:Part 107 (BRE 331:1997 clause 6.2)` / `Making test cubes — BS 1881:Part 108 (BRE 331:1997 clause 6.2)` / `Normal curing — BS 1881:Part 111 (BRE 331:1997 clause 6.2)` / `Compression testing of cubes — BS 1881:Part 116 (BRE 331:1997 clause 6.2)`.
 
-Buttons: `Save Trial Record`, `Copy Schedule to Clipboard`, `Export Workbook (CSV)`, `Close`. `Save Trial Record` writes a `DOE Trial Mix` (`doe_trial`) history entry — view-only (`Load into Tab` hidden, §12).
+Buttons: `Save Trial Record`, `Copy Schedule to Clipboard`, `Export Workbook (CSV)`, `Close`. `Save Trial Record` writes a `DOE Trial Mix` (`doe_trial`) history entry — view-only (`Load into Tab` hidden, clause 12).
 
 ### 7.3.3 ACI workbook (`ACI PRC-211.1-22 — Trial Batching Workbook`)
 
-Launch: `🧪 Open Trial Batching Workbook (§5.3.9–5.3.10)`. Header `ACI PRC-211.1-22 — Trial Batching (Ch. 8, §5.3.9–5.3.10)` (batch per ASTM C192 with §5.3.9.1 moisture adjustments, test per C143/C138/C173/C231, enter measurements for §5.3.10 next-trial proportions).
+Launch: `🧪 Open Trial Batching Workbook (clause 5.3.9–5.3.10)`. Header `ACI PRC-211.1-22 — Trial Batching (Ch. 8, clause 5.3.9–5.3.10)` (batch per ASTM C192 with clause 5.3.9.1 moisture adjustments, test per C143/C138/C173/C231, enter measurements for clause 5.3.10 next-trial proportions).
 
-Group `Batch Weight Summary (§5.3.9, Table 5.3.9.1)`: `Trial volume (m³):` (0.005–0.500, 4 dp, default 0.05; tooltip: §9.2.9 reference trial is 1 ft³ = 0.0283 m³, quantities scale linearly), `Add A.5 trial series (±cementitious)` checkbox (Appendix A.5 three-point w/cm–strength curve at constant water) + `Cement step (%):` (1–50, default 10.0). Table columns: `Mixture` / `w/cm` / `Water to batch (kg)` / `Cementitious (kg)` / `Fine Agg batched (kg)` / `Coarse Agg batched (kg)` / `Admixture (kg)` + schedule note.
+Group `Batch Weight Summary (clause 5.3.9, Table 5.3.9.1)`: `Trial volume (m³):` (0.005–0.500, 4 dp, default 0.05; tooltip: clause 9.2.9 reference trial is 1 ft³ = 0.0283 m³, quantities scale linearly), `Add A.5 trial series (±cementitious)` checkbox (Appendix A.5 three-point w/cm–strength curve at constant water) + `Cement step (%):` (1–50, default 10.0). Table columns: `Mixture` / `w/cm` / `Water to batch (kg)` / `Cementitious (kg)` / `Fine Agg batched (kg)` / `Coarse Agg batched (kg)` / `Admixture (kg)` + schedule note.
 
-Group `Trial Results & §5.3.10 Post-Trial Adjustments`: `Water actually added (kg):`, `Batched Fine Agg (kg):`, `Batched Coarse Agg (kg):` (blank = scheduled), `Measured slump (mm):` (C143), `Fresh density (kg/m³):` (C138), `Air content (%):` (C231/C173), `Strength (MPa):`, `Age (d):` (1–91, default 28), then `Calculate Adjustments` (net-water ± yield ± 10 lb/yd³ per inch of slump, air correction, cement efficiency).
+Group `Trial Results & clause 5.3.10 Post-Trial Adjustments`: `Water actually added (kg):`, `Batched Fine Agg (kg):`, `Batched Coarse Agg (kg):` (blank = scheduled), `Measured slump (mm):` (C143), `Fresh density (kg/m³):` (C138), `Air content (%):` (C231/C173), `Strength (MPa):`, `Age (d):` (1–91, default 28), then `Calculate Adjustments` (net-water ± yield ± 10 lb/yd³ per inch of slump, air correction, cement efficiency).
 
-Group `Trial Batch Tests — ASTM Checklist (Ch. 8 / §5.3.10)`: intro (ASTM C192 batching by certified personnel; record water added, batched masses, slump, density/yield, air, strengths) plus pre-checked `Preparation of trial batches — ASTM C192/C192M (ACI PRC-211.1-22 Ch. 8, §5.3.10)` / `Temperature of fresh concrete — ASTM C1064/C1064M (Ch. 8)` / `Slump — ASTM C143/C143M (Ch. 8, §5.3.10)` / `Density (yield) of fresh concrete — ASTM C138/C138M (§5.3.10, §4.7.9)` / `Air content — volumetric — ASTM C173/C173M (§5.3.10)` / `Air content — pressure method — ASTM C231/C231M (§5.3.10)` / `Making and curing specimens — ASTM C31/C31M (Ch. 8 curing guidance)`, then the Table 8 (Kosmatka and Wilson 2016) guidance note: one-constituent-at-a-time re-trial until all requirements are within tolerance.
+Group `Trial Batch Tests — ASTM Checklist (Ch. 8 / clause 5.3.10)`: intro (ASTM C192 batching by certified personnel; record water added, batched masses, slump, density/yield, air, strengths) plus pre-checked `Preparation of trial batches — ASTM C192/C192M (ACI PRC-211.1-22 Ch. 8, clause 5.3.10)` / `Temperature of fresh concrete — ASTM C1064/C1064M (Ch. 8)` / `Slump — ASTM C143/C143M (Ch. 8, clause 5.3.10)` / `Density (yield) of fresh concrete — ASTM C138/C138M (clause 5.3.10, clause 4.7.9)` / `Air content — volumetric — ASTM C173/C173M (clause 5.3.10)` / `Air content — pressure method — ASTM C231/C231M (clause 5.3.10)` / `Making and curing specimens — ASTM C31/C31M (Ch. 8 curing guidance)`, then the Table 8 (Kosmatka and Wilson 2016) guidance note: one-constituent-at-a-time re-trial until all requirements are within tolerance.
 
 Buttons: `Save Trial Record`, `Copy Schedule to Clipboard`, `Export Workbook (CSV)`, `Close`. Saves an `ACI Trial Mix` (`aci_trial`) view-only history entry.
 
@@ -455,9 +462,9 @@ Pinned action: `  Calculate Material Quantities` (two leading spaces) → runs w
 
 | Group | Labels + defaults | Use |
 |---|---|---|
-| `Volume of Work Basis` | `Mode`: `Total Work Volume` (default) / `Structural Element Dimensions` | Same pattern as §10.1. |
+| `Volume of Work Basis` | `Mode`: `Total Work Volume` (default) / `Structural Element Dimensions` | Same pattern as clause 10.1. |
 | `Total Volume of Work` | `Work Volume (m³)` (unit-aware), default 10.0 m³ | Net wet volume. |
-| `Structural Elements` (hidden until Element mode) | Same headers/types/buttons/total as §10.1, independent table | Element take-off for ratio work. |
+| `Structural Elements` (hidden until Element mode) | Same headers/types/buttons/total as clause 10.1, independent table | Element take-off for ratio work. |
 | `Mix Proportions (Cement : Sand : Coarse Agg)` | `Standard Preset` default `M20 (1:1.5:3)`; items: `M25 (1:1:2)`, `M20 (1:1.5:3)`, `M15 (1:2:4)`, `M10 (1:3:6)`, `M7.5 (1:4:8)`, `M5 (1:5:10)`, `Mortar 1:3`, `Mortar 1:4`, `Mortar 1:5`, `Mortar 1:6`, `Custom Ratio`; `Cement Ratio (Parts)` default 1.0 (0.1–100, 2 dp; 1 bag = 0.035 m³); `Fine Agg / Sand (Parts)` default 1.5; `Coarse Agg / Stone (Parts)` default 3.0 (`0.0 = mortar`); `Water-Cement Ratio (W/C)` default 0.50 (0.20–1.50, 3 dp); live summary `Proportion: 1 : 1.5 : 3  (Total Parts = 5.50)` (concrete) or `Mortar Proportion: {c} : {s}  (Total Parts = {t})` when stone = 0 | Preset fills the three parts; `Custom Ratio` unlocks manual parts. Set stone to 0.0 for mortar/plaster. |
 | `Factors & Material Constants` | `Dry Volume Factor` default 1.54 (1.0–2.5, 2 dp); `Wastage Factor (%)` default 5.0 %; `Cement Bag Volume` default 0.035 m³ (suffix ` m³`, 3 dp); `Cement Bag Weight` default 50 kg; `Sand Bulk Density` default 1600 kg/m³ (suffix ` kg/m³`); `Coarse Agg Density` default 1500 kg/m³ | Dry factor × wastage × densities convert the volumetric ratio → purchasable masses. |
 
@@ -487,8 +494,8 @@ Status banner: `Standalone mode — enter material quantities manually.` (linked
 | Label | Range / default | Meaning |
 |---|---|---|
 | `Cement (Bags)` | 0–100000, default 0.0, integer | Bags = cement kg ÷ bag weight (50 kg). |
-| `Fine Agg (m³/yd³)` | 0–100000, default 0.0, 3 dp | Sand **purchasing** volume: as-delivered mass ÷ as-delivered bulk density (ACI §4.7.7.2 — bulk volume includes interparticle voids). The SSD absolute volume, mass/(SG×1000), is reported separately as *not purchased*. |
-| `Coarse Agg (m³/yd³)` | 0–100000, default 0.0, 3 dp | Gravel purchasing volume on the dry-rodded bulk density. A DOE/BRE 331 §5.5 single-size split is carried from the design and priced as one line per size. |
+| `Fine Agg (m³/yd³)` | 0–100000, default 0.0, 3 dp | Sand **purchasing** volume: as-delivered mass ÷ as-delivered bulk density (ACI clause 4.7.7.2 — bulk volume includes interparticle voids). The SSD absolute volume, mass/(SG×1000), is reported separately as *not purchased*. |
+| `Coarse Agg (m³/yd³)` | 0–100000, default 0.0, 3 dp | Gravel purchasing volume on the dry-rodded bulk density. A DOE/BRE 331 clause 5.5 single-size split is carried from the design and priced as one line per size. |
 | `Water (L/gal)` | 0–1000000, default 0.0, 1 dp | 1 kg = 1 L. Field ≠ design after moisture correction. |
 | `SCMs (kg/lb)` | 0–100000, default 0.0, 1 dp | Fly ash/GGBFS/silica fume. |
 | `Admix (kg/lb)` | 0–10000, default 0.0, 3 dp | Backend `total_admixture_kg` (1 L ≈ 1 kg). |
@@ -577,7 +584,7 @@ Right-click a row: `View Details`, `Load into Tab`, `📌 Pin to Top` / `📌 Un
 Heading `Unit Settings`; description `Choose the unit system for all inputs and results. The backend always stores metric values internally.`
 
 - Group `Unit System`: `Metric (kg, m³, MPa)` / `American Imperial (lb, yd³, psi)` radios.
-- Group `Weather API Settings`: `WeatherAPI.com requires a free API key for use. / Get your free key at: https://www.weatherapi.com/`; `Show weather button in toolbar` checkbox; `API Key:` field, placeholder `Enter your WeatherAPI.com API key` (password echo).
+- Group `Weather API Settings`: `WeatherAPI.com requires a free API key for use. / Get your free key at: https://www.weatherapi.com/`; `Show weather button in title bar` checkbox; `API Key:` field, placeholder `Enter your WeatherAPI.com API key` (password echo).
 - Group `Application & Build Information`: `CivilQntify — Version {BUILD_TAG}`, `Build: {BUILD_TAG} (Release {__version__})`, `Standards: {STANDARDS_INFO}`.
 - Buttons: `Cancel` → discard; `Apply` → save, relabel units everywhere, show/hide `Weather`.
 
@@ -642,7 +649,7 @@ Per provider tab: `Search:` + `Type city name...` box; `City:` combo items `{cit
 
 ## 16. Solved standard examples (run in the GUI)
 
-Each example below was set up field-by-field in `Mix Design → Concrete Mix Design` and calculated with `Calculate Mix Design`; the screenshots are the actual app output. Comparison tables use the per-m³ cards. Two app-wide policies explain every residual delta: targets round UP to whole MPa (§4.2 note in the form), and cement rounds UP to the nearest 5 kg (conservative).
+Each example below was set up field-by-field in `Mix Design → Concrete Mix Design` and calculated with `Calculate Mix Design`; the screenshots show the app output at the time of capture. Comparison tables use the per-m³ cards and the current 0.1 MPa target policy. Two app-wide policies explain every residual delta: targets round UP to 0.1 MPa (clause 4.2 note in the form), and cement rounds UP to the nearest 5 kg (conservative).
 
 ### 16.1 IS 10262:2019 — Annex A example M40 (PPC, 20 mm, Severe, 75 mm slump)
 
@@ -650,52 +657,52 @@ Source: `IS-10262-2019-NewConcreteMix-design.md`, Annex A (stipulations A-1, tar
 
 GUI inputs: `Standard = IS 10262:2019`, `Concrete Type = Reinforced Concrete`, `Exposure Class (IS 456) = Severe`, `Placing Method = Chute (non-pumpable)`, `Characteristic Strength fck = 40.00 MPa`, `Slump = 75 mm`, `NMSA = 20 mm`, `Cement Type = 42.5R (OPC 43)`, cement SG 2.88, `Grading Zone = II`, FA SG 2.65 / absorption 1.0 / moisture 0.0, `Aggregate Shape = Angular`, CA SG 2.74 / absorption 0.5 / moisture 0.0, admixture `Superplasticizer`, dosage 1.0 %, water reduction 23.0 %, SG 1.145.
 
-![IS 10262:2019 Annex A M40 run in the GUI — 415 / 148 / 646 / 1235 kg, W/C 0.360, target 49 MPa](user_manual_images/fresh_2026-09-20/08_is_m40.png)
+![IS 10262:2019 Annex A M40 run in the GUI — current 0.1 MPa policy gives 410 / 148 / 650 / 1237 kg, W/C 0.360, target 48.3 MPa](user_manual_images/fresh_2026-09-20/08_is_m40.png)
 
 | Quantity | Standard (A-10) | App | Delta |
 |---|---|---|---|
-| Target mean strength | 48.25 MPa | 49.0 MPa | ceil-to-whole-MPa policy |
+| Target mean strength | 48.25 MPa | 48.3 MPa | round-up-to-0.1-MPa policy |
 | Free W/C | 0.36 | 0.360 | exact |
 | Water | 148 kg | 148.0 kg | exact |
-| Cement | 412 kg | 415.0 kg | +3 (148 ÷ 0.36 = 411.1, rounded UP to 5 kg) |
-| Fine aggregate | 648 kg | 646.0 kg | −2 |
-| Coarse aggregate | 1234 kg | 1235.0 kg | +1 |
-| Admixture (1 %) | 4.12 kg | 4.2 kg card (4.15) | scales with cement |
+| Cement | 412 kg | 410.0 kg | −2 (148 ÷ 0.36 = 411.1, nearest 5 kg) |
+| Fine aggregate | 648 kg | 650.0 kg | +2 |
+| Coarse aggregate | 1234 kg | 1237.0 kg | +3 |
+| Admixture (1 %) | 4.12 kg | 4.1 kg | scales with cement |
 | Ratio | — | 1.0 : 1.6 : 3.0 (0.360) | — |
 
-The result pane also raises the Clause 5.8 warning and the `ACTIVE - IS 10262:2019 CLAUSE 5.8 — TRIAL MIXES PROTOCOL` card (§7.3.1).
+The result pane also raises the Clause 5.8 warning and the `ACTIVE - IS 10262:2019 CLAUSE 5.8 — TRIAL MIXES PROTOCOL` card (clause 7.3.1).
 
-### 16.2 ACI PRC-211.1-22 — §9.2 Example 1 (2500 psi, 1½ in. rounded CA, FM 2.80)
+### 16.2 ACI PRC-211.1-22 — clause 9.2 Example 1 (2500 psi, 1½ in. rounded CA, FM 2.80)
 
-Source: `31-ACI 211.1-22.md`, §9.2 Example 1 (Table 9.2.7.2 SSD proportions: water 300, cement 484, CA 1927, FA 1308 lb/yd³ at w/cm 0.62; Table 9.2.8 batched with 2 % / 6 % moisture).
+Source: `31-ACI 211.1-22.md`, clause 9.2 Example 1 (Table 9.2.7.2 SSD proportions: water 300, cement 484, CA 1927, FA 1308 lb/yd³ at w/cm 0.62; Table 9.2.8 batched with 2 % / 6 % moisture).
 
 GUI inputs: `Standard = ACI PRC-211.1:2022`, `Characteristic Strength fck = 17.24 MPa` (= 2500 psi), `Slump = 100 mm` (4 in., covers the 3–4 in. Table 5.3.3 row), `NMSA = 40 mm` (≈ 1½ in.), `Cement Type = 42.5N (Type I)`, `Fineness Modulus = 2.80`, FA SG 2.64 / absorption 0.7 / moisture 0.0, CA SG 2.68 / absorption 0.5 / moisture 0.0, `Dry-Rodded Bulk Density = 1602 kg/m³` (= 100 lb/ft³), `Air Entrainment` off, `S0` / `F0` / `W0` / `C0`, `Has Production Data` off (no prior tests → Table 4.7.4.1: f'c < 3000 psi ⇒ f'cr = f'c + 1000 psi = 3500 psi). `Rounded aggregate −8% water` left off, matching the example (300 lb unadjusted).
 
-![ACI PRC-211.1-22 §9.2 Example 1 run in the GUI — 291.1 / 178.0 / 773.7 / 1143.1 kg/m³, w/cm 0.611, target 25 MPa](user_manual_images/fresh_2026-09-20/09_aci_ex1.png)
+![ACI PRC-211.1-22 clause 9.2 Example 1 run in the GUI — current 0.1 MPa policy gives 285.2 / 178.0 / 780.0 / 1141.7 kg/m³, w/cm 0.624, target 24.2 MPa](user_manual_images/fresh_2026-09-20/09_aci_ex1.png)
 
 | Quantity | Standard (Table 9.2.7.2) | App | Delta |
 |---|---|---|---|
-| Target | 3500 psi = 24.13 MPa | 25.0 MPa | ceil policy |
-| w/cm | 0.62 | 0.611 | Table 5.3.4 interpolated at 25 MPa instead of the exact 3500 psi row |
+| Target | 3500 psi = 24.13 MPa | 24.2 MPa | round up to 0.1 MPa |
+| w/cm | 0.62 | 0.624 | Table 5.3.4 interpolated at 24.2 MPa instead of the exact 3500 psi row |
 | Water | 300 lb/yd³ = 178.0 kg/m³ | 178.0 kg | exact |
-| Cement | 484 lb/yd³ = 287.1 kg/m³ | 291.1 kg | +4.0 (178 ÷ 0.611) |
-| Fine aggregate | 1308 lb/yd³ = 776.0 kg/m³ | 773.7 kg | −2.3 |
-| Coarse aggregate | 1927 lb/yd³ = 1143.2 kg/m³ | 1143.1 kg | −0.1 |
-| Ratio | — | 1.0 : 2.7 : 3.9 (0.611) | — |
+| Cement | 484 lb/yd³ = 287.1 kg/m³ | 285.2 kg | −1.9 (178 ÷ 0.624) |
+| Fine aggregate | 1308 lb/yd³ = 776.0 kg/m³ | 780.0 kg | +4.0 |
+| Coarse aggregate | 1927 lb/yd³ = 1143.2 kg/m³ | 1141.7 kg | −1.5 |
+| Ratio | — | 1.0 : 2.7 : 4.0 (0.624) | — |
 
-The `ACTIVE - ACI PRC-211.1-22 — TRIAL BATCHING` card offers `🧪 Open Trial Batching Workbook (§5.3.9–5.3.10)` (§7.3.3). Re-running with aggregate moistures set reproduces the Table 9.2.8 batch-weight adjustment (water to batch = mixing water minus free moisture).
+The `ACTIVE - ACI PRC-211.1-22 — TRIAL BATCHING` card offers `🧪 Open Trial Batching Workbook (clause 5.3.9–5.3.10)` (clause 7.3.3). Re-running with aggregate moistures set reproduces the Table 9.2.8 batch-weight adjustment (water to batch = mixing water minus free moisture).
 
-### 16.3 BRE 331:1997 (DOE) — §7.1 Example 1 (30 MPa, Class 42.5, 20 mm, 10–30 mm slump)
+### 16.3 BRE 331:1997 (DOE) — clause 7.1 Example 1 (30 MPa, Class 42.5, 20 mm, 10–30 mm slump)
 
-Source: `BRE-331-1997-DOE-Mix-Design.md`, §7.1 Example 1 (target 46 N/mm², w/c 0.47, water 160 kg, cement 340 kg, FA 515 kg, CA 1385 kg; max w/c 0.55, min cement 290 kg/m³, 70 % passing 600 µm, uncrushed 20 mm, RD 2.6).
+Source: `BRE-331-1997-DOE-Mix-Design.md`, clause 7.1 Example 1 (target 46 N/mm², w/c 0.47, water 160 kg, cement 340 kg, FA 515 kg, CA 1385 kg; max w/c 0.55, min cement 290 kg/m³, 70 % passing 600 µm, uncrushed 20 mm, RD 2.6).
 
 GUI inputs: `Standard = DOE (BRE 331:1997)`, `Characteristic Strength fck = 30.0 MPa`, `Workability Range (DOE)` class 1 with `Slump = 20 mm`, `Number of Test Cubes (n) = 5` (n < 20 ⇒ Line A, s = 8 MPa — the example assumes no prior cube data), `Defective Percent = 2.5` (k = 1.96), `Cement Type = 42.5R`, `Coarse/Fine Aggregate Type = Uncrushed`, `FA Passing 600 µm = 70.0 %`, `Aggregate Rel. Density = 2.6`, `Min Cement = 290 kg/m³`, `Max W/C (Durability) = 0.55`, `Age = 28 Days`. `CA Split` stays `Single stock` (NMSA 20 auto-subdivides 10 + 20 mm at 1 : 2).
 
-![DOE (BRE 331:1997) §7.1 Example 1 run in the GUI — 340 / 160 / 525 / 1375 kg, w/c 0.470, target 46 MPa](user_manual_images/fresh_2026-09-20/10_doe_ex1.png)
+![DOE (BRE 331:1997) clause 7.1 Example 1 run in the GUI — 340 / 160 / 525 / 1375 kg, w/c 0.470, target 45.7 MPa](user_manual_images/fresh_2026-09-20/10_doe_ex1.png)
 
-| Quantity | Standard (§7.1) | App | Delta |
+| Quantity | Standard (clause 7.1) | App | Delta |
 |---|---|---|---|
-| Target fm | 46 N/mm² | 46.0 MPa | exact (30 + 1.96 × 8 = 45.68, rounded up) |
+| Target fm | 46 N/mm² | 45.7 MPa | 30 + 1.96 × 8 = 45.68, rounded UP to 0.1 |
 | Free w/c | 0.47 | 0.470 | exact |
 | Water | 160 kg | 160.0 kg | exact |
 | Cement | 340 kg | 340.0 kg | exact (160 ÷ 0.47 = 340.4 → 340) |
@@ -703,7 +710,7 @@ GUI inputs: `Standard = DOE (BRE 331:1997)`, `Characteristic Strength fck = 30.0
 | Coarse aggregate | 1385 kg | 1375.0 kg | −10 |
 | Ratio | — | 1.0 : 1.5 : 4.0 (0.470) | — |
 
-Leave `Number of Test Cubes` at its default 20 and the same inputs give the Line B answer instead (target 38, w/c 0.54, cement 295) — the GUI's `Std Deviation (MPa) — Applied` display always names the line in use, so a mismatch with a worked example is immediately visible.
+Leave `Number of Test Cubes` at its default 20 and the same inputs give the Line B answer instead (target 37.9, w/c 0.54, cement 295) — the GUI's `Std Deviation (MPa) — Applied` display always names the line in use, so a mismatch with a worked example is immediately visible.
 
 ---
 
@@ -711,9 +718,9 @@ Leave `Number of Test Cubes` at its default 20 and the same inputs give the Line
 
 Main: `CivilQntify`, `Mix Design`, `Material Quantification`, `Cost Estimation`, `History`, `Weather`, `Unit Settings`, `Ready`, `Weather Data`, `Settings`, `Transfer Error`, `Load Error`.
 
-Mix form groups: `Step 1 — Design Parameters`, `Step 2 — Material Properties`, `Step 3 — Admixtures & SCM`, `Trial Check (optional) — ACI §5.3.10`, `SCC Checks (optional, IS)`, `Report Details`. Buttons: `  Calculate Mix Design`, `  Calculate Target Strength`, `  Calculating...`, `  Clear`, `Export CSV`, `Export PDF`, `Send to Quantification`, `📋 View 4-Trial Batches Protocol & Reporting Guide (Clause 5.8)`, `🧪 Open Trial Mixes Workbook (§6)`, `🧪 Open Trial Batching Workbook (§5.3.9–5.3.10)`.
+Mix form groups: `Step 1 — Design Parameters`, `Step 2 — Material Properties`, `Step 3 — Admixtures & SCM`, `Trial Check (optional) — ACI clause 5.3.10`, `SCC Checks (optional, IS)`, `Report Details`. Buttons: `  Calculate Mix Design`, `  Calculate Target Strength`, `  Calculating...`, `  Clear`, `Export CSV`, `Export PDF`, `Send to Quantification`, `📋 View 4-Trial Batches Protocol & Reporting Guide (Clause 5.8)`, `🧪 Open Trial Mixes Workbook (clause 6)`, `🧪 Open Trial Batching Workbook (clause 5.3.9–5.3.10)`.
 
-PSD: `Sieve Analysis — Setup`, `Standard`, `Aggregate Type`, `Reference Band`, `Input — Mass Retained on Each Sieve`, `Sieve Size`, `Mass Retained (g)`, `% Retained`, `Cumulative % Retained`, `% Passing`, `Standard % Passing`, `Export Table CSV`, `  Compute & Plot`, `  Clear`, `Quality Requirements`, `Results Summary`, `Gradation Curve (Semi-Log)`, `Gradation Analysis`, `Fineness Modulus — from Sieve Analysis (ACI 211.1-22 §4.3.5)`, `Use in Mix Design`, `Export CSV`, `Export Image`, `OK`.
+PSD: `Sieve Analysis — Setup`, `Standard`, `Aggregate Type`, `Reference Band`, `Input — Mass Retained on Each Sieve`, `Sieve Size`, `Mass Retained (g)`, `% Retained`, `Cumulative % Retained`, `% Passing`, `Standard % Passing`, `Export Table CSV`, `  Compute & Plot`, `  Clear`, `Quality Requirements`, `Results Summary`, `Gradation Curve (Semi-Log)`, `Gradation Analysis`, `Fineness Modulus — from Sieve Analysis (ACI 211.1-22 clause 4.3.5)`, `Use in Mix Design`, `Export CSV`, `Export Image`, `OK`.
 
 Quantify: `Design Mix Proportions`, `Mix Ratios & Volume`, `Quantification Basis`, `Total Volume`, `Structural Elements`, `Add Element`, `Remove Selected`, `Wastage`, `Mix Design Parameters (per m³)`, `Mix Information`, `Override Mix Values (per m³)`, `Reset All Overrides`, `  Calculate Material Quantities`, `Volume of Work Basis`, `Total Volume of Work`, `Mix Proportions (Cement : Sand : Coarse Agg)`, `Factors & Material Constants`.
 
@@ -721,8 +728,8 @@ Cost: `Material Quantities`, `Material Prices (GH₵)`, `Reset to Default Prices
 
 History: `Filter:`, `Search`, `← Prev`, `Next →`, `Select All`, `Load Selected`, `Delete Selected`, `Export Selected`, `Import JSON`, `Export All`, `Clear All History`, `Refresh`.
 
-Trial workbooks: `IS 10262:2019 Clause 5.8 — Trial Mixes Protocol & Reporting`, `IS 10262:2019 Section 5.8 — Trial Mixes Procedure`, `Mandatory 4-Trial Batches Schedule (Clause 5.8)`, `Clause 5.8 Step-by-Step Lab & Field Procedure`, `Clause 5.8.1 Mandatory Reporting Checklist`, `Copy Trial Batches to Clipboard`, `Export Trial Batches (CSV)`, `DOE (BRE 331:1997) §6 — Trial Mixes Workbook`, `BRE 331:1997 §6 — Trial Mixes`, `Trial Batch Schedule (§6.1)`, `Trial volume (m³):`, `Add ±w/c variant batches`, `w/c step:`, `Aggregate moisture condition (BS 1881 Part 125):`, `Trial Results & §6.3 Adjustments`, `Tests on Trial Mixes — §6.2 Checklist`, `ACI PRC-211.1-22 — Trial Batching Workbook`, `ACI PRC-211.1-22 — Trial Batching (Ch. 8, §5.3.9–5.3.10)`, `Batch Weight Summary (§5.3.9, Table 5.3.9.1)`, `Add A.5 trial series (±cementitious)`, `Cement step (%):`, `Trial Results & §5.3.10 Post-Trial Adjustments`, `Trial Batch Tests — ASTM Checklist (Ch. 8 / §5.3.10)`, `Calculate Adjustments`, `Save Trial Record`, `Copy Schedule to Clipboard`, `Export Workbook (CSV)`, `Close`.
+Trial workbooks: `IS 10262:2019 Clause 5.8 — Trial Mixes Protocol & Reporting`, `IS 10262:2019 Section 5.8 — Trial Mixes Procedure`, `Mandatory 4-Trial Batches Schedule (Clause 5.8)`, `Clause 5.8 Step-by-Step Lab & Field Procedure`, `Clause 5.8.1 Mandatory Reporting Checklist`, `Copy Trial Batches to Clipboard`, `Export Trial Batches (CSV)`, `DOE (BRE 331:1997) clause 6 — Trial Mixes Workbook`, `BRE 331:1997 clause 6 — Trial Mixes`, `Trial Batch Schedule (clause 6.1)`, `Trial volume (m³):`, `Add ±w/c variant batches`, `w/c step:`, `Aggregate moisture condition (BS 1881 Part 125):`, `Trial Results & clause 6.3 Adjustments`, `Tests on Trial Mixes — clause 6.2 Checklist`, `ACI PRC-211.1-22 — Trial Batching Workbook`, `ACI PRC-211.1-22 — Trial Batching (Ch. 8, clause 5.3.9–5.3.10)`, `Batch Weight Summary (clause 5.3.9, Table 5.3.9.1)`, `Add A.5 trial series (±cementitious)`, `Cement step (%):`, `Trial Results & clause 5.3.10 Post-Trial Adjustments`, `Trial Batch Tests — ASTM Checklist (Ch. 8 / clause 5.3.10)`, `Calculate Adjustments`, `Save Trial Record`, `Copy Schedule to Clipboard`, `Export Workbook (CSV)`, `Close`.
 
-Settings: `Unit Settings`, `Unit System`, `Metric (kg, m³, MPa)`, `American Imperial (lb, yd³, psi)`, `Weather API Settings`, `Show weather button in toolbar`, `API Key:`, `Application & Build Information`, `Cancel`, `Apply`.
+Settings: `Unit Settings`, `Unit System`, `Metric (kg, m³, MPa)`, `American Imperial (lb, yd³, psi)`, `Weather API Settings`, `Show weather button in title bar`, `API Key:`, `Application & Build Information`, `Cancel`, `Apply`.
 
 Weather: `Weather Data`, `Open-Meteo (Free)`, `WeatherAPI.com`, `Current Conditions`, `5-Day Forecast`, `24-Hour Forecast`, `Search:`, `City:`, `Refresh`.

@@ -7,7 +7,7 @@ import time
 
 import pytest
 from PyQt6.QtCore import QSettings
-from PyQt6.QtWidgets import QApplication, QFileDialog, QMessageBox
+from PyQt6.QtWidgets import QApplication, QFileDialog
 
 from app.unit_preferences import UnitPreferences, UnitSystem
 from app.widgets.cost_estimation_tab import CostEstimationTab
@@ -208,7 +208,8 @@ def test_q07_cost_replacement_and_typed_change_invalidate(tabs):
 
 
 def test_q07_invalid_element_mode_disables_send(tabs, qt, monkeypatch):
-    monkeypatch.setattr(QMessageBox, "warning", lambda *args: None)
+    from app.widgets import material_quantify_tab as qmod
+    monkeypatch.setattr(qmod.QMessageBox, "warning", lambda *args: None)
     tab = tabs(MaterialQuantifyTab)
     tab._run_quantification()
     wait_for(qt, lambda: tab._last_bill is not None and not tab._worker.isRunning())
@@ -338,7 +339,8 @@ def test_r07_cost_pdf_portable_resources_and_fallback(tabs, monkeypatch, tmp_pat
     path = tmp_path / "estimate.pdf"
     monkeypatch.setattr(QFileDialog, "getSaveFileName", lambda *args: (str(path), "PDF"))
     errors = []
-    monkeypatch.setattr(QMessageBox, "warning", lambda *args: errors.append(args))
+    from app.widgets import cost_estimation_tab as cmod
+    monkeypatch.setattr(cmod.QMessageBox, "warning", lambda *args: errors.append(args))
     if fallback:
         original = Path.is_file
         monkeypatch.setattr(Path, "is_file", lambda p: False if p.suffix == ".ttf" else original(p))

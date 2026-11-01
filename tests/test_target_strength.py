@@ -18,10 +18,10 @@ def test_is10262_uses_higher_target_strength_formula():
     result = calculate_target_strength("is10262", 30.0)
 
     assert isinstance(result, TargetStrengthResult)
-    # max(30 + 1.65×5, 30 + 6.5) = 38.25 → 39 MPa (ceiled, IS 10262 Cl. 4.2)
-    assert result.target_mean_strength_mpa == pytest.approx(39)
+    # max(30 + 1.65×5, 30 + 6.5) = 38.25 → 38.3 MPa (up to 0.1, app policy)
+    assert result.target_mean_strength_mpa == pytest.approx(38.3)
     assert result.standard_deviation_mpa == pytest.approx(5.0)
-    assert result.margin_mpa == pytest.approx(9.0)
+    assert result.margin_mpa == pytest.approx(8.3)
     assert "Higher value" in result.formula
     assert "Tables 1" in result.reference
 
@@ -33,10 +33,10 @@ def test_aci_with_production_data_uses_statistical_formula():
         has_production_data=True,
     )
 
-    # max(25 + 1.34×4, 25 + 2.33×4 − 3.45) = 30.87 → 31 (up to whole MPa)
-    assert result.target_mean_strength_mpa == pytest.approx(31, abs=0.01)
+    # max(25 + 1.34×4, 25 + 2.33×4 − 3.45) = 30.87 → 30.9 (up to 0.1)
+    assert result.target_mean_strength_mpa == pytest.approx(30.9, abs=0.01)
     assert result.standard_deviation_mpa == pytest.approx(4.0)
-    assert result.margin_mpa == pytest.approx(6.0, abs=0.01)
+    assert result.margin_mpa == pytest.approx(5.9, abs=0.01)
     assert "1.34" in result.formula
 
 
@@ -47,8 +47,8 @@ def test_aci_without_production_data_uses_table():
         has_production_data=False,
     )
 
-    # ACI 318 Table 26.4.3.1(b): 33.27 → 34 (up to whole MPa, app policy)
-    assert result.target_mean_strength_mpa == pytest.approx(34, abs=0.01)
+    # ACI 318 Table 26.4.3.1(b): 33.27 → 33.3 (up to 0.1, app policy)
+    assert result.target_mean_strength_mpa == pytest.approx(33.3, abs=0.01)
     assert result.standard_deviation_mpa is None
     assert "Table 26.4.3.1" in result.formula
 
@@ -68,11 +68,11 @@ def test_doe_uses_defectives_and_number_of_test_cubes():
     )
 
     assert line_a.standard_deviation_mpa == pytest.approx(8.0)
-    # 25 + 1.64×8 = 38.12 → 39 (C2 target mean rounded up to whole N/mm²)
-    assert line_a.target_mean_strength_mpa == pytest.approx(39.0)
+    # 25 + 1.64×8 = 38.12 → 38.2 (rounded up to 0.1)
+    assert line_a.target_mean_strength_mpa == pytest.approx(38.2)
     assert line_b.standard_deviation_mpa == pytest.approx(4.0)
-    # 25 + 1.64×4 = 31.56 → 32 (C2 rounded up)
-    assert line_b.target_mean_strength_mpa == pytest.approx(32.0)
+    # 25 + 1.64×4 = 31.56 → 31.6 (rounded up to 0.1)
+    assert line_b.target_mean_strength_mpa == pytest.approx(31.6)
     assert "Line A" in line_a.formula
     assert "Line B" in line_b.formula
 
@@ -88,10 +88,10 @@ def test_doe_known_margin_bypasses_k_s_n():
 
 
 def test_doe_known_margin_rounds_up():
-    """15.68 → ceil(30 + 15.68) = 46, like the C2 convention."""
+    """45.68 → ceil to 0.1 = 45.7, the shared target rounding."""
     result = calculate_target_strength("doe", 30.0, margin_mpa=15.68)
 
-    assert result.target_mean_strength_mpa == pytest.approx(46.0)
+    assert result.target_mean_strength_mpa == pytest.approx(45.7)
 
 
 def test_doe_known_margin_must_be_positive():
@@ -104,16 +104,16 @@ def test_no_app_floor_any_standard():
     """No 25 MPa floor in any code; low grades design with standard rules."""
     is20 = calculate_target_strength("is10262", 20.0)
     assert is20.standard_deviation_mpa == pytest.approx(4.0)
-    # max(20 + 1.65×4, 20 + 5.5) = 26.6 → 27 MPa (ceiled, IS 10262 Cl. 4.2)
-    assert is20.target_mean_strength_mpa == pytest.approx(27)
+    # max(20 + 1.65×4, 20 + 5.5) = 26.6 MPa (already one decimal)
+    assert is20.target_mean_strength_mpa == pytest.approx(26.6)
     aci20 = calculate_target_strength("aci211", 20.0)
-    # max(20 + 1.34×4, 20 + 2.33×4 − 3.45) = 25.87 → 26 (up to whole MPa)
-    assert aci20.target_mean_strength_mpa == pytest.approx(26)
+    # max(20 + 1.34×4, 20 + 2.33×4 − 3.45) = 25.87 → 25.9 (up to 0.1)
+    assert aci20.target_mean_strength_mpa == pytest.approx(25.9)
     # DOE M20 with an explicit 20-result record: Line B → s = 4.0, M = 6.56,
-    # fm = 26.56 → 27 (C2 rounded up).
+    # fm = 26.56 → 26.6 (rounded up to 0.1).
     doe20 = calculate_target_strength("doe", 20.0, num_test_cubes=20)
     assert doe20.standard_deviation_mpa == pytest.approx(4.0)
-    assert doe20.target_mean_strength_mpa == pytest.approx(27.0)
+    assert doe20.target_mean_strength_mpa == pytest.approx(26.6)
 
 
 def test_exposure_gates_still_guard_low_grades():
@@ -253,7 +253,7 @@ def test_margin_known_checkbox_hidden_for_other_codes(qt_app):
 
 
 def test_target_strength_uses_known_margin(qt_app):
-    """With the box checked, the target is fc + M (DOE §4.4, C2)."""
+    """With the box checked, the target is fc + M (DOE clause 4.4, C2)."""
     from app.widgets.concrete_tab import ConcreteMixTab
 
     tab = ConcreteMixTab()

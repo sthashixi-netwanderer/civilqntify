@@ -25,7 +25,9 @@ from PyQt6.QtWidgets import (
 )
 
 from material_quantify.models.bill import MaterialBill
+from app.styles import sentence_case_si_units
 from app.unit_preferences import UnitPreferences, get_unit_prefs
+from app.widgets.wrap_label import WrapLabel
 
 
 class _StatCard(QFrame):
@@ -38,7 +40,7 @@ class _StatCard(QFrame):
         layout.setContentsMargins(12, 10, 12, 10)
         layout.setSpacing(4)
 
-        self._label = QLabel(label)
+        self._label = QLabel(sentence_case_si_units(label))
         self._label.setObjectName("result-label")
         self._value = QLabel("\u2014")
         self._value.setObjectName("result-value")
@@ -77,14 +79,13 @@ class QuantResultPanel(QWidget):
         outer.setSpacing(10)
 
         # ── Warnings ──
-        self._warning_banner = QLabel()
+        self._warning_banner = WrapLabel()
         self._warning_banner.setObjectName("warning-banner")
-        self._warning_banner.setWordWrap(True)
         self._warning_banner.setVisible(False)
         outer.addWidget(self._warning_banner)
 
         # ── Volume Summary ──
-        vol_label = QLabel("Volume Summary")
+        vol_label = QLabel("Volume summary")
         vol_label.setObjectName("section-title")
         outer.addWidget(vol_label)
 
@@ -99,7 +100,7 @@ class QuantResultPanel(QWidget):
         outer.addLayout(vol_grid)
 
         # ── Material Quantities ──
-        mat_label = QLabel("Total Material Quantities")
+        mat_label = QLabel("Total material quantities")
         mat_label.setObjectName("section-title")
         outer.addWidget(mat_label)
 
@@ -123,7 +124,7 @@ class QuantResultPanel(QWidget):
         outer.addLayout(mat_grid)
 
         # ── Detailed Breakdown Table ──
-        breakdown_label = QLabel("Detailed Breakdown")
+        breakdown_label = QLabel("Detailed breakdown")
         breakdown_label.setObjectName("section-title")
         outer.addWidget(breakdown_label)
 

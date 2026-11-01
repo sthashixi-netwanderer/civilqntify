@@ -24,7 +24,6 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
     QLabel,
-    QMessageBox,
     QPushButton,
     QScrollArea,
     QSizePolicy,
@@ -36,6 +35,8 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from app.widgets.message_dialog import MessageBox as QMessageBox
+from app.widgets.wrap_label import WrapLabel
 from material_quantify import (
     MIX_RATIO_PRESETS,
     MaterialQuantifier,
@@ -45,7 +46,9 @@ from material_quantify import (
 )
 from material_quantify.models.bill import MaterialBill
 from material_quantify.models.transfer_data import MixDesignTransferData
+from app.styles import sentence_case_si_units
 from app.unit_preferences import get_unit_prefs
+from app.widgets.frameless_dialog import open_detached
 from app.widgets.info_button import InfoButton, set_label_with_info_text
 from app.widgets.quant_result_panel import QuantResultPanel
 from app.widgets.report_preview_dialog import ReportPreviewDialog
@@ -221,9 +224,8 @@ class MaterialQuantifyTab(QWidget):
     def _build_form(self) -> None:
         """Build Subtab 1: Design Mix Proportions form."""
         # ── Status Banner ──
-        self._status_banner = QLabel("Standalone mode — enter mix parameters manually.")
+        self._status_banner = WrapLabel("Standalone mode — enter mix parameters manually.")
         self._status_banner.setObjectName("info-banner")
-        self._status_banner.setWordWrap(True)
         self._form.addWidget(self._status_banner)
 
         # ── Quantification Mode ──
@@ -505,7 +507,7 @@ class MaterialQuantifyTab(QWidget):
             "  S = standard deviation (Table 2: 3.5–6.0 MPa)\n"
             "  X = grade factor (Table 1: 5.0–8.0 MPa)\n\n"
             "This is NOT the characteristic strength — it's higher to account for\n"
-            "variability. E.g., M30 → f'ck = 38.25 → 39 MPa (rounded up).",
+            "variability. E.g., M30 → f'ck = 38.25 → 38.3 MPa (rounded up).",
         )
         self._strength_info_btn = self._strength_label.findChild(InfoButton)
         info_form.addRow(
@@ -555,7 +557,7 @@ class MaterialQuantifyTab(QWidget):
             "Sand Purchasing Bulk Density",
             "Project assumption: 1600 kg/m³, NOT a standard density. Replace with a measured "
             "as-delivered loose bulk density on the same moisture basis as the field sand mass. "
-            "Purchasing volume = field mass / bulk density. ACI §4.7.7.2: SG gives particle "
+            "Purchasing volume = field mass / bulk density. ACI clause 4.7.7.2: SG gives particle "
             "absolute volume, not purchasing volume."), self._sand_density_spin)
         self._sand_basis_combo = self._combo([
             ("Project assumption (verify on site)", "Project assumption: as-delivered bulk density; verify on site"),
@@ -620,12 +622,11 @@ class MaterialQuantifyTab(QWidget):
     def _build_ratio_form(self) -> None:
         """Build Subtab 2: Mix Ratios & Volume form."""
         # ── Status / Info Banner ──
-        self._ratio_status_banner = QLabel(
+        self._ratio_status_banner = WrapLabel(
             "Mix Ratio Mode \u2014 enter mix proportions (Cement : Sand : Coarse Agg) and work volume. "
             "Note: 1 bag of cement = 0.035 m\u00b3."
         )
         self._ratio_status_banner.setObjectName("info-banner")
-        self._ratio_status_banner.setWordWrap(True)
         self._ratio_form.addWidget(self._ratio_status_banner)
 
         # ── Volume Scope — moved to top so user sees the calculation volume immediately ──
@@ -912,10 +913,10 @@ class MaterialQuantifyTab(QWidget):
     # ── Helpers ──────────────────────────────────────────────────────
 
     def _group(self, title: str) -> QGroupBox:
-        return QGroupBox(title)
+        return QGroupBox(sentence_case_si_units(title))
 
     def _label(self, text: str) -> QLabel:
-        lbl = QLabel(text)
+        lbl = QLabel(sentence_case_si_units(text))
         lbl.setObjectName("form-label")
         lbl.setWordWrap(True)
         lbl.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
@@ -1315,7 +1316,7 @@ class MaterialQuantifyTab(QWidget):
     # ── Mode Switching ───────────────────────────────────────────────
 
     # Target-strength help follows the selected code standard (per AGENTS.md:
-    # IS 10262 Cl. 7.1 / ACI 211.1 §5.3.2 use different overdesign rules).
+    # IS 10262 Cl. 7.1 / ACI 211.1 clause 5.3.2 use different overdesign rules).
     _STRENGTH_INFO = {
         "is10262": (
             "Target average compressive strength at 28 days.\n\n"
@@ -1324,11 +1325,11 @@ class MaterialQuantifyTab(QWidget):
             "  S = standard deviation (Table 2: 3.5–6.0 MPa)\n"
             "  X = grade factor (Table 1: 5.0–8.0 MPa)\n\n"
             "This is NOT the characteristic strength — it's higher to account for\n"
-            "variability. E.g., M30 → f'ck = 38.25 → 39 MPa (rounded up)."
+            "variability. E.g., M30 → f'ck = 38.25 → 38.3 MPa (rounded up)."
         ),
         "aci211": (
             "Target average compressive strength at 28 days.\n\n"
-            "ACI 211.1 §5.3.2 (overdesign above f'c):\n"
+            "ACI 211.1 clause 5.3.2 (overdesign above f'c):\n"
             "  f'cr = f'c + 1.2·s  (no production data, <30 tests)\n"
             "  f'cr = f'c + 2.33·s − 500 psi  (≥30 tests)\n"
             "  s = standard deviation (Table 5.3.2.2)\n\n"
@@ -2031,10 +2032,10 @@ class MaterialQuantifyTab(QWidget):
                 <div class="flex items-center gap-2">
                     <h1 class="text-[30px] leading-[36px] text-primary tracking-tight font-bold">CivilQntify</h1>
                 </div>
-                <h2 class="text-[12px] leading-[16px] tracking-[0.1em] text-on-surface-variant uppercase font-bold mt-2">MATERIAL QUANTIFICATION BILL</h2>
+                <h2 class="text-[12px] leading-[16px] tracking-[0.1em] text-on-surface-variant font-bold mt-2">Material Quantification Bill</h2>
             </div>
             <div class="text-right flex flex-col gap-1">
-                <div class="text-[11px] leading-[16px] tracking-[0.05em] font-semibold text-primary uppercase">Mix Specification</div>
+                <div class="text-[11px] leading-[16px] tracking-[0.05em] font-semibold text-primary">Mix specification</div>
                 <div class="text-[24px] leading-[32px] font-semibold text-on-surface">{td.code_used}</div>
                 <div class="text-on-surface-variant font-body-md mt-2">Target/Strength: {target_s:.1f} {su}</div>
                 <div class="text-on-surface-variant font-body-md">W/C Ratio: {td.w_c_ratio:.3f}</div>
@@ -2043,24 +2044,24 @@ class MaterialQuantifyTab(QWidget):
 
         <!-- Section 1: Volume Summary -->
         <section class="mb-8">
-            <div class="text-[12px] leading-[16px] tracking-[0.1em] text-primary mb-4 uppercase border-l-4 border-primary pl-2 font-bold">Section 1: Volume Summary</div>
+            <div class="text-[12px] leading-[16px] tracking-[0.1em] text-primary mb-4 border-l-4 border-primary pl-2 font-bold">Section 1: Volume summary</div>
             <div class="grid grid-cols-3 gap-5">
                 <div class="border border-outline-variant p-4 flex flex-col gap-2">
-                    <div class="text-[11px] leading-[16px] tracking-[0.05em] font-semibold text-on-surface-variant uppercase">Net Volume</div>
+                    <div class="text-[11px] leading-[16px] tracking-[0.05em] font-semibold text-on-surface-variant">Net volume</div>
                     <div class="flex justify-between items-end">
                         <span class="text-[24px] font-bold">{net_v:,.3f}</span>
                         <span class="text-[11px] pb-1">{vu}</span>
                     </div>
                 </div>
                 <div class="border border-outline-variant p-4 flex flex-col gap-2 bg-surface-container-low">
-                    <div class="text-[11px] leading-[16px] tracking-[0.05em] font-semibold text-on-surface-variant uppercase">Wastage ({bill.wastage_percent:.1f}%)</div>
+                    <div class="text-[11px] leading-[16px] tracking-[0.05em] font-semibold text-on-surface-variant">Wastage ({bill.wastage_percent:.1f}%)</div>
                     <div class="flex justify-between items-end">
                         <span class="text-[24px] font-bold">{waste_v:,.3f}</span>
                         <span class="text-[11px] pb-1">{vu}</span>
                     </div>
                 </div>
                 <div class="border-2 border-primary p-4 flex flex-col gap-2">
-                    <div class="text-[11px] leading-[16px] tracking-[0.05em] font-semibold text-primary uppercase">Gross Volume</div>
+                    <div class="text-[11px] leading-[16px] tracking-[0.05em] font-semibold text-primary">Gross volume</div>
                     <div class="flex justify-between items-end text-primary">
                         <span class="text-[24px] font-bold">{gross_v:,.3f}</span>
                         <span class="text-[11px] pb-1 font-bold">{vu}</span>
@@ -2071,7 +2072,7 @@ class MaterialQuantifyTab(QWidget):
 
         <!-- Section 2: Material Totals -->
         <section class="mb-8">
-            <div class="text-[12px] leading-[16px] tracking-[0.1em] text-primary mb-4 uppercase border-l-4 border-primary pl-2 font-bold">Section 2: Material Totals</div>
+            <div class="text-[12px] leading-[16px] tracking-[0.1em] text-primary mb-4 border-l-4 border-primary pl-2 font-bold">Section 2: Material totals</div>
             <div class="grid grid-cols-2 gap-5">
                 <div class="border border-outline-variant">
                     <div class="bg-surface-container-high px-4 py-2 text-[11px] leading-[16px] tracking-[0.05em] font-semibold border-b border-outline-variant">Cementitious Materials</div>
@@ -2106,7 +2107,7 @@ class MaterialQuantifyTab(QWidget):
 
         <!-- Section 3: Detailed Breakdown Table -->
         <section class="mb-8 flex-grow">
-            <div class="text-[12px] leading-[16px] tracking-[0.1em] text-primary mb-4 uppercase border-l-4 border-primary pl-2 font-bold">Section 3: Detailed Breakdown</div>
+            <div class="text-[12px] leading-[16px] tracking-[0.1em] text-primary mb-4 border-l-4 border-primary pl-2 font-bold">Section 3: Detailed breakdown</div>
             <table class="w-full border-collapse">
                 <thead>
                     <tr class="border-y border-outline text-left bg-surface-container-lowest">
@@ -2145,7 +2146,7 @@ class MaterialQuantifyTab(QWidget):
         <!-- Document Footer -->
         <footer class="mt-auto pt-8 border-t border-outline-variant flex justify-between items-end">
             <div class="flex flex-col gap-1">
-                <div class="text-on-surface-variant text-[10px] uppercase font-bold tracking-tighter">Authorized Signature</div>
+                <div class="text-on-surface-variant text-[10px] font-bold tracking-tighter">Authorized signature</div>
                 <div class="h-12 w-48 border-b border-dotted border-outline mb-1"></div>
                 <div class="text-on-surface-variant font-body-md">Chief Site Engineer</div>
             </div>
@@ -2179,7 +2180,7 @@ class MaterialQuantifyTab(QWidget):
         )
         dialog.set_html(html)
         dialog.set_export_callback(self._do_export_report)
-        dialog.exec()
+        open_detached(dialog)
 
     def _do_export_report(self) -> None:
         """Actually export the report after preview."""

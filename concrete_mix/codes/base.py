@@ -95,8 +95,23 @@ class MixDesignCode(ABC):
         result: float,
         unit: str,
         clause_ref: str = "",
+        formula_latex: str = "",
     ) -> CalculationStep:
-        """Helper to create a CalculationStep."""
+        """Helper to create a CalculationStep.
+
+        Args:
+            number: Step position; sub-steps use fractional values.
+            description: Prose name of the quantity being computed.
+            formula: The working as hand-written ASCII. Left as the source of
+                truth; LaTeX is derived from it unless ``formula_latex`` says
+                otherwise.
+            inputs: Values that fed the step.
+            result: Computed value.
+            unit: Unit of ``result``; empty for dimensionless ratios.
+            clause_ref: Citation of the governing clause.
+            formula_latex: Optional LaTeX override for the rare working whose
+                ASCII form does not convert cleanly.
+        """
         return CalculationStep(
             step_number=number,
             description=description,
@@ -105,4 +120,5 @@ class MixDesignCode(ABC):
             result=result,
             unit=unit,
             clause_ref=clause_ref,
+            formula_latex=formula_latex,
         )

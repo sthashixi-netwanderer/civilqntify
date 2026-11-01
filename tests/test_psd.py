@@ -1,6 +1,6 @@
 """Tests for the particle-size-distribution calculation engine.
 
-Verifies sieve-analysis math (ACI 211.1-22 §4.3.5 / IS 383 grading) and the
+Verifies sieve-analysis math (ACI 211.1-22 clause 4.3.5 / IS 383 grading) and the
 grading-band lookup tables.
 """
 
@@ -148,7 +148,7 @@ class TestComputePSD:
 
     def test_fineness_modulus(self, fine_sample):
         # FM = Σ cumulative %retained on {0.150,0.300,0.600,1.18,2.36,4.75} / 100
-        # (ACI 211.1-22 §4.3.5)
+        # (ACI 211.1-22 clause 4.3.5)
         _, _, result = fine_sample
         assert result.fineness_modulus is not None
         # Hand calc (total = 500 g, cumulative retained % per FM sieve):

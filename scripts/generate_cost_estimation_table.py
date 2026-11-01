@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate Sample Cost Estimation Output for a 100 m³ Project — §3.4.3 as .docx"""
+"""Generate Sample Cost Estimation Output for a 100 m³ Project — clause 3.4.3 as .docx"""
 
 from docx import Document
 from docx.shared import Pt, Cm, RGBColor
@@ -158,7 +158,7 @@ def build_document():
     note = doc.add_paragraph()
     note.paragraph_format.space_after = Pt(2)
     run = note.add_run(
-        "Module: Cost Estimation (§3.4.3)  |  "
+        "Module: Cost Estimation (clause 3.4.3)  |  "
         "Deterministic quantity × unit-price method  |  "
         "Currency: Ghana Cedis (GHS)  |  "
         "Concrete: M25 grade, 100 m³ structural volume"

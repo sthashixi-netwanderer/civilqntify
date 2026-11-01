@@ -74,6 +74,7 @@ def generate_report(
         for step in result.steps:
             lines.append(f"  Step {step.step_number}: {step.description}")
             lines.append(f"    Formula: {step.formula}")
+            lines.append(f"    Calculation (LaTeX): {step.latex}")
             lines.append(f"    Inputs:  {step.inputs}")
             lines.append(f"    Result:  {step.result:.2f} {step.unit}")
             if step.clause_ref:

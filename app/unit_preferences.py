@@ -77,16 +77,16 @@ class UnitPreferences(QObject):
         self._settings.setValue(self._KEY_WEATHER_API_KEY, api_key)
 
     def weather_button_visible(self) -> bool:
-        """Whether the Weather button is shown in the main toolbar.
+        """Whether the Weather button is shown in the title bar.
 
-        Defaults to ``False`` — the toolbar stays clean unless the user
+        Defaults to ``False`` — the title bar stays clean unless the user
         opts in via Settings.
         """
         raw = self._settings.value(self._KEY_WEATHER_BUTTON_VISIBLE, False)
         return raw in (True, 1, "1", "true", "True")
 
     def set_weather_button_visible(self, visible: bool) -> None:
-        """Show or hide the Weather toolbar button and notify listeners."""
+        """Show or hide the Weather title-bar button and notify listeners."""
         if self.weather_button_visible() != visible:
             self._settings.setValue(self._KEY_WEATHER_BUTTON_VISIBLE, bool(visible))
             self.weather_button_changed.emit(visible)

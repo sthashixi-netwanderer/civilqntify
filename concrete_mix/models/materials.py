@@ -116,8 +116,11 @@ class Cement:
 
 
 def _validate_aggregate_water(absorption: float, moisture: float) -> None:
-    # ACI §4.7.8: both are water mass / oven-dry aggregate mass, not
-    # signed free moisture. No arbitrary upper percentage is imposed.
+    # ACI clause 4.7.8 / ASTM C566: absorption and total moisture are water mass
+    # / oven-dry aggregate mass. The model stores TOTAL moisture, not the
+    # signed free-moisture input shown by the UI/API; that free value is
+    # converted at the design_mix_simple boundary. No arbitrary upper
+    # percentage is imposed.
     for name, value in (("absorption", absorption), ("moisture content", moisture)):
         if not isfinite(value) or value < 0:
             raise ValueError(f"Aggregate {name} must be finite and non-negative")
@@ -182,7 +185,7 @@ class CoarseAggregate:
                 f"Coarse aggregate specific gravity {self.specific_gravity} outside valid range [2.2, 5.5]"
             )
         _validate_aggregate_water(self.absorption_percent, self.moisture_content_percent)
-        # ACI §4.7.7–4.7.8: dry-rodded bulk density must leave interparticle
+        # ACI clause 4.7.7–4.7.8: dry-rodded bulk density must leave interparticle
         # voids; SG here is SSD, so convert its particle density to dry basis.
         dry_particle_density = self.specific_gravity * 1000.0 / (1.0 + self.absorption_percent / 100.0)
         if not isfinite(self.bulk_density_kg_m3) or not 0 < self.bulk_density_kg_m3 < dry_particle_density:
@@ -190,13 +193,13 @@ class CoarseAggregate:
                 "Coarse aggregate bulk density must be finite, positive and below "
                 f"the dry particle density ({dry_particle_density:g} kg/m³)"
             )
-        # 80/150 mm are IS 10262:2019 mass-concreting sizes (§9); 12.5 mm is
-        # an IS 10262 high-strength size (Tables 6/7/8/10, §6.2.2); each
-        # design code validates its own supported subset (DOE: 10/20/40;
-        # ACI: ≤40).
-        if self.nominal_max_size_mm not in (10, 12.5, 19, 20, 40, 80, 150):
+        # 80/150 mm are IS 10262:2019 mass-concreting sizes (clause 9); 12.5 mm is
+        # an IS 10262 high-strength size (Tables 6/7/8/10, clause 6.2.2); 75 mm is
+        # the ACI 3 in. column (Table 5.3.3/5.3.6); each design code
+        # validates its own supported subset (DOE: 10/20/40).
+        if self.nominal_max_size_mm not in (10, 12.5, 19, 20, 40, 75, 80, 150):
             raise ValueError(
-                f"Nominal max size {self.nominal_max_size_mm}mm not supported. Use 10, 12.5, 19, 20, or 40 "
+                f"Nominal max size {self.nominal_max_size_mm}mm not supported. Use 10, 12.5, 19, 20, 40, or 75 "
                 f"(plus 80 or 150 for IS 10262 mass concrete)"
             )
 
@@ -209,7 +212,7 @@ class SCM:
     replacement_percent: float = 20.0  # % of cement replaced
 
     def __post_init__(self) -> None:
-        # ACI §4.7.7.3: each SCM needs its own physical particle density.
+        # ACI clause 4.7.7.3: each SCM needs its own physical particle density.
         if not isfinite(self.specific_gravity) or self.specific_gravity <= 0:
             raise ValueError("SCM specific gravity must be finite and positive")
         if not 5.0 <= self.replacement_percent <= 70.0:

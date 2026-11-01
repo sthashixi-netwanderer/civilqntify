@@ -1,10 +1,70 @@
+# CivilQntify v1.0.13 Release Notes
+
+## 🚀 What's New in v1.0.13
+
+### 🏭 BS 3892-1:1997 pfa Conformity Checker
+
+- **Clause-cited evaluation** of pulverized-fuel ash against BS 3892-1:1997 — moisture (cl. 5), 45 µm fineness (cl. 6), particle density (cl. 7), water requirement (cl. 8), strength factor (cl. 9), initial setting time (cl. 10), soundness (cl. 11) and chemical limits SO₃ / LOI / chloride / CaO (cl. 12.1–12.4).
+- **Annex G two-tier verdicts**: breaches within the Table G.3 allowances are reported as permitted deviations; beyond them the lot does not conform (G.6). Strength factor and LOI are absolute limits with no allowance. Untested properties are marked *not evaluated* and never fail the report.
+- **New "BS 3892-1 pfa check" dialog** — a lab-results form with live evaluation, colour-coded summary banner and a clause-cited results table. Available in the SCM group whenever a pfa/fly-ash cementitious material is selected, under any design standard.
+
+### 🧮 LaTeX-Typeset Calculation Steps
+
+- Every calculation step renders as typeset maths — in the result panel and history detail view, in the HTML preview and in the PDF report — with Computer Modern fonts via matplotlib mathtext (no TeX installation required).
+- Fractions fold correctly, units (`kg/m³`, `W/C`) are protected, and Unicode σ / × / µ are mapped properly. The JSON export gains an additive `formula_latex` field; the fpdf2 PDF path embeds print-quality formula images.
+- Plain-text fallback everywhere: a formula is never blanked if rasterisation is unavailable.
+
+### 🪟 Frameless Windows & Window Management
+
+- **Custom title bar** with the app wordmark, version badge and the weather/settings controls relocated from the removed main-window toolbar; drag to move, double-click to maximise, edge-resize on all borders.
+- **Detached modeless dialogs**: Settings, Report preview, History detail, ASTM C33 compliance, all three trial-mix workbooks and the BS 3892 check now open as independent top-level windows (own taskbar entry; re-invoking focuses the existing instance instead of stacking duplicates).
+- **Ctrl+Tab / Ctrl+Shift+Tab** cycles between the main window and every open dialog.
+- Frameless `MessageBox` / `InputDialog` replacements keep every prompt visually consistent with the new chrome.
+
+### 🔬 Design Input Extensions
+
+- **ACI — specified w/cm**: enter an explicit maximum w/cm instead of the Table 5.3.4 auto value; the specified value still competes with the clause 4.7.1 durability caps and the governing basis is recorded in the steps.
+- **ACI — flexural strength input**: specify a 28-day modulus of rupture M_R with correlation factor K (0.70–0.80); the equivalent f′c = (M_R/K)² (ACI 318 cl. 19.2.3.1) drives the design, shown live next to the field.
+- **ACI — pavement workability note**: "CA +10 % (less workable)" checkbox applies the Table 5.3.6 volume-of-coarse-aggregate adjustment for less-workable mixes.
+- **DOE — known standard deviation**: supply an s from previous control data (BRE 331 cl. 4.4 / Item 1.2, Example 4); it governs the margin, floored at the Figure 3 line-B value. An explicit record count n < 20 still forces line A.
+- **DOE — NMSA-driven coarse split**: the 10+20 / 10+20+40 combined-aggregate split auto-selects from the nominal maximum size (cl. 5.5), with incompatible options disabled.
+- **IS — max free W/C ratio** display for the selected exposure class (IS 456:2000 Table 5).
+
+### 💧 Free-Moisture Input Convention (behaviour change)
+
+- Aggregate moisture inputs now mean **free moisture above SSD** (0 % = SSD) for all codes, converted internally with code-specific formulas: ACI `MC = A + (1 + A/100)·f` (clause 5.3.9.1, SSD basis) versus IS/DOE `MC = A + f` (oven-dry basis). Batched results differ from previous versions whenever absorption > 0.
+- Fields are relabelled "FA/CA Free Moisture (%)" with the conversion explained in tooltips.
+
+### 📐 Unified Target-Strength Rounding (behaviour change)
+
+- Target mean strength is rounded **up to 0.1 MPa for all three codes** (previously whole MPa under ACI and whole numbers under DOE) — conservative, never under-designs.
+- The DOE max-cement refusal now compares the reported nearest-5-kg cement content (Item 3.1) against the Item 3.2 maximum, matching the design form.
+
+### 🧱 PSD & Layout Refinements
+
+- The PSD mass-retained table lists only sieves that carry a grading requirement in the selected reference band; masses are preserved by aperture identity across band switches, and the full stack returns whenever a BS 882 quality check needs non-grading sieves.
+- **WrapLabel fix**: wrapped labels with QSS boxes no longer clip their last line (`heightForWidth()` now includes padding + border) — adopted across all result panels, warning banners, callouts and dialogs.
+- Sentence-case field labels that preserve SI units (`MPa`, `kg/m³`, `75-µm`).
+
+### 📖 Documentation & Validation
+
+- **ACI PRC-211.1-22 worked-example test report** and its converted 39-slide fixture (`ACI-Mix-Design-Example-1*.md`) added to the repository.
+- User manual updated for the title bar, detached dialogs and the new ACI/DOE inputs; AGENTS.md gains the BS 3892-1:1997 extracted-standard reference.
+
+### 📦 Platform & Testing
+
+- **Version**: `1.0.13` (`app/version.py`)
+- **Test Suite**: 1,254 automated unit and integration tests passing, including new BS 3892, LaTeX-step, window-switcher, frameless-dialog and WrapLabel suites.
+
+---
+
 # CivilQntify v1.0.12 Release Notes
 
 ## 🚀 What's New in v1.0.12
 
 ### 🧱 Characteristic Strength Is Now a Per-Standard Grade List
 
-- **Closed-set strength selector**: the free-typed strength field is replaced by a dropdown offering only the grades the selected standard defines — IS 10262:2019 M10–M80 (Table 1), ACI 318-19 §26.4.2.1(a)(1) psi increment grid (2,500–5,000 psi in 100 psi steps, 5,500–8,000 psi in 500 psi steps), and a 20–60 N/mm² app-policy grid for BRE 331 (which fixes no grades itself). Switching standards repopulates the list; off-list strengths from older saved records are carried as a marked temporary item so history still round-trips.
+- **Closed-set strength selector**: the free-typed strength field is replaced by a dropdown offering only the grades the selected standard defines — IS 10262:2019 M10–M80 (Table 1), ACI 318-19 clause 26.4.2.1(a)(1) psi increment grid (2,500–5,000 psi in 100 psi steps, 5,500–8,000 psi in 500 psi steps), and a 20–60 N/mm² app-policy grid for BRE 331 (which fixes no grades itself). Switching standards repopulates the list; off-list strengths from older saved records are carried as a marked temporary item so history still round-trips.
 - **Exposure-driven grade gating**: IS 456:2000 Table 5 minima (e.g. severe needs M30) and ACI 301-20 Tables 4.7.3a–d floors (e.g. C2 needs 5,000 psi) grey out grades the active exposure class forbids — visible but locked, with the engine's existing rejection message unchanged at Calculate.
 - **Metric-first under the hood**: the selector keeps the same metric-MPa API, so imperial display (e.g. `M30 · 4,351 psi`) is rendering only; the backend value is untouched.
 
@@ -31,14 +91,14 @@
 ### 🧱 BS 812-103.1 & BS 882:1992 Integration
 
 - **BS 812-103.1:1985 particle-size distribution** modules and tests — sieving methods, mass calculations, and whole-percent reporting aligned with British PSD workflows.
-- **BS 882:1992 aggregates** reference and grading modules — coarse grading Tables 3/4, washed-sample mass handling (§7–8), and quality checks.
+- **BS 882:1992 aggregates** reference and grading modules — coarse grading Tables 3/4, washed-sample mass handling (clause 7–8), and quality checks.
 - **DOE/BRE 331 PSD pathway**: measured 600 µm BS value fed into DOE fine-aggregate proportioning at BS reporting precision.
 
 ### 🔬 Standards-Compliant Concrete Mix Design Logic
 
-- **ACI PRC-211.1-22** refinements — target strength, w/cm, aggregate proportions, paste volume, and cementitious efficiency factor (§9.4) aligned with extracted standards.
+- **ACI PRC-211.1-22** refinements — target strength, w/cm, aggregate proportions, paste volume, and cementitious efficiency factor (clause 9.4) aligned with extracted standards.
 - **IS 10262:2019** refinements — target strength (Table 1/2), volume calculations, and moisture adjustments per extracted clauses.
-- **BRE 331:1997 (DOE)** refinements — target strength, wet density, and aggregate proportioning per Figure 6/§9.3 with efficiency factor k=0.30.
+- **BRE 331:1997 (DOE)** refinements — target strength, wet density, and aggregate proportioning per Figure 6/clause 9.3 with efficiency factor k=0.30.
 
 ### 🛠️ UI & Reporting
 
@@ -57,17 +117,17 @@
 
 ## 🚀 What's New in v1.0.10
 
-### 🧪 DOE Trial Mixes Workbook — BRE 331:1997 §6
+### 🧪 DOE Trial Mixes Workbook — BRE 331:1997 clause 6
 
-- **Interactive trial-mix feedback**: Batch schedule scaled to a trial volume (§6.1, 0.05 m³ reference; reproduces the §7.1 example chain), with optional ±w/c variant batches at constant water and BS 1881 Part 125 moisture-condition batching.
-- **§6.3 evaluation loop**: Table 3 workability guidance, measured/assumed density correction of unit proportions, and the Figure 7 A/B/B′/C/D w/c adjustment, ending in a minor-adjustment / second-trial verdict with recomputed C3/C4/C5 production or second-trial proportions.
-- **Workbook dialog**: Schedule table, feedback inputs, §6.2 BS 1881 checklist, CSV/clipboard export, and Save Trial Record — chained to the design record via `parent_id` (`doe_trial` history type with filter, summary and detail view).
+- **Interactive trial-mix feedback**: Batch schedule scaled to a trial volume (clause 6.1, 0.05 m³ reference; reproduces the clause 7.1 example chain), with optional ±w/c variant batches at constant water and BS 1881 Part 125 moisture-condition batching.
+- **clause 6.3 evaluation loop**: Table 3 workability guidance, measured/assumed density correction of unit proportions, and the Figure 7 A/B/B′/C/D w/c adjustment, ending in a minor-adjustment / second-trial verdict with recomputed C3/C4/C5 production or second-trial proportions.
+- **Workbook dialog**: Schedule table, feedback inputs, clause 6.2 BS 1881 checklist, CSV/clipboard export, and Save Trial Record — chained to the design record via `parent_id` (`doe_trial` history type with filter, summary and detail view).
 
 ### 🧪 ACI Trial Batching Workbook — ACI PRC-211.1-22
 
 - **Table 5.3.9.1 batch weight summary**: SSD-to-batch conversion, free water, water to batch with totals preserved; Appendix A.5 trial series at constant water.
-- **§5.3.10 evaluation loop**: Free-water reversal (§9.2.9.1), relative yield + gravimetric air (ASTM C138), Adjustments 1–3 (water re-estimate, air correction, cement efficiency for strength) and §5.3.10.4 next-trial proportions.
-- **Workbook dialog** mirroring the DOE flow, plus a §5.3.9 trial prompt frame on ACI result panels and `aci_trial` history records chained via `parent_id`.
+- **clause 5.3.10 evaluation loop**: Free-water reversal (clause 9.2.9.1), relative yield + gravimetric air (ASTM C138), Adjustments 1–3 (water re-estimate, air correction, cement efficiency for strength) and clause 5.3.10.4 next-trial proportions.
+- **Workbook dialog** mirroring the DOE flow, plus a clause 5.3.9 trial prompt frame on ACI result panels and `aci_trial` history records chained via `parent_id`.
 
 ### 🏷️ UI Polish
 
@@ -88,7 +148,7 @@
 
 - **Responsive input forms**: All sidebar forms (Mix Design, PSD sieve analysis, Material Quantification, Cost Estimation) now use wrapping form rows — fields stack below their labels when the pane narrows instead of clipping behind a horizontal scrollbar. The splitter handle tracks smoothly at any width, including mid-edit while typing (typed digits/suffixes no longer grow the form minimum and freeze the handle).
 - **Shrinkable inputs**: Combo boxes, spin boxes, buttons, tables and labels across every sidebar got zero-minimum + expanding size policies, so nothing wedges the pane wider than the sidebar floor.
-- **Decluttered option rows**: Redundant label + checkbox pairings (Mass concrete, Air entrainment, Prestressing, Manufactured sand) are now bare checkboxes with the detail in tooltips; long checkbox/group titles trimmed with standard-section citations preserved (`§5.7`, `§7.3`, `§11.2`).
+- **Decluttered option rows**: Redundant label + checkbox pairings (Mass concrete, Air entrainment, Prestressing, Manufactured sand) are now bare checkboxes with the detail in tooltips; long checkbox/group titles trimmed with standard-section citations preserved (`clause 5.7`, `clause 7.3`, `clause 11.2`).
 - **Balanced splitter**: Window-resize growth is now shared between sidebar and results (1:2) instead of leaving the sidebar frozen.
 
 ### 📦 Platform & Testing

@@ -12,8 +12,10 @@ All monetary values are in Ghana Cedis (GH₵).
 from __future__ import annotations
 
 from PyQt6.QtCore import Qt
+from app.styles import sentence_case_si_units
 from app.unit_preferences import UnitPreferences, get_unit_prefs
 from app.widgets.unit_spin import rate_to_display
+from app.widgets.wrap_label import WrapLabel
 from PyQt6.QtWidgets import (
     QFrame,
     QGridLayout,
@@ -40,7 +42,7 @@ class _StatCard(QFrame):
         layout.setContentsMargins(12, 10, 12, 10)
         layout.setSpacing(4)
 
-        self._label = QLabel(label)
+        self._label = QLabel(sentence_case_si_units(label))
         self._label.setObjectName("result-label")
         self._value = QLabel("\u2014")
         self._value.setObjectName("result-value")
@@ -77,14 +79,13 @@ class CostResultPanel(QWidget):
         outer.setSpacing(10)
 
         # ── Warnings ──
-        self._warning_banner = QLabel()
+        self._warning_banner = WrapLabel()
         self._warning_banner.setObjectName("warning-banner")
-        self._warning_banner.setWordWrap(True)
         self._warning_banner.setVisible(False)
         outer.addWidget(self._warning_banner)
 
         # ── Summary Cards ──
-        summary_label = QLabel("Cost Summary")
+        summary_label = QLabel("Cost summary")
         summary_label.setObjectName("section-title")
         outer.addWidget(summary_label)
 
@@ -101,14 +102,14 @@ class CostResultPanel(QWidget):
         outer.addLayout(summary_grid)
 
         # ── Material Cost Breakdown Table ──
-        breakdown_label = QLabel("Material Cost Breakdown")
+        breakdown_label = QLabel("Material cost breakdown")
         breakdown_label.setObjectName("section-title")
         outer.addWidget(breakdown_label)
 
         self._mat_table = QTableWidget()
         self._mat_table.setColumnCount(5)
         self._mat_table.setHorizontalHeaderLabels([
-            "Material", "Qty", "Unit", "Unit Price (GH\u20B5)", "Total Cost (GH\u20B5)"
+            "Material", "Qty", "Unit", "Unit price (GH\u20B5)", "Total cost (GH\u20B5)"
         ])
         self._mat_table.setAlternatingRowColors(True)
         # Expanding (not fixed) so the breakdown uses the space below
@@ -125,7 +126,7 @@ class CostResultPanel(QWidget):
         outer.addWidget(self._mat_table, stretch=1)
 
         # ── Project Summary ──
-        summary_proj_label = QLabel("Project Summary")
+        summary_proj_label = QLabel("Project summary")
         summary_proj_label.setObjectName("section-title")
         outer.addWidget(summary_proj_label)
 
@@ -195,12 +196,17 @@ class CostResultPanel(QWidget):
         cost_bag = cost_data.get("cost_per_bag", 0.0)
 
         vu = self.unit_prefs.volume_unit()
-        self._card_mat_cost_m3._label.setText(f"Material Cost / {vu}")
+        self._card_mat_cost_m3._label.setText(
+            sentence_case_si_units(f"Material Cost / {vu}"))
         mat_m3_display = mat_m3 / 1.30795 if self.unit_prefs.is_imperial() else mat_m3
         self._card_mat_cost_m3.set_value(mat_m3_display)
         self._card_total_mat.set_value(total_mat)
         self._card_total_proj._label.setText(
-            "Partial Project Cost (incomplete)" if not cost_data.get("is_complete", True) else "Total Project Cost"
+            sentence_case_si_units(
+                "Partial Project Cost (incomplete)"
+                if not cost_data.get("is_complete", True)
+                else "Total Project Cost"
+            )
         )
         self._card_total_proj.set_value(total_proj, fmt=",.2f")
         self._card_cost_bag.set_value(cost_bag)
@@ -355,7 +361,8 @@ class CostResultPanel(QWidget):
         """Update display when unit preferences change."""
         # Update the cost/m³ card title to reflect current volume unit
         vu = self.unit_prefs.volume_unit()
-        self._card_mat_cost_m3._label.setText(f"Material Cost / {vu}")
+        self._card_mat_cost_m3._label.setText(
+            sentence_case_si_units(f"Material Cost / {vu}"))
         # Re-render if data is present
         if self._cost_data is not None:
             self.display_cost(self._cost_data)

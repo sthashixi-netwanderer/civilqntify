@@ -1,9 +1,10 @@
-"""PSD table-export stripping: only band-required sieves are exported.
+"""PSD table-export: input already shows only band-required sieves.
 
-App export policy (not a standard clause): per AGENTS.md PSD-tab rules a
-dash/blank/unlisted cell means no grading requirement. Such sieves stay
-available for input and mass balance but are stripped from the Export Table
-CSV. Pan/Total always kept and cover the full stack.
+App policy (user request): the mass-retained table lists only sieves with
+a grading requirement in the selected band, so Export Table CSV matches
+the on-screen rows. Pan/Total always kept and cover the shown stack.
+The BS washed 75 µm measurement row is the one exception: it is kept for
+BS 812 reconciliation but stripped from the export with a Note.
 
 Standards: IS 383:2016 Table 7, ASTM C33/C33M Table 2, BS 882:1992 Tables 3/4
 with BS 812-103.1 sections 7, 8 and 10.
@@ -78,12 +79,14 @@ def _export_rows(tab, monkeypatch):
     return list(csv.reader(io.StringIO(content)))
 
 def _sieve_rows(rows):
-    # data rows excluding header/meta/pan/total/note
+    # data rows excluding header/meta/pan/total/note (header match is
+    # case-insensitive: the input-table header is "Sieve size" under the
+    # sentence-case policy)
     out = []
     for r in rows:
         if not r: continue
         if r[0] in ("Standard", "Aggregate Type", "Reference Band", "Note"): continue
-        if r[0].startswith("Sieve Size"): continue
+        if r[0].lower().startswith("sieve size"): continue
         if r[0].startswith("Pan") or r[0].startswith("Total"): continue
         out.append(r[0])
     return out
@@ -92,11 +95,10 @@ def test_astm_coarse_size67_strips_to_five(qt, monkeypatch):
     tab = _make_tab()
     _select(tab, "astm_c33", "coarse", "Size 67")
     sieves = _fill(tab)
-    assert len(sieves) == 14
+    assert sieves == [25.0, 19.0, 9.5, 4.75, 2.36]
     rows = _export_rows(tab, monkeypatch)
     kept = _sieve_rows(rows)
     assert kept == ["25 mm", "19 mm", "9.5 mm", "4.75 mm", "2.36 mm"]
-    assert any(r and r[0] == "Note" for r in rows)
     assert any(r and r[0].startswith("Pan") for r in rows)
     assert any(r and r[0].startswith("Total") for r in rows)
 
@@ -131,7 +133,6 @@ def test_bs_coarse_single40_strips_dashes(qt, monkeypatch):
     rows = _export_rows(tab, monkeypatch)
     kept = _sieve_rows(rows)
     assert kept == ["50 mm", "37.5 mm", "20 mm", "10 mm"]
-    assert any(r and r[0] == "Note" for r in rows)
 
 def test_astm_fine_no_strip(qt, monkeypatch):
     tab = _make_tab()

@@ -1,5 +1,5 @@
 """BS 882:1992 grading tables — verified transcriptions (see
-``BS-882-1992-Aggregates-for-Concrete.md``, Tables 3–6, §5.1–§5.4, §4.2).
+``BS-882-1992-Aggregates-for-Concrete.md``, Tables 3–6, clause 5.1–clause 5.4, clause 4.2).
 
 All coarse values are inclusive percentage-passing ``(lower, upper)`` limits
 keyed by sieve opening in millimetres. Column labels of the standard are
@@ -14,7 +14,7 @@ deliberately absent from these band mappings and from conformance checking
 from __future__ import annotations
 
 # ---------------------------------------------------------------------------
-# Table 3 (§5.1) — Coarse aggregate, percentage by mass passing
+# Table 3 (clause 5.1) — Coarse aggregate, percentage by mass passing
 # ---------------------------------------------------------------------------
 
 BS_COARSE_GRADED_BANDS: dict[int, dict[float, tuple[float, float]]] = {
@@ -115,11 +115,11 @@ def get_bs_coarse_band(
 
 
 # ---------------------------------------------------------------------------
-# Table 4 (§5.2) — Sand, percentage by mass passing
+# Table 4 (clause 5.2) — Sand, percentage by mass passing
 # ---------------------------------------------------------------------------
 # The 2.36/1.18/600 µm/300 µm rows carry BOTH overall limits and the
 # additional C/M/F limits; a compliant sand must satisfy the overall limits
-# AND one additional grading (§5.2.1). The classification helpers in
+# AND one additional grading (clause 5.2.1). The classification helpers in
 # :mod:`concrete_mix.validation.bs882` therefore combine each additional
 # column with the overall limits (intersection) rather than using the
 # additional column alone.
@@ -154,7 +154,7 @@ BS_SAND_OVERALL_FIXED: dict[float, tuple[float, float]] = {
 BS_SAND_150UM_BASE_MAX: float = 15.0
 BS_SAND_150UM_CRUSHED_ROCK_MAX: float = 20.0
 
-# §5.2.2 — heavy duty concrete floor finishes require grading C or M.
+# clause 5.2.2 — heavy duty concrete floor finishes require grading C or M.
 BS_SAND_HEAVY_DUTY_GRADINGS: tuple[str, ...] = ("C", "M")
 
 
@@ -169,7 +169,7 @@ def get_bs_fine_band(
     Args:
         grading: ``"Overall"`` or one of the additional gradings
             ``"C"``, ``"M"``, ``"F"``. The additional gradings are returned
-            combined with the overall limits (§5.2.1: the sand shall comply
+            combined with the overall limits (clause 5.2.1: the sand shall comply
             with the overall limits and additionally with C, M or F).
         crushed_rock: Apply the Table 4 footnote 150 µm relaxation
             (15 % → 20 %) for crushed rock fines.
@@ -194,7 +194,7 @@ def get_bs_fine_band(
                 f"Unknown BS 882 sand grading {grading!r}. "
                 f"Valid: ['Overall', 'C', 'M', 'F']"
             ) from None
-        # §5.2.1: overall limits AND the additional grading — the effective
+        # clause 5.2.1: overall limits AND the additional grading — the effective
         # envelope of a named grading is the intersection with Overall.
         for sieve, additional_limits in zip(
             BS_SAND_ADDITIONAL_SIEVES, additional

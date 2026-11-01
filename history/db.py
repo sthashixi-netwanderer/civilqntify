@@ -201,10 +201,10 @@ class HistoryDB:
         name: str = "",
         parent_id: int | None = None,
     ) -> int:
-        """Save a BRE 331 §6 DOE trial-mix record. Returns the new record ID.
+        """Save a BRE 331 clause 6 DOE trial-mix record. Returns the new record ID.
 
         Both payloads are plain JSON-serialisable dicts (measurements,
-        batch schedule, §6.3 evaluation). *parent_id* links the trial to
+        batch schedule, clause 6.3 evaluation). *parent_id* links the trial to
         the mix-design record it was derived from.
         """
         now = now_iso()
@@ -230,7 +230,7 @@ class HistoryDB:
         """Save an ACI PRC-211.1-22 trial-batching record. Returns the ID.
 
         Both payloads are plain JSON-serialisable dicts (measurements,
-        Table 5.3.9.1 schedule, §5.3.10 adjustments). *parent_id* links
+        Table 5.3.9.1 schedule, clause 5.3.10 adjustments). *parent_id* links
         the trial to the mix-design record it was derived from.
         """
         now = now_iso()

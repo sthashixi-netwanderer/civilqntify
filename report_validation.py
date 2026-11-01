@@ -46,7 +46,7 @@ def relative_error(reference: float, app_result: float) -> float:
 
 
 def build_aci_reference_input() -> MixDesignInput:
-    """ACI PRC-211.1-22 §9.2 Example 1 input in metric units."""
+    """ACI PRC-211.1-22 clause 9.2 Example 1 input in metric units."""
     inp = MixDesignInput(
         code="aci211",
         target_strength_mpa=25.0,
@@ -104,7 +104,7 @@ def build_is_reference_input() -> MixDesignInput:
 
 
 def build_doe_reference_input() -> MixDesignInput:
-    """BRE 331:1997 §7.2 Example 2 input."""
+    """BRE 331:1997 clause 7.2 Example 2 input."""
     return MixDesignInput(
         code="doe",
         target_strength_mpa=25.0,
@@ -207,7 +207,7 @@ def _standard_examples() -> dict[str, Any]:
                 ("coarse_aggregate_kg", "Coarse aggregate (SSD)", "kg/m³"),
                 ("air_volume_percent", "Entrapped air", "%"),
             ],
-            "ACI PRC-211.1-22 §9.2 Example 1 and Table 9.2.7.2",
+            "ACI PRC-211.1-22 clause 9.2 Example 1 and Table 9.2.7.2",
             "2500 psi, 3–4 in slump, 40 mm rounded aggregate, FM 2.80, non-air-entrained",
         ),
         "is": (
@@ -237,7 +237,7 @@ def _standard_examples() -> dict[str, Any]:
                 ("fine_aggregate_kg", "Fine aggregate", "kg/m³"),
                 ("coarse_aggregate_kg", "Coarse aggregate", "kg/m³"),
             ],
-            "BRE 331:1997 §7.2 Example 2 and Table 5",
+            "BRE 331:1997 clause 7.2 Example 2 and Table 5",
             "C25, class 42.5 cement, 30–60 mm slump, 40 mm uncrushed aggregate, 90% passing 600 µm",
         ),
     }
@@ -374,7 +374,7 @@ def _quantification_and_cost(aci_result: Any) -> tuple[dict[str, Any], dict[str,
         for key, label, unit in quant_fields
     ]
     quantification = {
-        "scenario": "10.0 m³ net volume, ACI §9.2 app mix, 3% wastage, aggregates at SSD",
+        "scenario": "10.0 m³ net volume, ACI clause 9.2 app mix, 3% wastage, aggregates at SSD",
         "parameters": quant_parameters,
         "all_passed": all(row["status"] == "Pass" for row in quant_parameters),
     }
@@ -427,7 +427,7 @@ def _quantification_and_cost(aci_result: Any) -> tuple[dict[str, Any], dict[str,
         ),
     ]
     cost = {
-        "scenario": "100.0 m³ net volume, ACI §9.2 app mix, 5% wastage, default Cost Estimation tab inputs",
+        "scenario": "100.0 m³ net volume, ACI clause 9.2 app mix, 5% wastage, default Cost Estimation tab inputs",
         "prices": {
             "cement_per_bag": prices.cement_per_bag,
             "fine_aggregate_per_m3": prices.fine_aggregate_per_m3,
@@ -490,9 +490,9 @@ def generate_validation_dataset() -> dict[str, Any]:
         "schema_version": 1,
         "generated_for": "HO Technical University final-year report",
         "sources": {
-            "aci": "ACI PRC-211.1-22 §9.2 Example 1, Table 9.2.7.2",
+            "aci": "ACI PRC-211.1-22 clause 9.2 Example 1, Table 9.2.7.2",
             "is": "IS 10262:2019 Annex A, Clauses A-1 to A-10",
-            "doe": "BRE 331:1997 §7.2 Example 2, Table 5",
+            "doe": "BRE 331:1997 clause 7.2 Example 2, Table 5",
         },
         "standard_examples": examples,
         "cross_method_comparison": _comparison_results(),

@@ -93,9 +93,10 @@ def test_bs882_coarse_reference_handoff(qt):
     tab.standard_combo.setCurrentIndex(tab.standard_combo.findData("bs882"))
     tab.agg_combo.setCurrentIndex(1)
     assert tab.band_combo.count() == 8
-    assert tab._current_sieves() == [50, 37.5, 20, 14, 10, 5, 2.36]
+    # Default graded 20 mm shows only its required sieves.
+    assert tab._current_sieves() == [37.5, 20, 14, 10, 5]
     tab.bs_quality.m1_spin.setValue(1000)
-    _fill_and_plot(tab, [0, 0, 50, 350, 150, 400, 30], 20)
+    _fill_and_plot(tab, [0, 50, 350, 150, 430], 20)
     for size in (14, 5):
         tab.band_combo.setCurrentIndex(next(i for i in range(tab.band_combo.count()) if tab.band_combo.itemData(i) == ("bs882", "coarse", "single", size)))
         assert not tab._result_panel._btn_apply.isEnabled()
@@ -167,7 +168,8 @@ def test_bs882_missing_material_is_not_assessed(qt):
     tab.bs_quality.m1_spin.setValue(1000)
     tab.bs_quality.m2_spin.setValue(990)
     tab.bs_quality.fi_spin.setValue(20)
-    _fill_and_plot(tab, [0, 0, 50, 350, 150, 400, 30, 0], 10)
+    # Graded 20 mm + washed 75 µm exception (6 rows); sums to M2 = 990.
+    _fill_and_plot(tab, [0, 50, 350, 150, 400, 30], 10)
     quality = [c for c in tab._bs_checks
                if "Table 6" in c.clause or c.clause == "4.2"]
     assert len(quality) == 2
@@ -286,7 +288,6 @@ def test_conforming_gradation_has_no_warning(qt):
 
 def test_coarse_mode_lists_all_astm_table_2_sieves_and_only_supported_bands(qt):
     from app.widgets.psd_widget import ParticleSizeDistributionTab
-    from concrete_mix.engine.psd import ASTM_COARSE_SIEVES
 
     tab = ParticleSizeDistributionTab()
     tab.standard_combo.setCurrentIndex(
@@ -294,12 +295,15 @@ def test_coarse_mode_lists_all_astm_table_2_sieves_and_only_supported_bands(qt):
     )
     tab.agg_combo.setCurrentIndex(tab.agg_combo.findData("coarse"))
 
-    assert tab._current_sieves() == ASTM_COARSE_SIEVES
-    assert tab.table.rowCount() == len(ASTM_COARSE_SIEVES) + 2
+    # App policy: the mass-retained table shows only the selected band's
+    # required sieves (ASTM C33/C33M Table 2 dashes hidden) — default
+    # Size 67 requires 25/19/9.5/4.75/2.36 mm.
+    assert tab._current_sieves() == [25.0, 19.0, 9.5, 4.75, 2.36]
+    assert tab.table.rowCount() == 5 + 2
     assert [
         tab.table.item(row, 0).data(0x0100)
-        for row in range(len(ASTM_COARSE_SIEVES))
-    ] == ASTM_COARSE_SIEVES
+        for row in range(5)
+    ] == [25.0, 19.0, 9.5, 4.75, 2.36]
     assert [tab.band_combo.itemData(i) for i in range(tab.band_combo.count())] == [
         ("astm_c33", "coarse", 10),
         ("astm_c33", "coarse", 20),
@@ -310,20 +314,25 @@ def test_coarse_mode_lists_all_astm_table_2_sieves_and_only_supported_bands(qt):
         "20 mm reference (ASTM Size 67)",
         "40 mm reference (ASTM Size 467)",
     ]
-    assert tab.table.item(ASTM_COARSE_SIEVES.index(19.0), 5).text() == "90–100"
-    assert tab.table.item(ASTM_COARSE_SIEVES.index(12.5), 5).text() == "—"
+    assert tab.table.item(1, 5).text() == "90–100"
+    # 12.5 mm carries no Size-67 requirement, so it is hidden, not dashed.
+    assert all(
+        tab.table.item(row, 0).data(0x0100) != 12.5
+        for row in range(5)
+    )
 
 
 def test_is_coarse_mode_uses_table_7_sieves_and_references(qt):
     from app.widgets.psd_widget import ParticleSizeDistributionTab
-    from concrete_mix.engine.psd import IS_COARSE_SIEVES
 
     tab = ParticleSizeDistributionTab()
     assert tab.standard_combo.currentData() == "is383"
     tab.agg_combo.setCurrentIndex(tab.agg_combo.findData("coarse"))
 
-    assert tab._current_sieves() == IS_COARSE_SIEVES
-    assert tab.table.rowCount() == len(IS_COARSE_SIEVES) + 2
+    # App policy: only the selected Table 7 band's required sieves are
+    # shown — default graded 20 mm requires 40/20/10/4.75 mm.
+    assert tab._current_sieves() == [40.0, 20.0, 10.0, 4.75]
+    assert tab.table.rowCount() == 4 + 2
     assert [tab.band_combo.itemData(i) for i in range(tab.band_combo.count())] == [
         ("is383", "coarse", "graded", 40),
         ("is383", "coarse", "graded", 20),
@@ -345,12 +354,19 @@ def test_is_coarse_mode_uses_table_7_sieves_and_references(qt):
         10.0: (25, 55),
         4.75: (0, 10),
     }
-    assert tab.table.item(IS_COARSE_SIEVES.index(20.0), 5).text() == "90–100"
-    assert tab.table.item(IS_COARSE_SIEVES.index(16.0), 5).text() == "—"
+    assert tab.table.item(1, 5).text() == "90–100"
+    # 16 mm carries no graded-20 requirement, so it is hidden, not dashed.
+    assert [tab.table.item(r, 0).data(0x0100) for r in range(4)] == [
+        40.0, 20.0, 10.0, 4.75,
+    ]
 
     tab.band_combo.setCurrentIndex(9)  # IS 10 mm single-sized
-    assert tab.table.item(IS_COARSE_SIEVES.index(10.0), 5).text() == "85–100"
-    assert tab.table.item(IS_COARSE_SIEVES.index(20.0), 5).text() == "—"
+    # Single 10 mm requires 12.5/10/4.75/2.36 mm.
+    assert tab._current_sieves() == [12.5, 10.0, 4.75, 2.36]
+    assert tab.table.item(1, 5).text() == "85–100"
+    assert all(
+        tab.table.item(r, 0).data(0x0100) != 20.0 for r in range(4)
+    )
 
 
 def test_standard_switch_changes_fine_sieves_and_band(qt):
@@ -426,19 +442,85 @@ def test_coarse_plot_uses_a_smooth_shaded_astm_section(qt):
     )
     tab.agg_combo.setCurrentIndex(tab.agg_combo.findData("coarse"))
     assert tab.band_combo.currentData() == ("astm_c33", "coarse", 20)
-    masses = [0.0] * len(tab._current_sieves())
-    masses[6] = 5.0
-    masses[7] = 5.0
-    masses[9] = 20.0
-    masses[10] = 40.0
-    masses[11] = 25.0
-    masses[12] = 5.0
-    _fill_and_plot(tab, masses, pan=0.0)
+    # Size 67 rows are [25, 19, 9.5, 4.75, 2.36]; masses give
+    # passing 100/95/40/5/2 — inside the Table 2 band.
+    _fill_and_plot(tab, [0.0, 5.0, 55.0, 35.0, 3.0], pan=2.0)
 
     ax = tab._fig.axes[0]
     band_path = ax.collections[0].get_paths()[0]
     assert len(band_path.vertices) > 2 * 5
     assert "ASTM C33/C33M Table 2" in ax.get_title()
+
+
+def test_band_switch_hides_unrequired_sieves_and_preserves_masses(qt):
+    """Selecting a reference band hides sieves with no requirement.
+
+    IS 383 Table 7 graded 20 mm shows 40/20/10/4.75 mm only; switching to
+    single 10 mm shows 12.5/10/4.75/2.36 mm. Overlapping apertures keep
+    their entered masses; the plot then contains only the shown sieves
+    with no projected/no-requirement artists.
+    """
+    from app.widgets.psd_widget import ParticleSizeDistributionTab
+
+    tab = ParticleSizeDistributionTab()
+    tab.agg_combo.setCurrentIndex(tab.agg_combo.findData("coarse"))
+    assert tab._current_sieves() == [40.0, 20.0, 10.0, 4.75]
+    tab.table.item(1, 1).setText("111")
+    tab.table.item(2, 1).setText("222")
+
+    tab.band_combo.setCurrentIndex(9)  # single 10 mm
+    assert tab._current_sieves() == [12.5, 10.0, 4.75, 2.36]
+    # 10 mm mass preserved by aperture; 20 mm row hidden.
+    assert tab.table.item(1, 1).text() == "222"
+    assert all(
+        tab.table.item(r, 0).data(0x0100) != 20.0 for r in range(4)
+    )
+    # Every shown row carries a band limit — no dashes remain.
+    assert all(tab.table.item(r, 5).text() != "—" for r in range(4))
+
+
+def test_coarse_plot_shows_only_required_sieves_with_d_on_line(qt):
+    """The gradation line runs only through band-required sieves and the
+    D10/D30/D60 guides meet that line — unrequired points are gone."""
+    import math
+
+    from app.widgets.psd_widget import ParticleSizeDistributionTab
+
+    tab = ParticleSizeDistributionTab()
+    tab.standard_combo.setCurrentIndex(
+        tab.standard_combo.findData("astm_c33")
+    )
+    tab.agg_combo.setCurrentIndex(tab.agg_combo.findData("coarse"))
+    _fill_and_plot(tab, [0.0, 5.0, 55.0, 35.0, 3.0], pan=2.0)
+
+    ax = tab._fig.axes[0]
+    labels = [line.get_label() for line in ax.lines]
+    assert "Projected (no requirement)" not in labels
+    assert "No requirement (—)" not in labels
+    gradation = next(
+        line for line in ax.lines if line.get_label() == "Your gradation"
+    )
+    x = list(gradation.get_xdata())
+    assert sorted(x) == pytest.approx([2.36, 4.75, 9.5, 19.0, 25.0])
+    assert 12.5 not in x
+    result = tab._last_result
+    assert result.sieve_sizes == [25.0, 19.0, 9.5, 4.75, 2.36]
+    pts = sorted(zip(result.sieve_sizes, result.percent_passing))
+    for d_val, target in (
+        (result.d10, 10.0), (result.d30, 30.0), (result.d60, 60.0),
+    ):
+        assert d_val is not None
+        for i in range(1, len(pts)):
+            (s0, p0), (s1, p1) = pts[i - 1], pts[i]
+            if min(p0, p1) <= target <= max(p0, p1) and p0 != p1:
+                frac = (target - p0) / (p1 - p0)
+                expected = math.exp(
+                    math.log(s0) + frac * (math.log(s1) - math.log(s0))
+                )
+                assert d_val == pytest.approx(expected)
+                break
+        else:
+            pytest.fail(f"D target {target}% not bracketed")
 
 
 def test_user_gradation_curve_is_straight_with_d_markers_on_curve(qt):
@@ -532,18 +614,30 @@ def test_size_formatting_uses_micro_symbol_for_sub_mm():
     assert _fmt_d_size(0.1534) == "153 µm"
 
 
-def test_uppercase_preserving_si_units():
-    """The label-casing helper keeps SI micro symbols lowercase while
-    uppercasing the rest (Qt's text-transform would render µ as "M")."""
-    from app.styles import uppercase_preserving_si_units
+def test_sentence_case_si_units():
+    """The label-casing helper renders labels in sentence case while
+    initialisms, unit symbols and the SI micro sign keep their typed
+    casing (Qt's text-transform and str.upper() map µ to "M")."""
+    from app.styles import sentence_case_si_units
 
-    assert uppercase_preserving_si_units(
+    # Already sentence-case text is stable, initialisms and units intact.
+    assert sentence_case_si_units(
         "Material finer than 75-µm (No. 200) sieve"
-    ) == "MATERIAL FINER THAN 75-µm (NO. 200) SIEVE"
-    assert uppercase_preserving_si_units("FA Passing 600 µm (%)") == (
-        "FA PASSING 600 µm (%)"
+    ) == "Material finer than 75-µm (No. 200) sieve"
+    # Mid-sentence Title-case words lowercase; "FA" stays an initialism.
+    assert sentence_case_si_units("FA Passing 600 µm (%)") == (
+        "FA passing 600 µm (%)"
     )
-    assert uppercase_preserving_si_units("Standard") == "STANDARD"
+    # First word keeps its capital.
+    assert sentence_case_si_units("Standard") == "Standard"
+    # Uppercase input is preserved as initialisms (idempotent).
+    assert sentence_case_si_units(
+        "MATERIAL FINER THAN 75-µm (NO. 200) SIEVE"
+    ) == "MATERIAL FINER THAN 75-µm (NO. 200) SIEVE"
+    mixed = "Target mean strength (MPa) for W/C"
+    assert sentence_case_si_units(sentence_case_si_units(mixed)) == (
+        sentence_case_si_units(mixed)
+    )
 
 
 def test_uppercase_labels_keep_micro_symbol(qt):
@@ -581,7 +675,7 @@ def test_mix_design_label_keeps_micro_symbol(qt, monkeypatch):
 def test_use_in_mix_design_emits_standard_specific_payload(qt, monkeypatch):
     """"Use in Mix Design" must hand the mix-design form exactly the
     sieve-analysis-derived parameters each standard consumes:
-    ACI FM (§4.3.5), IS 383 zone → Table 5, DOE %p600 (§1.2.5)."""
+    ACI FM (clause 4.3.5), IS 383 zone → Table 5, DOE %p600 (clause 1.2.5)."""
     from app.widgets.psd_widget import ParticleSizeDistributionTab
 
     # ASTM C33 runs its compliance gate on compute; stub the modal dialog.

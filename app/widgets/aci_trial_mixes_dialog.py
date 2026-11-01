@@ -2,14 +2,14 @@
 
 Mirrors :class:`app.widgets.doe_trial_mixes_dialog.DOETrialMixesDialog`:
 
-1. Batch weight summary (§5.3.9, Table 5.3.9.1): design-SSD vs. batched
+1. Batch weight summary (clause 5.3.9, Table 5.3.9.1): design-SSD vs. batched
    weights with the (1+MC%)/(1+A%) moisture adjustment, free water, and
    water to batch; optional Appendix A.5 trial-series mixtures (cement
    contents above/below design at constant water).
-2. Post-trial adjustments (§5.3.10): the free-water reversal, relative
+2. Post-trial adjustments (clause 5.3.10): the free-water reversal, relative
    yield and gravimetric air (ASTM C138), Adjustments 1–3, and the
-   §5.3.10.4 next-trial proportions.
-3. ASTM test checklist (Chapter 8 / §5.3.10) and the Table 8 adjustment
+   clause 5.3.10.4 next-trial proportions.
+3. ASTM test checklist (Chapter 8 / clause 5.3.10) and the Table 8 adjustment
    guidance.
 
 Trial records persist to history as ``aci_trial`` records chained to the
@@ -27,7 +27,6 @@ from PyQt6.QtWidgets import (
     QApplication,
     QCheckBox,
     QComboBox,
-    QDialog,
     QDoubleSpinBox,
     QFileDialog,
     QFrame,
@@ -35,7 +34,6 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
     QLabel,
-    QMessageBox,
     QPushButton,
     QScrollArea,
     QSpinBox,
@@ -45,6 +43,9 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from app.widgets.frameless_dialog import FramelessDialog
+from app.widgets.message_dialog import MessageBox as QMessageBox
+from app.widgets.wrap_label import WrapLabel
 from concrete_mix.codes.aci_trial import (
     RELATIVE_YIELD_TOLERANCE,
     calculate_aci_trial_batches,
@@ -53,7 +54,7 @@ from concrete_mix.codes.aci_trial import (
 from concrete_mix.models.mix_result import MixDesignResult
 
 
-class ACITrialMixesDialog(QDialog):
+class ACITrialMixesDialog(FramelessDialog):
     """Dialog implementing the ACI PRC-211.1-22 trial-batching workflow."""
 
     def __init__(
@@ -63,8 +64,9 @@ class ACITrialMixesDialog(QDialog):
         design_calc_id: int | None = None,
         parent: QWidget | None = None,
     ) -> None:
-        super().__init__(parent)
-        self.setWindowTitle("ACI PRC-211.1-22 — Trial Batching Workbook")
+        super().__init__(
+            parent, title="ACI PRC-211.1-22 — Trial Batching Workbook"
+        )
         self.resize(940, 760)
         self.setMinimumSize(760, 560)
 
@@ -82,7 +84,7 @@ class ACITrialMixesDialog(QDialog):
     # ------------------------------------------------------------------
 
     def _build_ui(self) -> None:
-        main_layout = QVBoxLayout(self)
+        main_layout = self.content_layout
         main_layout.setContentsMargins(16, 16, 16, 16)
         main_layout.setSpacing(12)
 
@@ -95,7 +97,11 @@ class ACITrialMixesDialog(QDialog):
         layout.setSpacing(14)
 
         layout.addWidget(self._build_header())
-        layout.addWidget(self._build_schedule_group())
+        # Stretch the schedule group: its batch table (Expanding) absorbs
+        # spare height so the workbook fills the window instead of leaving
+        # a dead gap under the checklist; the outer scroll area takes over
+        # when the window is smaller than the content's minimum.
+        layout.addWidget(self._build_schedule_group(), 1)
         layout.addWidget(self._build_feedback_group())
         layout.addWidget(self._build_checklist_group())
 
@@ -110,14 +116,14 @@ class ACITrialMixesDialog(QDialog):
         h_layout.setContentsMargins(12, 10, 12, 10)
         h_layout.setSpacing(4)
 
-        title = QLabel("ACI PRC-211.1-22 — Trial Batching (Ch. 8, §5.3.9–5.3.10)")
+        title = QLabel("ACI PRC-211.1-22 — Trial Batching (Ch. 8, clause 5.3.9–5.3.10)")
         title.setObjectName("dialog-title")
         h_layout.addWidget(title)
 
         desc = QLabel(
             "Trial batching demonstrates that the proportions produce the required properties "
-            "(§4.1). Batch per ASTM C192 with the §5.3.9.1 moisture adjustments below, test per "
-            "ASTM C143/C138/C173/C231, then enter the measured results to obtain the §5.3.10 "
+            "(clause 4.1). Batch per ASTM C192 with the clause 5.3.9.1 moisture adjustments below, test per "
+            "ASTM C143/C138/C173/C231, then enter the measured results to obtain the clause 5.3.10 "
             "post-trial adjustments and the recalculated proportions for the next trial."
         )
         desc.setObjectName("dialog-desc")
@@ -126,7 +132,7 @@ class ACITrialMixesDialog(QDialog):
         return header
 
     def _build_schedule_group(self) -> QGroupBox:
-        group = QGroupBox("Batch Weight Summary (§5.3.9, Table 5.3.9.1)")
+        group = QGroupBox("Batch Weight Summary (clause 5.3.9, Table 5.3.9.1)")
         layout = QVBoxLayout(group)
         layout.setContentsMargins(10, 12, 10, 10)
         layout.setSpacing(8)
@@ -140,7 +146,7 @@ class ACITrialMixesDialog(QDialog):
         self._volume_spin.setDecimals(4)
         self._volume_spin.setValue(0.05)
         self._volume_spin.setToolTip(
-            "§9.2.9's reference trial is 1 ft³ (0.0283 m³); any volume works — "
+            "clause 9.2.9's reference trial is 1 ft³ (0.0283 m³); any volume works — "
             "quantities scale linearly"
         )
         controls.addWidget(self._volume_spin)
@@ -192,7 +198,7 @@ class ACITrialMixesDialog(QDialog):
         return group
 
     def _build_feedback_group(self) -> QGroupBox:
-        group = QGroupBox("Trial Results & §5.3.10 Post-Trial Adjustments")
+        group = QGroupBox("Trial Results & clause 5.3.10 Post-Trial Adjustments")
         layout = QVBoxLayout(group)
         layout.setContentsMargins(10, 12, 10, 10)
         layout.setSpacing(8)
@@ -246,16 +252,15 @@ class ACITrialMixesDialog(QDialog):
         row2.addWidget(self._calc_btn)
         layout.addLayout(row2)
 
-        self._eval_result = QLabel()
+        self._eval_result = WrapLabel()
         self._eval_result.setObjectName("callout-panel")
-        self._eval_result.setWordWrap(True)
         self._eval_result.setTextFormat(Qt.TextFormat.RichText)
         self._eval_result.setVisible(False)
         layout.addWidget(self._eval_result)
         return group
 
     def _build_checklist_group(self) -> QGroupBox:
-        group = QGroupBox("Trial Batch Tests — ASTM Checklist (Ch. 8 / §5.3.10)")
+        group = QGroupBox("Trial Batch Tests — ASTM Checklist (Ch. 8 / clause 5.3.10)")
         layout = QVBoxLayout(group)
         layout.setContentsMargins(10, 12, 10, 10)
         layout.setSpacing(6)
@@ -369,14 +374,14 @@ class ACITrialMixesDialog(QDialog):
         parts = [
             f"Free water at stockpile moisture: fine {m['free_water_fine_kg_m3']:.1f} + "
             f"coarse {m['free_water_coarse_kg_m3']:.1f} kg/m³ — deducted from the "
-            f"mixing water (§5.3.9.1). Total batch weight equals total mixture weight."
+            f"mixing water (clause 5.3.9.1). Total batch weight equals total mixture weight."
         ]
         for w in sched["warnings"]:
             parts.append(f"⚠ {w}")
         self._schedule_note.setText("  ".join(parts))
 
     # ------------------------------------------------------------------
-    # §5.3.10 evaluation
+    # clause 5.3.10 evaluation
     # ------------------------------------------------------------------
 
     def _collect_measurements(self) -> dict[str, Any]:
@@ -411,7 +416,7 @@ class ACITrialMixesDialog(QDialog):
         html: list[str] = []
 
         fw = ev["free_water"]
-        html.append("<b>Free-water reversal (§9.2.9.1):</b>")
+        html.append("<b>Free-water reversal (clause 9.2.9.1):</b>")
         html.append(
             f"<ul><li>Water added {fw['water_added_kg']:.2f} kg + free water on "
             f"aggregates {fw['free_water_fine_kg']:.2f} (fine) + "
@@ -423,7 +428,7 @@ class ACITrialMixesDialog(QDialog):
         if y["measured_density_kg_m3"]:
             ry = y["relative_yield"]
             colour = "#166534" if y["in_tolerance"] else "#92400e"
-            html.append("<b>Yield & air (ASTM C138, §5.3.10):</b>")
+            html.append("<b>Yield & air (ASTM C138, clause 5.3.10):</b>")
             html.append(
                 f"<ul><li>Theoretical {y['theoretical_density_kg_m3']:.1f} vs measured "
                 f"{y['measured_density_kg_m3']:.1f} kg/m³ → relative yield "
@@ -434,7 +439,7 @@ class ACITrialMixesDialog(QDialog):
             )
 
         a1 = ev["adjustment_1"]
-        html.append("<b>Adjustment 1 — mixing water (§5.3.10.1):</b>")
+        html.append("<b>Adjustment 1 — mixing water (clause 5.3.10.1):</b>")
         html.append(
             f"<ul><li>Net water {a1['net_water_kg_m3']:.1f}"
             + (f" ÷ yield → {a1['yield_corrected_kg_m3']:.1f}" if a1["yield_corrected_kg_m3"] is not None else "")
@@ -447,7 +452,7 @@ class ACITrialMixesDialog(QDialog):
 
         a2 = ev["adjustment_2"]
         if a2["provided"]:
-            html.append("<b>Adjustment 2 — air content (§5.3.10.2):</b>")
+            html.append("<b>Adjustment 2 — air content (clause 5.3.10.2):</b>")
             html.append(
                 f"<ul><li>Measured {a2['measured_air_pct']:.1f}% vs target "
                 f"{a2['target_air_pct']:.1f}% → water {a2['water_correction_kg_m3']:+.1f} "
@@ -456,7 +461,7 @@ class ACITrialMixesDialog(QDialog):
 
         a3 = ev["adjustment_3"]
         if a3["provided"]:
-            html.append("<b>Adjustment 3 — strength (§5.3.10.3):</b>")
+            html.append("<b>Adjustment 3 — strength (clause 5.3.10.3):</b>")
             html.append(
                 f"<ul><li>Measured {a3['measured_strength_mpa']:.1f} vs f'cr "
                 f"{a3['fcr_mpa']:.1f} MPa → cement efficiency "
@@ -468,7 +473,7 @@ class ACITrialMixesDialog(QDialog):
 
         nt = ev["next_trial"]
         pm = nt["per_m3"]
-        html.append("<b>Next-trial proportions (§5.3.10.4, per m³ SSD):</b>")
+        html.append("<b>Next-trial proportions (clause 5.3.10.4, per m³ SSD):</b>")
         parts = [
             f"water {pm['water']:.0f}",
             f"cementitious {pm['cement'] + pm['scm']:.0f}"
@@ -577,7 +582,7 @@ class ACITrialMixesDialog(QDialog):
                 ev = self._evaluation
                 if ev:
                     writer.writerow([])
-                    writer.writerow(["§5.3.10 Post-Trial Adjustments"])
+                    writer.writerow(["clause 5.3.10 Post-Trial Adjustments"])
                     fw = ev["free_water"]
                     writer.writerow(["Net mixing water (kg/m3)", fw["net_water_kg_m3"]])
                     y = ev["yield"]

@@ -235,11 +235,11 @@ class TestACINoDataOverdesign:
         """20 MPa < 3000 psi (20.68 MPa) → +1000 psi (6.895 MPa)."""
         assert abs(get_no_data_overdesign(20.0) - 26.89) < 0.01
 
-    def test_design_ceils_to_whole_mpa(self):
-        """App policy: f'cr ceils to whole MPa (17.24 → 24.13 → 25)."""
+    def test_design_rounds_up_to_one_decimal(self):
+        """App policy: f'cr rounds up to 0.1 MPa (17.24 → 24.13 → 24.2)."""
         designer = ACI211MixDesign()
         assert abs(designer.calculate_target_mean_strength(
-            17.24, has_production_data=False) - 25) < 0.01
+            17.24, has_production_data=False) - 24.2) < 0.01
 
 
 # ---------------------------------------------------------------------------
@@ -279,9 +279,9 @@ class TestACIKFactor:
         ≤5000-psi row's −500 psi term it would have produced.
         """
         designer = ACI211MixDesign()
-        # max(60 + 1.34×8, 0.90×60 + 2.33×8) = max(70.72, 72.64) = 72.64 → 73
-        # (up to whole MPa, app policy)
-        assert designer.calculate_target_mean_strength(60.0, 8.0) == 73
+        # max(60 + 1.34×8, 0.90×60 + 2.33×8) = max(70.72, 72.64) = 72.64 → 72.7
+        # (up to 0.1, app policy)
+        assert designer.calculate_target_mean_strength(60.0, 8.0) == 72.7
 
 
 # ---------------------------------------------------------------------------
@@ -295,24 +295,24 @@ class TestACITargetStrength:
         designer = ACI211MixDesign()
         # f'c=25, s=4.0: 25 + 2.33*4 - 3.45 = 30.87
         # Also check: f'c + 1.34*4 = 30.36
-        # max(30.87, 30.36, 27.4) = 30.87 → 31 (up to whole MPa, app policy)
+        # max(30.87, 30.36, 27.4) = 30.87 → 30.9 (up to 0.1, app policy)
         result = designer.calculate_target_mean_strength(25.0, 4.0)
-        assert abs(result - 31) < 0.01
+        assert abs(result - 30.9) < 0.01
 
     def test_with_production_data_low_variability(self):
         """When s is low, f'c + 1.34s may govern."""
         designer = ACI211MixDesign()
         # f'c=25, s=2.0: f'c + 1.34*2 = 27.68, f'c + 2.33*2 - 3.45 = 26.21
-        # max(27.68, 26.21, 27.4) = 27.68 → 28 (up to whole MPa, app policy)
+        # max(27.68, 26.21, 27.4) = 27.68 → 27.7 (up to 0.1, app policy)
         result = designer.calculate_target_mean_strength(25.0, 2.0)
-        assert abs(result - 28) < 0.01
+        assert abs(result - 27.7) < 0.01
 
     def test_no_production_data(self):
         """Should use ACI 318 Table 26.4.3.1(b)."""
         designer = ACI211MixDesign()
-        # 25 MPa: table value = 33.27 → 34 (up to whole MPa, app policy)
+        # 25 MPa: table value = 33.27 → 33.3 (up to 0.1, app policy)
         result = designer.calculate_target_mean_strength(25.0, has_production_data=False)
-        assert abs(result - 34) < 0.1
+        assert abs(result - 33.3) < 0.1
 
     def test_minimum_fcr(self):
         """f'cr must be at least f'c + 2.4 MPa."""
@@ -570,7 +570,7 @@ class TestACIFreezingExposure:
             designer.design(self._inp("F3", strength=30.0))
 
     def test_f1_wc_cap_governs(self):
-        """F1 caps a manual 0.60 w/c at 0.55 (lowest-governs, §4.7.1)."""
+        """F1 caps a manual 0.60 w/c at 0.55 (lowest-governs, clause 4.7.1)."""
         designer = ACI211MixDesign()
         result = designer.design(self._inp("F1", strength=25.0, w_c_ratio=0.60))
         assert result.w_c_ratio == 0.55
@@ -633,7 +633,7 @@ class TestACIFreezingExposure:
 
 
 # ---------------------------------------------------------------------------
-# ACI Table 5.3.3.1 — water-content adjustments (PRC-211.1-22 §5.3.3.1)
+# ACI Table 5.3.3.1 — water-content adjustments (PRC-211.1-22 clause 5.3.3.1)
 # ---------------------------------------------------------------------------
 class TestACIWaterAdjustments531:
     """Temperature, manufactured sand, SCM rates, WRA minima, helper math."""
@@ -707,7 +707,7 @@ class TestACIWaterAdjustments531:
         assert any("Silica fume" in w for w in sf.warnings)
 
     def test_wra_below_minimum_warns(self):
-        """Conventional WRA at 3% (< 5% floor, §4.7.6) warns."""
+        """Conventional WRA at 3% (< 5% floor, clause 4.7.6) warns."""
         from concrete_mix.models.materials import Admixture
 
         designer = ACI211MixDesign()
@@ -719,7 +719,7 @@ class TestACIWaterAdjustments531:
         assert any("at least 5%" in w for w in result.warnings)
 
     def test_hrwra_below_minimum_warns(self):
-        """HRWRA at 8% (< 12% floor, §4.7.6) warns."""
+        """HRWRA at 8% (< 12% floor, clause 4.7.6) warns."""
         from concrete_mix.models.materials import Admixture
 
         designer = ACI211MixDesign()
@@ -745,7 +745,7 @@ class TestACIWaterAdjustments531:
             MixDesignInput(code="aci211", target_strength_mpa=30.0,
                            slump_mm=75.0, concrete_temp_c=80.0)
 # ---------------------------------------------------------------------------
-# ACI §4.7.9 / §5.3.10 — yield basis, trial adjustments, prestressed scope
+# ACI clause 4.7.9 / clause 5.3.10 — yield basis, trial adjustments, prestressed scope
 # ---------------------------------------------------------------------------
 class TestACITrialAdjustments:
     """Theoretical density step, Ry check, water/air/strength re-estimates."""
@@ -756,7 +756,7 @@ class TestACITrialAdjustments:
         return MixDesignInput(**base)
 
     def test_theoretical_density_step_always_present(self):
-        """Every ACI design reports its theoretical fresh density (§4.7.9)."""
+        """Every ACI design reports its theoretical fresh density (clause 4.7.9)."""
         designer = ACI211MixDesign()
         result = designer.design(self._inp())
         step10 = [s for s in result.steps if s.step_number == 10]
@@ -830,7 +830,7 @@ class TestACITrialAdjustments:
 # ACI 318 26.4.2.1(a)(5) — NMSA structural-dimension limits
 # ---------------------------------------------------------------------------
 class TestACINMSALimits:
-    """NMSA vs form width / slab depth / bar spacing (PRC-211.1-22 §4.3.2)."""
+    """NMSA vs form width / slab depth / bar spacing (PRC-211.1-22 clause 4.3.2)."""
 
     def _inp(self, nmsa=20, **kw):
         from concrete_mix.models.materials import CoarseAggregate
@@ -935,7 +935,7 @@ class TestACIWaterCorrosionExposure:
             designer.design(self._inp(strength=25.0, w="W2"))
 
     def test_w2_wc_cap_governs(self):
-        """W2 caps a manual 0.60 w/c at 0.50 (lowest-governs, §4.7.1)."""
+        """W2 caps a manual 0.60 w/c at 0.50 (lowest-governs, clause 4.7.1)."""
         designer = ACI211MixDesign()
         result = designer.design(self._inp(strength=30.0, w="W2", w_c_ratio=0.60))
         assert result.w_c_ratio == 0.50
@@ -996,11 +996,11 @@ class TestACIWaterCorrosionExposure:
 
 
 # ---------------------------------------------------------------------------
-# ACI §5.3.3.1 + §6.3 — additive water ledger (Example 2 semantics)
+# ACI clause 5.3.3.1 + clause 6.3 — additive water ledger (Example 2 semantics)
 # ---------------------------------------------------------------------------
 class TestACIWaterLedger:
     """Table 5.3.3.1 rows and the WRA reduction are percentages of the SAME
-    Table 5.3.3 base, subtracted additively — Example 2 (§9.3.3):
+    Table 5.3.3 base, subtracted additively — Example 2 (clause 9.3.3):
     280 − 14 (WRA) − 17 (fly ash) − 22 (rounded) = 227 lb/yd³."""
 
     def _design(self, **kw):
@@ -1030,7 +1030,7 @@ class TestACIWaterLedger:
                 water_reduction_percent=5.0, specific_gravity=1.15))
         s31 = next(s for s in result.steps if s.step_number == 3.1)
         assert s31.inputs["admixture_reduction_pct"] == 5.0
-        assert "§6.3" in s31.clause_ref
+        assert "clause 6.3" in s31.clause_ref
 
     def test_rounded_aggregate_surfaces_guidance(self):
         """Rounded −8% is a Table 5.3.3.1 clause surfaced, not auto-applied
@@ -1044,7 +1044,7 @@ class TestACIWaterLedger:
 
 
 # ---------------------------------------------------------------------------
-# ACI §9.5 Example 4 — target paste volume
+# ACI clause 9.5 Example 4 — target paste volume
 # ---------------------------------------------------------------------------
 class TestACIPasteVolume:
     def test_example4_formula_reproduces_288lb_cement(self):

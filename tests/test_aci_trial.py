@@ -1,6 +1,6 @@
-"""Tests for ACI PRC-211.1-22 trial-mix batches and §5.3.10 adjustments.
+"""Tests for ACI PRC-211.1-22 trial-mix batches and clause 5.3.10 adjustments.
 
-Ground truth: §9.2.9 (Example 1, Chapter 9) — the fully worked
+Ground truth: clause 9.2.9 (Example 1, Chapter 9) — the fully worked
 post-trial batch computation for a 1 ft³ trial batch, converted to the
 app's kg/m³ convention (1 lb = 0.45359237 kg, 1 ft³ = 0.028316846592 m³,
 1 yd³ = 27 ft³).
@@ -29,7 +29,7 @@ LB_FT3_TO_KG_M3 = 0.45359237 / FT3_TO_M3  # 16.0185
 
 
 def _example1_input() -> MixDesignInput:
-    """§9.2 Example 1 materials (Step 9.2.9 moisture state)."""
+    """clause 9.2 Example 1 materials (Step 9.2.9 moisture state)."""
     return MixDesignInput(
         code="aci211",
         target_strength_mpa=24.13,  # f'cr 3500 psi
@@ -51,7 +51,7 @@ def _example1_input() -> MixDesignInput:
 
 
 def _example1_result() -> MixDesignResult:
-    """§9.2.8 design per yd³ → kg/m³: water 300, cement 300/0.62,
+    """clause 9.2.8 design per yd³ → kg/m³: water 300, cement 300/0.62,
     CA SSD 1927, FA SSD 1308.2, entrapped air 1%."""
     water = 300.0 * LB_YD3_TO_KG_M3
     cement = (300.0 / 0.62) * LB_YD3_TO_KG_M3
@@ -73,11 +73,11 @@ def _example1_result() -> MixDesignResult:
 
 
 # ----------------------------------------------------------------------
-# §5.3.9 batch weight summary
+# clause 5.3.9 batch weight summary
 # ----------------------------------------------------------------------
 
 def test_batch_summary_free_water_matches_example():
-    """§9.2.8: free water ≈ 98 lb/yd³ (28.8 CA + 69.0 FA); water to
+    """clause 9.2.8: free water ≈ 98 lb/yd³ (28.8 CA + 69.0 FA); water to
     batch = 300 − 98 = 202 lb/yd³ = 7.48 lb/ft³."""
     res = _example1_result()
     sched = calculate_aci_trial_batches(res, volume_m3=FT3_TO_M3)
@@ -92,7 +92,7 @@ def test_batch_summary_free_water_matches_example():
 
 
 def test_batched_aggregate_weights_match_example():
-    """§9.2.9.1: CA 72.44 lb/ft³ moist (SSD 71.37), FA 51.00 lb/ft³
+    """clause 9.2.9.1: CA 72.44 lb/ft³ moist (SSD 71.37), FA 51.00 lb/ft³
     moist (SSD 48.45)."""
     res = _example1_result()
     vol = FT3_TO_M3  # 1 ft³
@@ -103,7 +103,7 @@ def test_batched_aggregate_weights_match_example():
 
 
 def test_total_batch_weight_preserved():
-    """§5.3.9.1: total batch weight equals total mixture weight."""
+    """clause 5.3.9.1: total batch weight equals total mixture weight."""
     res = _example1_result()
     sched = calculate_aci_trial_batches(res, volume_m3=0.05)
     pm = sched["batches"][0]["per_m3"]
@@ -120,11 +120,11 @@ def test_batch_scales_linearly_to_volume():
 
 
 # ----------------------------------------------------------------------
-# §5.3.10 evaluation — §9.2.9 worked example
+# clause 5.3.10 evaluation — clause 9.2.9 worked example
 # ----------------------------------------------------------------------
 
 def _example929_measurements() -> dict:
-    """The §9.2.9 1 ft³ trial: 8.50 lb/ft³ water added (7.48 + 1.02),
+    """The clause 9.2.9 1 ft³ trial: 8.50 lb/ft³ water added (7.48 + 1.02),
     2 in. slump, measured density 147.5 lb/ft³."""
     return {
         "volume_m3": FT3_TO_M3,
@@ -137,7 +137,7 @@ def _example929_measurements() -> dict:
 
 
 def test_free_water_reversal_matches_9291():
-    """§9.2.9.1: free water 1.07 (CA) + 2.55 (FA); net mixing water
+    """clause 9.2.9.1: free water 1.07 (CA) + 2.55 (FA); net mixing water
     12.12 lb/ft³ = 327 lb/yd³."""
     res = _example1_result()
     ev = evaluate_aci_trial(res, measurements=_example929_measurements())
@@ -150,7 +150,7 @@ def test_free_water_reversal_matches_9291():
 
 
 def test_relative_yield_and_gravimetric_air():
-    """§9.2.9.2: Ry = 148.9/147.5 ≈ 1.009 (ASTM C138 convention);
+    """clause 9.2.9.2: Ry = 148.9/147.5 ≈ 1.009 (ASTM C138 convention);
     gravimetric air = (150.4 − 147.5)/150.4 = 1.9%."""
     res = _example1_result()
     ev = evaluate_aci_trial(res, measurements=_example929_measurements())
@@ -161,7 +161,7 @@ def test_relative_yield_and_gravimetric_air():
 
 
 def test_adjustment1_water_reestimate():
-    """§5.3.10.1: net water ÷ yield, then +10 lb/yd³ per inch of slump
+    """clause 5.3.10.1: net water ÷ yield, then +10 lb/yd³ per inch of slump
     (2 → 3.5 in. = +1.5 in. ≈ +15 lb/yd³). The example's printed 342
     lb/yd³ skips the 0.9% yield division (see module docstring)."""
     res = _example1_result()
@@ -186,7 +186,7 @@ def test_adjustment2_air_water_correction():
 
 
 def test_adjustment3_cement_efficiency():
-    """§5.3.10.3: efficiency = strength ÷ cementitious; Δcement closes
+    """clause 5.3.10.3: efficiency = strength ÷ cementitious; Δcement closes
     the gap to f'cr (500 psi / 6.2 psi·yd³/lb ≈ 80.7 lb/yd³)."""
     res = _example1_result()
     meas = _example929_measurements()
@@ -204,7 +204,7 @@ def test_adjustment3_cement_efficiency():
 
 
 def test_next_trial_proportions_match_929():
-    """§9.2.9.3–9.2.9.6: w/cm held at 0.62, CA unchanged, air at the
+    """clause 9.2.9.3–9.2.9.6: w/cm held at 0.62, CA unchanged, air at the
     measured content, fine aggregate fills the absolute volume. The
     example prints 342/552/1100 lb/yd³; the workbook's yield-corrected
     water gives ≈1% less water/cement and ≈1% more fine aggregate."""

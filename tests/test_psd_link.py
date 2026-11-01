@@ -2,9 +2,9 @@
 
 Every supported standard requires sieve-analysis data before proportioning,
 and each consumes a different derived parameter:
-  - ACI PRC-211.1-22 §4.3.5 — fineness modulus → Table 5.3.6.
+  - ACI PRC-211.1-22 clause 4.3.5 — fineness modulus → Table 5.3.6.
   - IS 10262:2019 Clause 5.4 — IS 383 Table 9 grading zone → Table 5.
-  - BRE 331:1997 §1.2.5 — percentage passing 600 µm → Figure 6.
+  - BRE 331:1997 clause 1.2.5 — percentage passing 600 µm → Figure 6.
 """
 
 from __future__ import annotations
@@ -45,8 +45,8 @@ class TestFineAggregateDerivation:
         0.600 → 110 g, 0.300 → 100 g, 0.150 → 55 g, pan → 20 g
 
     Cumulative %retained: 0, 5, 23, 43, 65, 85, 96
-      FM = (5+23+43+65+85+96)/100 = 3.17 (ACI 211.1-22 §4.3.5)
-      %passing at 600 µm = 100 − 65 = 35.0 % (BRE 331 §1.2.5)
+      FM = (5+23+43+65+85+96)/100 = 3.17 (ACI 211.1-22 clause 4.3.5)
+      %passing at 600 µm = 100 − 65 = 35.0 % (BRE 331 clause 1.2.5)
     """
 
     @pytest.fixture

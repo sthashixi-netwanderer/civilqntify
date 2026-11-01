@@ -10,8 +10,6 @@ import json
 
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
-    QDialog,
-    QFrame,
     QGridLayout,
     QGroupBox,
     QHBoxLayout,
@@ -25,35 +23,42 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from app.widgets.frameless_dialog import FramelessDialog
+from app.widgets.latex_delegate import MathDelegate
+from concrete_mix.utils import latex_math
+
 
 _TAB_LABELS = {
     "mix_design": "Concrete Mix Design",
     "quantification": "Material Quantification",
     "cost_estimation": "Cost Estimation",
     "psd": "PSD Analysis (Sieve Analysis)",
-    "doe_trial": "DOE Trial Mix (BRE 331:1997 §6)",
-    "aci_trial": "ACI Trial Mix (PRC-211.1-22 §5.3.9–5.3.10)",
+    "doe_trial": "DOE Trial Mix (BRE 331:1997 clause 6)",
+    "aci_trial": "ACI Trial Mix (PRC-211.1-22 clause 5.3.9–5.3.10)",
 }
 
 
-class HistoryDetailDialog(QDialog):
+class HistoryDetailDialog(FramelessDialog):
     """Modal dialog showing full details of a history record."""
 
     # Emitted with the record id when the user clicks "Load into Tab".
     load_requested = pyqtSignal(int)
 
     def __init__(self, record: dict, parent=None) -> None:
-        super().__init__(parent)
-        self._rec = record
-        self.setWindowTitle(
-            f"History #{record['id']} — {_TAB_LABELS.get(record['tab_type'], record['tab_type'])}"
+        super().__init__(
+            parent,
+            title=(
+                f"History #{record['id']} — "
+                f"{_TAB_LABELS.get(record['tab_type'], record['tab_type'])}"
+            ),
         )
+        self._rec = record
         self.setMinimumSize(700, 600)
         self.resize(800, 700)
         self._build_ui()
 
     def _build_ui(self) -> None:
-        root = QVBoxLayout(self)
+        root = self.content_layout
         root.setContentsMargins(16, 16, 16, 16)
         root.setSpacing(12)
 
@@ -95,7 +100,7 @@ class HistoryDetailDialog(QDialog):
             result_data = {}
 
         # -- Input parameters --
-        input_group = QGroupBox("Input Parameters")
+        input_group = QGroupBox("Input parameters")
         input_grid = QGridLayout(input_group)
         input_grid.setSpacing(6)
         row = 0
@@ -267,20 +272,32 @@ class HistoryDetailDialog(QDialog):
         # -- Calculation steps (mix design only) --
         steps = result_data.get("steps", [])
         if steps:
-            steps_group = QGroupBox(f"Calculation Steps ({len(steps)})")
+            steps_group = QGroupBox(f"Calculation steps ({len(steps)})")
             steps_layout = QVBoxLayout(steps_group)
             table = QTableWidget(len(steps), 6)
             table.setHorizontalHeaderLabels(
-                ["#", "Description", "Formula", "Result", "Unit", "Reference"]
+                ["#", "Description", "Calculation (LaTeX)", "Result", "Unit", "Reference"]
             )
             table.horizontalHeader().setSectionResizeMode(
                 1, QHeaderView.ResizeMode.Stretch
             )
             table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+            # Typeset the Calculation column (MathDelegate) so the stored
+            # LaTeX fragment is painted as maths, matching the result panel.
+            # Kept on ``self`` because the table does not own the delegate.
+            self._steps_delegate = MathDelegate(table, column=2)
+            table.setItemDelegateForColumn(2, self._steps_delegate)
             for i, step in enumerate(steps):
+                calc_latex = (
+                    step.get("formula_latex")
+                    or latex_math.to_latex(step.get("formula", ""))
+                    or step.get("formula", "")
+                )
                 table.setItem(i, 0, QTableWidgetItem(str(step.get("step_number", ""))))
                 table.setItem(i, 1, QTableWidgetItem(step.get("description", "")))
-                table.setItem(i, 2, QTableWidgetItem(step.get("formula", "")))
+                calc_item = QTableWidgetItem(calc_latex)
+                calc_item.setToolTip(calc_latex)
+                table.setItem(i, 2, calc_item)
                 table.setItem(i, 3, QTableWidgetItem(str(step.get("result", ""))))
                 table.setItem(i, 4, QTableWidgetItem(step.get("unit", "")))
                 table.setItem(i, 5, QTableWidgetItem(step.get("clause_ref", "")))
@@ -302,7 +319,10 @@ class HistoryDetailDialog(QDialog):
             except Exception:
                 header_h = 30
             table.setMinimumHeight(max(200, min(header_h + len(steps) * row_h + 6, 480)))
-            content_layout.addWidget(steps_group)
+            # Stretch 1: the steps table (Expanding) absorbs spare height so
+            # the body fills tall windows; the outer scroll area takes over
+            # when the window is smaller than the content.
+            content_layout.addWidget(steps_group, 1)
 
         # -- Warnings --
         warnings = result_data.get("warnings", [])

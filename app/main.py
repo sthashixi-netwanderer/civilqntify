@@ -2,50 +2,31 @@
 
 from __future__ import annotations
 
-import pathlib
-import sys
-
-from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QFont, QFontDatabase, QIcon
-
-
-def _resource_path(name: str) -> pathlib.Path:
-    """Resolve ``app/resources/<name>`` both in dev and in a PyInstaller bundle.
-
-    Uses ``sys._MEIPASS`` when frozen; otherwise resolves relative to this
-    file.  Covers both onefile (temp extraction) and onedir (sibling) layouts.
-    """
-    meipass = getattr(sys, "_MEIPASS", None)
-    if meipass:
-        p = pathlib.Path(meipass) / "app" / "resources" / name
-        if p.exists():
-            return p
-        # Fallback: resources at top-level of bundle
-        p2 = pathlib.Path(meipass) / "resources" / name
-        if p2.exists():
-            return p2
-    # Dev fallback
-    return pathlib.Path(__file__).resolve().parent / "resources" / name
+from PyQt6.QtCore import QEvent, Qt
+from PyQt6.QtGui import QAction, QIcon
 from PyQt6.QtWidgets import (
-    QLabel,
     QPushButton,
     QMainWindow,
-    QSizePolicy,
     QStatusBar,
     QTabWidget,
-    QToolBar,
     QWidget,
     QVBoxLayout,
 )
 
+from app.paths import resource_path as _resource_path
 from app.styles import STYLESHEET
 from app.unit_preferences import get_unit_prefs
 from app.widgets.concrete_tab import ConcreteMixTab
+from app.widgets.frameless import FramelessResizeHelper
+from app.widgets.frameless_dialog import FramelessDialog, open_detached
 from app.widgets.material_quantify_tab import MaterialQuantifyTab
 from app.widgets.cost_estimation_tab import CostEstimationTab
 from app.widgets.history_tab import HistoryTab
+from app.widgets.message_dialog import MessageBox as QMessageBox
+from app.widgets.title_bar import TitleBar
 from app.widgets.weather_widget import WeatherWidget
 from app.widgets.settings_dialog import SettingsDialog
+from app.widgets.window_switcher import add_window_switch_shortcuts
 from history.db import HistoryDB
 
 
@@ -54,7 +35,17 @@ class MainWindow(QMainWindow):
 
     def __init__(self) -> None:
         super().__init__()
+        # The OS decoration is replaced by the theme-matched TitleBar below;
+        # keep the system menu + min/max hints so task switching, Alt+F4 and
+        # platform window menus continue to work.
+        self.setWindowFlags(
+            Qt.WindowType.Window
+            | Qt.WindowType.FramelessWindowHint
+            | Qt.WindowType.WindowSystemMenuHint
+            | Qt.WindowType.WindowMinMaxButtonsHint
+        )
         self.setWindowTitle("CivilQntify")
+        self.setObjectName("main-window")
         self.setWindowIcon(QIcon(str(_resource_path("icon.png"))))
         self.setMinimumSize(1024, 640)
         self.resize(1360, 820)
@@ -63,14 +54,17 @@ class MainWindow(QMainWindow):
         # Unit preferences (singleton)
         self.unit_prefs = get_unit_prefs()
 
-        # Toolbar
-        self._build_toolbar()
+        # Custom frameless title bar (identity, weather/settings, controls)
+        self._build_titlebar()
 
         # Central widget
         central = QWidget()
+        central.setObjectName("main-content")
         self.setCentralWidget(central)
         layout = QVBoxLayout(central)
         layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        layout.addWidget(self.titlebar)
 
         # Tab widget
         self.tabs = QTabWidget()
@@ -133,33 +127,43 @@ class MainWindow(QMainWindow):
         self.setStatusBar(self.status_bar)
         self.status_bar.showMessage("Ready")
 
-    def _build_toolbar(self) -> None:
-        """Create the top toolbar with weather and settings buttons."""
-        self.toolbar = QToolBar("Main Toolbar")
-        self.toolbar.setMovable(False)
-        self.toolbar.setIconSize(self.toolbar.iconSize())
-        self.addToolBar(self.toolbar)
+        # Edge-resize support for the frameless shell (native system resize
+        # where available, manual fallback elsewhere).
+        self._frameless_helper = FramelessResizeHelper(self)
 
-        # Stretch spacer — pushes remaining widgets to the right
-        spacer = QWidget()
-        spacer.setSizePolicy(
-            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred
+        # Ctrl+Tab / Ctrl+Shift+Tab cycle between this window and the open
+        # detached dialogs (mirrored on every dialog's title bar).
+        add_window_switch_shortcuts(self)
+
+    def changeEvent(self, event: QEvent) -> None:  # noqa: N802 - Qt naming
+        """Keep the custom maximise/restore glyph in sync with the window."""
+        if event.type() == QEvent.Type.WindowStateChange:
+            titlebar = getattr(self, "titlebar", None)
+            if titlebar is not None:
+                titlebar.sync_window_state()
+        super().changeEvent(event)
+
+    def _build_titlebar(self) -> None:
+        """Create the custom title bar with weather and settings actions."""
+        self.titlebar = TitleBar(
+            self,
+            icon_path=str(_resource_path("icon.png")),
         )
-        self.toolbar.addWidget(spacer)
 
         # Weather button — styled centrally via #weather-btn in STYLESHEET
         self._btn_weather = QPushButton("Weather")
         self._btn_weather.setObjectName("weather-btn")
         self._btn_weather.setToolTip("View Weather Data")
-        self._btn_weather.setFixedSize(80, 32)
+        self._btn_weather.setFixedSize(80, 30)
         self._btn_weather.clicked.connect(self._open_weather)
-        # Visibility is driven through the toolbar *action*, not the raw
-        # widget: toggling a fixed-size widget inside a QToolBar does not
-        # reliably re-layout the toolbar on all platforms, while action
-        # visibility does. The widget flag must be kept in sync as well.
         weather_visible = self.unit_prefs.weather_button_visible()
         self._btn_weather.setVisible(weather_visible)
-        self._action_weather = self.toolbar.addWidget(self._btn_weather)
+        self.titlebar.add_action_widget(self._btn_weather)
+
+        # The title bar owns the widget; this action mirrors its visibility so
+        # preference listeners (and the settings dialog) have one state object
+        # to toggle rather than reaching into the title bar internals.
+        self._action_weather = QAction("Weather", self)
         self._action_weather.setVisible(weather_visible)
 
         # Settings button
@@ -168,26 +172,24 @@ class MainWindow(QMainWindow):
         self._btn_settings.setObjectName("settings-btn")
         self._btn_settings.setIcon(QIcon(str(_icon_path)))
         self._btn_settings.setToolTip("Unit Settings")
-        self._btn_settings.setFixedSize(32, 32)
+        self._btn_settings.setFixedSize(32, 30)
         self._btn_settings.clicked.connect(self._open_settings)
-        self.toolbar.addWidget(self._btn_settings)
+        self.titlebar.add_action_widget(self._btn_settings)
 
     def _open_settings(self) -> None:
         """Open the unit settings dialog."""
         dialog = SettingsDialog(self.unit_prefs, parent=self)
-        dialog.exec()
+        open_detached(dialog)
 
     def _open_weather(self) -> None:
-        """Open the weather data modal dialog."""
-        from PyQt6.QtWidgets import QDialog, QScrollArea
+        """Open the weather data dialog as a detached window."""
+        from PyQt6.QtWidgets import QScrollArea
 
-        dialog = QDialog(self)
-        dialog.setWindowTitle("Weather Data")
-        dialog.setModal(True)
+        dialog = FramelessDialog(self, title="Weather Data")
         dialog.setMinimumSize(560, 700)
         dialog.resize(560, 780)
 
-        layout = QVBoxLayout(dialog)
+        layout = dialog.content_layout
         layout.setContentsMargins(16, 16, 16, 16)
         layout.setSpacing(12)
 
@@ -202,7 +204,7 @@ class MainWindow(QMainWindow):
         scroll.setWidget(weather_widget)
         layout.addWidget(scroll)
 
-        dialog.exec()
+        open_detached(dialog)
 
     def _on_unit_changed(self) -> None:
         """Handle unit preference changes — notify all tabs."""
@@ -211,12 +213,10 @@ class MainWindow(QMainWindow):
                 tab.on_unit_changed()
 
     def _on_weather_visibility_changed(self, visible: bool) -> None:
-        """Show or hide the Weather toolbar button when the setting changes."""
-        # Toggle the action first — QToolBar re-layouts immediately when an
-        # action's visibility changes; then keep the widget flag in sync.
+        """Show or hide the Weather title-bar button when the setting changes."""
         self._action_weather.setVisible(visible)
         self._btn_weather.setVisible(visible)
-        self.toolbar.update()
+        self.titlebar.updateGeometry()
 
     def _on_send_to_quant(self, result) -> None:
         """Handle mix design → quantification handoff."""
@@ -249,7 +249,6 @@ class MainWindow(QMainWindow):
                 6000,
             )
         except Exception as e:
-            from PyQt6.QtWidgets import QMessageBox
             QMessageBox.critical(self, "Transfer Error", str(e))
 
     def _on_send_to_cost(self, bill) -> None:
@@ -266,7 +265,6 @@ class MainWindow(QMainWindow):
                 6000,
             )
         except Exception as e:
-            from PyQt6.QtWidgets import QMessageBox
             QMessageBox.critical(self, "Transfer Error", str(e))
 
     def _on_history_load_mix(self, calc_id: int) -> None:
@@ -276,7 +274,6 @@ class MainWindow(QMainWindow):
             self.tabs.setCurrentWidget(self.concrete_tab)
             self.status_bar.showMessage(f"Loaded mix design #{calc_id} from history", 5000)
         except Exception as e:
-            from PyQt6.QtWidgets import QMessageBox
             QMessageBox.critical(self, "Load Error", str(e))
 
     def _on_history_load_quant(self, calc_id: int) -> None:
@@ -286,7 +283,6 @@ class MainWindow(QMainWindow):
             self.tabs.setCurrentWidget(self.quant_tab)
             self.status_bar.showMessage(f"Loaded quantification #{calc_id} from history", 5000)
         except Exception as e:
-            from PyQt6.QtWidgets import QMessageBox
             QMessageBox.critical(self, "Load Error", str(e))
 
     def _on_history_load_cost(self, calc_id: int) -> None:
@@ -296,7 +292,6 @@ class MainWindow(QMainWindow):
             self.tabs.setCurrentWidget(self.cost_tab)
             self.status_bar.showMessage(f"Loaded cost estimation #{calc_id} from history", 5000)
         except Exception as e:
-            from PyQt6.QtWidgets import QMessageBox
             QMessageBox.critical(self, "Load Error", str(e))
 
     def _on_history_load_psd(self, calc_id: int) -> None:
@@ -306,7 +301,6 @@ class MainWindow(QMainWindow):
             self.tabs.setCurrentWidget(self.concrete_tab)
             self.status_bar.showMessage(f"Loaded PSD analysis #{calc_id} from history", 5000)
         except Exception as e:
-            from PyQt6.QtWidgets import QMessageBox
             QMessageBox.critical(self, "Load Error", str(e))
 
     def _on_tab_changed(self, index: int) -> None:

@@ -19,6 +19,8 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from app.widgets.wrap_label import WrapLabel
+
 
 def set_label_with_info_text(container: QWidget, text: str) -> None:
     """Update the text of the QLabel inside a label+InfoButton container.
@@ -51,9 +53,8 @@ class _InfoOverlay(QWidget):
 
         html = text.replace("\n", "<br>").replace("  ", "&nbsp;&nbsp;")
 
-        label = QLabel()
+        label = WrapLabel()
         label.setObjectName("info-overlay-label")
-        label.setWordWrap(True)
         label.setTextFormat(Qt.TextFormat.RichText)
         label.setText(html)
 

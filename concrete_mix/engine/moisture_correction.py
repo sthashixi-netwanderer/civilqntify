@@ -1,6 +1,95 @@
-"""Aggregate moisture correction for concrete mix design batch weights."""
+"""Aggregate moisture correction for concrete mix design batch weights.
+
+The model stores **total moisture content** (ASTM C566 / BS 812): the mass
+of all evaporable water expressed as a percentage of the oven-dry
+aggregate mass.  The user-facing mix-design inputs, however, are stated as
+**free moisture above SSD**, because that is how the standards' worked
+examples express the field adjustment:
+
+* ACI PRC-211.1-22 clause 4.7.8.3 / clause 5.3.9.1 defines the free water on the SSD
+  mass: ``f = (M_field − M_SSD) / M_SSD × 100``.
+* IS 10262:2019 Annex B-11 and BS 812 define free (surface) moisture as
+  ``f = MC − A`` in percentage points of the oven-dry mass.
+
+The helpers below are the single boundary between those two conventions;
+``MixDesignInput`` and the correction formulas always consume total MC.
+"""
 
 from __future__ import annotations
+
+
+def free_to_total_moisture(
+    free_moisture_percent: float,
+    absorption_percent: float,
+    code: str,
+) -> float:
+    """Convert user-facing free moisture above SSD to total moisture (MC).
+
+    ACI PRC-211.1-22 clause 4.7.8.3 / clause 5.3.9.1 expresses free moisture on the
+    **SSD mass**, so::
+
+        MC = A + (1 + A/100) × f
+
+    IS 10262:2019 Annex B-11 and BS 812/BS 1881 express free (surface)
+    moisture in percentage points of the **oven-dry mass**, so::
+
+        MC = A + f
+
+    Args:
+        free_moisture_percent: Free moisture above SSD (%). 0 = SSD;
+            negative values are drier than SSD, with the oven-dry limit
+            at ``−100·A/(100+A)`` (ACI) or ``−A`` (IS/DOE).
+        absorption_percent: Aggregate absorption A (% of oven-dry mass).
+        code: ``"aci211"``, ``"is10262"`` or ``"doe"``.
+
+    Returns:
+        Total moisture content MC (% of oven-dry mass).
+
+    Raises:
+        ValueError: If the free moisture implies a negative total moisture
+            (drier than oven-dry aggregate).
+    """
+    if code == "aci211":
+        total = absorption_percent + (
+            1.0 + absorption_percent / 100.0
+        ) * free_moisture_percent
+    elif code in ("is10262", "doe"):
+        total = absorption_percent + free_moisture_percent
+    else:
+        raise ValueError(f"Unknown mix-design code '{code}'")
+
+    if total < -1e-9:
+        limit = (
+            -100.0 * absorption_percent / (100.0 + absorption_percent)
+            if code == "aci211"
+            else -absorption_percent
+        )
+        raise ValueError(
+            f"Free moisture {free_moisture_percent:g}% is below the oven-dry "
+            f"limit ({limit:.3f}%) for absorption {absorption_percent:g}%"
+        )
+    return max(0.0, total)
+
+
+def total_to_free_moisture(
+    total_moisture_percent: float,
+    absorption_percent: float,
+    code: str,
+) -> float:
+    """Convert stored total moisture (MC) back to free moisture above SSD.
+
+    Inverse of :func:`free_to_total_moisture`; used when restoring a saved
+    design into the free-moisture input fields.
+    """
+    if code == "aci211":
+        return (
+            (1.0 + total_moisture_percent / 100.0)
+            / (1.0 + absorption_percent / 100.0)
+            - 1.0
+        ) * 100.0
+    if code in ("is10262", "doe"):
+        return total_moisture_percent - absorption_percent
+    raise ValueError(f"Unknown mix-design code '{code}'")
 
 
 def correct_for_moisture(
@@ -10,7 +99,7 @@ def correct_for_moisture(
 ) -> float:
     """Calculate field batch weight from an SSD design weight.
 
-    Uses the ACI PRC-211.1-22 §5.3.9.1 formula:
+    Uses the ACI PRC-211.1-22 clause 5.3.9.1 formula:
 
         w_batched = w_SSD × (1 + MC%) / (1 + A%)
 
@@ -43,7 +132,7 @@ def adjust_water_for_aggregate_moisture(
     """Adjust mix water to account for aggregate moisture.
 
     Free water on each aggregate = batched weight − SSD weight
-    (ACI PRC-211.1-22 §5.3.9.1):
+    (ACI PRC-211.1-22 clause 5.3.9.1):
 
         free water = w_SSD × [(1 + MC%) / (1 + A%) − 1]
 

@@ -1,16 +1,16 @@
-"""DOE (BRE 331:1997 §6) Trial Mixes — batch schedule and feedback workbook.
+"""DOE (BRE 331:1997 clause 6) Trial Mixes — batch schedule and feedback workbook.
 
 Mirrors :class:`app.widgets.is_trial_mixes_dialog.ISTrialMixesDialog`:
 
-1. Batch schedule (§6.1): design quantities scaled to the trial volume,
+1. Batch schedule (clause 6.1): design quantities scaled to the trial volume,
    optional w/c variant batches at the same water content, and BS 1881
    Part 125 moisture-condition batching (SSD / oven-dry / air-dried /
    surface-wet) with absorption-water corrections.
-2. Trial feedback (§6.3): measured workability, fresh density and cube
+2. Trial feedback (clause 6.3): measured workability, fresh density and cube
    strength produce the Table 3 water guidance, the density-corrected
    unit proportions, the Figure 7 A/B/B′/C/D w/c adjustment, and a
    minor-adjustment / second-trial verdict with recomputed proportions.
-3. §6.2 test checklist (BS 1881 parts) for the laboratory.
+3. clause 6.2 test checklist (BS 1881 parts) for the laboratory.
 
 Trial records persist to history as ``doe_trial`` records chained to the
 parent design record when its id is known.
@@ -27,7 +27,6 @@ from PyQt6.QtWidgets import (
     QApplication,
     QCheckBox,
     QComboBox,
-    QDialog,
     QDoubleSpinBox,
     QFileDialog,
     QFrame,
@@ -35,7 +34,6 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
     QLabel,
-    QMessageBox,
     QPushButton,
     QScrollArea,
     QSpinBox,
@@ -45,6 +43,9 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from app.widgets.frameless_dialog import FramelessDialog
+from app.widgets.message_dialog import MessageBox as QMessageBox
+from app.widgets.wrap_label import WrapLabel
 from concrete_mix.codes.doe_trial import (
     MINOR_ADJUSTMENT_WC_LIMIT,
     available_moisture_conditions,
@@ -54,8 +55,8 @@ from concrete_mix.codes.doe_trial import (
 from concrete_mix.models.mix_result import MixDesignResult
 
 
-class DOETrialMixesDialog(QDialog):
-    """Dialog implementing the BRE 331:1997 §6 trial-mix workflow."""
+class DOETrialMixesDialog(FramelessDialog):
+    """Dialog implementing the BRE 331:1997 clause 6 trial-mix workflow."""
 
     def __init__(
         self,
@@ -64,8 +65,9 @@ class DOETrialMixesDialog(QDialog):
         design_calc_id: int | None = None,
         parent: QWidget | None = None,
     ) -> None:
-        super().__init__(parent)
-        self.setWindowTitle("DOE (BRE 331:1997) §6 — Trial Mixes Workbook")
+        super().__init__(
+            parent, title="DOE (BRE 331:1997) clause 6 — Trial Mixes Workbook"
+        )
         self.resize(940, 760)
         self.setMinimumSize(760, 560)
 
@@ -83,7 +85,7 @@ class DOETrialMixesDialog(QDialog):
     # ------------------------------------------------------------------
 
     def _build_ui(self) -> None:
-        main_layout = QVBoxLayout(self)
+        main_layout = self.content_layout
         main_layout.setContentsMargins(16, 16, 16, 16)
         main_layout.setSpacing(12)
 
@@ -96,7 +98,11 @@ class DOETrialMixesDialog(QDialog):
         layout.setSpacing(14)
 
         layout.addWidget(self._build_header())
-        layout.addWidget(self._build_schedule_group())
+        # Stretch the schedule group: its batch table (Expanding) absorbs
+        # spare height so the workbook fills the window instead of leaving
+        # a dead gap under the checklist; the outer scroll area takes over
+        # when the window is smaller than the content's minimum.
+        layout.addWidget(self._build_schedule_group(), 1)
         layout.addWidget(self._build_feedback_group())
         layout.addWidget(self._build_checklist_group())
 
@@ -111,16 +117,16 @@ class DOETrialMixesDialog(QDialog):
         h_layout.setContentsMargins(12, 10, 12, 10)
         h_layout.setSpacing(4)
 
-        title = QLabel("BRE 331:1997 §6 — Trial Mixes")
+        title = QLabel("BRE 331:1997 clause 6 — Trial Mixes")
         title.setObjectName("dialog-title")
         h_layout.addWidget(title)
 
         desc = QLabel(
             "The design method gives proportions for concrete with approximately the required "
             "strength and workability — the trial mix checks that the selected materials behave "
-            "as anticipated (§6). Batch the quantities below (typically 0.05 m³ for six 150 mm "
-            "cubes plus slump/Vebe and density tests), test per §6.2, then enter the measured "
-            "results to obtain the §6.3 adjustments: workability (Table 3), density correction "
+            "as anticipated (clause 6). Batch the quantities below (typically 0.05 m³ for six 150 mm "
+            "cubes plus slump/Vebe and density tests), test per clause 6.2, then enter the measured "
+            "results to obtain the clause 6.3 adjustments: workability (Table 3), density correction "
             "of the unit proportions, and the Figure 7 water/cement adjustment."
         )
         desc.setObjectName("dialog-desc")
@@ -129,7 +135,7 @@ class DOETrialMixesDialog(QDialog):
         return header
 
     def _build_schedule_group(self) -> QGroupBox:
-        group = QGroupBox("Trial Batch Schedule (§6.1)")
+        group = QGroupBox("Trial Batch Schedule (clause 6.1)")
         layout = QVBoxLayout(group)
         layout.setContentsMargins(10, 12, 10, 10)
         layout.setSpacing(8)
@@ -145,14 +151,14 @@ class DOETrialMixesDialog(QDialog):
         self._volume_spin.setDecimals(3)
         self._volume_spin.setValue(0.05)
         self._volume_spin.setToolTip(
-            "§6.1: 0.05 m³ is sufficient for six 150 mm cubes plus slump, "
+            "clause 6.1: 0.05 m³ is sufficient for six 150 mm cubes plus slump, "
             "Vebe and density measurements"
         )
         controls.addWidget(self._volume_spin)
 
         self._variants_chk = QCheckBox("Add ±w/c variant batches")
         self._variants_chk.setToolTip(
-            "§6 intro: prepare two or more initial trial mixes with the "
+            "clause 6 intro: prepare two or more initial trial mixes with the "
             "same water content but different water/cement ratios to "
             "avoid delays if strength tests require a second mix"
         )
@@ -213,7 +219,7 @@ class DOETrialMixesDialog(QDialog):
         return group
 
     def _build_feedback_group(self) -> QGroupBox:
-        group = QGroupBox("Trial Results & §6.3 Adjustments")
+        group = QGroupBox("Trial Results & clause 6.3 Adjustments")
         layout = QVBoxLayout(group)
         layout.setContentsMargins(10, 12, 10, 10)
         layout.setSpacing(8)
@@ -269,16 +275,15 @@ class DOETrialMixesDialog(QDialog):
         form_row2.addWidget(self._calc_btn)
         layout.addLayout(form_row2)
 
-        self._eval_result = QLabel()
+        self._eval_result = WrapLabel()
         self._eval_result.setObjectName("callout-panel")
-        self._eval_result.setWordWrap(True)
         self._eval_result.setTextFormat(Qt.TextFormat.RichText)
         self._eval_result.setVisible(False)
         layout.addWidget(self._eval_result)
         return group
 
     def _build_checklist_group(self) -> QGroupBox:
-        group = QGroupBox("Tests on Trial Mixes — §6.2 Checklist")
+        group = QGroupBox("Tests on Trial Mixes — clause 6.2 Checklist")
         layout = QVBoxLayout(group)
         layout.setContentsMargins(10, 12, 10, 10)
         layout.setSpacing(6)
@@ -430,24 +435,24 @@ class DOETrialMixesDialog(QDialog):
         if condition in ("oven_dry", "air_dried"):
             parts.append(
                 "Dry batching: aggregates ×100/(100+A), mixing water increased by the "
-                "absorbed mass (§6.1). Soak the aggregates with about half the mixing "
+                "absorbed mass (clause 6.1). Soak the aggregates with about half the mixing "
                 "water before adding cement (BS 1881 Part 125)."
             )
         elif condition == "surface_wet":
             parts.append(
                 "Surface-wet aggregates: the free water on the aggregates is deducted "
-                "from the water added at the mixer (§6.1)."
+                "from the water added at the mixer (clause 6.1)."
             )
         else:
             parts.append(
-                "Design quantities are saturated surface-dry (SSD) batch masses (§6.1)."
+                "Design quantities are saturated surface-dry (SSD) batch masses (clause 6.1)."
             )
         for w in sched["warnings"]:
             parts.append(f"⚠ {w}")
         self._schedule_note.setText("  ".join(parts))
 
     # ------------------------------------------------------------------
-    # §6.3 evaluation
+    # clause 6.3 evaluation
     # ------------------------------------------------------------------
 
     def _collect_measurements(self) -> dict[str, Any]:
@@ -477,10 +482,10 @@ class DOETrialMixesDialog(QDialog):
         ev = self._evaluation
         html_parts: list[str] = []
 
-        # Workability (§6.3.1)
+        # Workability (clause 6.3.1)
         wk = ev["workability"]
         if wk["provided"]:
-            html_parts.append("<b>Workability (§6.3.1):</b>")
+            html_parts.append("<b>Workability (clause 6.3.1):</b>")
             html_parts.append(
                 f"<ul><li>Specified: {wk['design_label']}"
                 + (f" — measured: {wk['measured_label']}" if wk["measured_label"] else "")
@@ -489,10 +494,10 @@ class DOETrialMixesDialog(QDialog):
             for g in wk["guidance"]:
                 html_parts.append(f"<div style='margin-left:14px;'>• {g}</div>")
 
-        # Density (§6.3.2)
+        # Density (clause 6.3.2)
         dn = ev["density"]
         if dn["provided"]:
-            html_parts.append("<b>Density correction (§6.3.2):</b>")
+            html_parts.append("<b>Density correction (clause 6.3.2):</b>")
             html_parts.append(
                 f"<ul><li>Measured {dn['measured']:.0f} kg/m³ vs assumed "
                 f"{dn['assumed']:.0f} kg/m³ → factor {dn['factor']:.4f}</li>"
@@ -504,10 +509,10 @@ class DOETrialMixesDialog(QDialog):
                 f"{dn['corrected_per_m3']['coarse_agg']:.0f} kg</li></ul>"
             )
 
-        # Strength (§6.3.3)
+        # Strength (clause 6.3.3)
         st = ev["strength"]
         if st["provided"]:
-            html_parts.append("<b>Strength — Figure 7 adjustment (§6.3.3):</b>")
+            html_parts.append("<b>Strength — Figure 7 adjustment (clause 6.3.3):</b>")
             html_parts.append(
                 f"<ul><li>A — Table 2 reference strength at w/c 0.5 "
                 f"({st['age_days']} d): <b>{st['A']:.0f}</b> N/mm²</li>"
@@ -599,7 +604,7 @@ class DOETrialMixesDialog(QDialog):
         if not self._schedule:
             return
         buf = io.StringIO()
-        buf.write("BRE 331:1997 §6 — DOE Trial Mixes Schedule\n")
+        buf.write("BRE 331:1997 clause 6 — DOE Trial Mixes Schedule\n")
         buf.write("=" * 60 + "\n")
         buf.write(f"Trial volume: {self._volume_spin.value():.3f} m³\n")
         for row in self._schedule_rows():
@@ -635,7 +640,7 @@ class DOETrialMixesDialog(QDialog):
         try:
             with open(filepath, "w", newline="", encoding="utf-8") as f:
                 writer = csv.writer(f)
-                writer.writerow(["Standard", "BRE 331:1997 §6 Trial Mixes"])
+                writer.writerow(["Standard", "BRE 331:1997 clause 6 Trial Mixes"])
                 writer.writerow(["Target mean strength (MPa)", self._result.target_mean_strength_mpa])
                 writer.writerow(["Design w/c", self._result.w_c_ratio])
                 writer.writerow(["Trial volume (m3)", self._volume_spin.value()])
@@ -659,7 +664,7 @@ class DOETrialMixesDialog(QDialog):
                 ev = self._evaluation
                 if ev:
                     writer.writerow([])
-                    writer.writerow(["§6.3 Trial Evaluation"])
+                    writer.writerow(["clause 6.3 Trial Evaluation"])
                     st = ev["strength"]
                     if st["provided"]:
                         writer.writerow([
@@ -727,7 +732,7 @@ class DOETrialMixesDialog(QDialog):
                 ) + list(ev["warnings"])
             calc_id = db.save_doe_trial(
                 trial_input, trial_result,
-                name=f"DOE Trial — {self._result.target_mean_strength_mpa:.0f} MPa target",
+                name=f"DOE Trial — {self._result.target_mean_strength_mpa:.1f} MPa target",
                 parent_id=self._design_calc_id,
             )
             QMessageBox.information(

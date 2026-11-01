@@ -224,7 +224,7 @@ def test_c04_split_reaches_the_bill_and_sums_to_the_total():
     )
     assert set(bill.coarse_aggregate_split_kg) == {"10 mm", "20 mm"}
     # Per-size masses scale exactly with the pour, keeping the engine's own
-    # 1 : 2 §5.5 split (the engine applies its 5 kg rounding grid, so the
+    # 1 : 2 clause 5.5 split (the engine applies its 5 kg rounding grid, so the
     # ratio is 1 : 2 to within that grid, not exactly).
     for size, kg in result.ca_split_kg.items():
         share = kg / sum(result.ca_split_kg.values())

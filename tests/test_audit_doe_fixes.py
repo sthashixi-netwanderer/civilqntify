@@ -1,4 +1,4 @@
-"""Audit C02/C04/C09/C10/C14/C15: BRE 331 §§5.1, 6, 9 and 10."""
+"""Audit C02/C04/C09/C10/C14/C15: BRE 331 clauses 5.1, 6, 9 and 10."""
 from dataclasses import replace
 import math
 
@@ -11,6 +11,7 @@ from concrete_mix.codes.tables.doe_tables import get_fine_aggregate_proportion
 from concrete_mix.engine.target_strength import calculate_target_strength
 from concrete_mix.models.materials import Cement, CementType, FineAggregate
 from concrete_mix.models.mix_input import MixDesignInput
+from concrete_mix.utils.rounding import ceil_to_one_decimal
 
 
 def design(**kwargs):
@@ -21,20 +22,23 @@ def design(**kwargs):
 
 
 @pytest.mark.parametrize("fc,n,s,expected_s", [
-    (30, None, None, 8), (30, None, 1, 8), (30, 10, 1, 8),
+    (30, None, None, 8), (30, None, 1, 4), (30, 10, 1, 8),
     (30, 19, 12, 8), (30, 20, 1, 4), (30, 30, 1, 4),
     (30, 20, 6, 6), (15, 19, 1, 6), (15, 20, 1, 3),
 ])
 @pytest.mark.parametrize("has_data", [False, True])
 def test_statistical_minima_and_target_entry_points(fc, n, s, expected_s, has_data):
-    """§5.1: record count governs, with ramps retained below fc=20."""
+    """clause 4.4 s priority: known s from previous control data governs
+    (floored at Line B) when no record count contradicts it — clause 7.4
+    Example 4 uses an expected s = 5 this way; an explicit n < 20 is the
+    small-sample case and stays on Line A."""
     result = design(target_strength_mpa=fc, num_test_cubes=n,
                     std_deviation=s, has_production_data=has_data)
     target = calculate_target_strength("doe", fc, num_test_cubes=n,
                                        std_deviation=s, has_production_data=has_data)
     direct = DOEMixDesign().calculate_target_mean_strength(fc, std_dev=s,
                                                           num_test_cubes=n)
-    expected = math.ceil(fc + 1.64 * expected_s)
+    expected = ceil_to_one_decimal(fc + 1.64 * expected_s)
     assert target.standard_deviation_mpa == expected_s
     assert target.target_mean_strength_mpa == result.target_mean_strength_mpa == direct == expected
     assert next(step for step in result.steps if step.step_number == 1).result == expected_s
@@ -45,7 +49,7 @@ def test_known_margin_has_same_rounding_in_both_paths(n):
     result = design(num_test_cubes=n, std_deviation=1, margin_mpa=10.25)
     target = calculate_target_strength("doe", 30, num_test_cubes=n,
                                        std_deviation=1, margin_mpa=10.25)
-    assert result.target_mean_strength_mpa == target.target_mean_strength_mpa == 41
+    assert result.target_mean_strength_mpa == target.target_mean_strength_mpa == 40.3
     assert target.standard_deviation_mpa is None
 
 
@@ -117,8 +121,10 @@ def test_surface_wet_schedule_increases_masses_and_preserves_free_water():
                     coarse_agg_absorption=1, coarse_agg_moisture=3)
     ssd = calculate_doe_trial_batches(result)["batches"][0]
     wet = calculate_doe_trial_batches(result, moisture_condition="surface_wet")["batches"][0]
-    for key, absorption, moisture in (("fine_agg", 2, 7), ("coarse_agg", 1, 3)):
-        expected = ssd["per_m3"][key] * (100 + moisture) / (100 + absorption)
+    # Public API moisture is free above SSD; the model stores total MC.
+    for key, absorption, free in (("fine_agg", 2, 7), ("coarse_agg", 1, 3)):
+        total = absorption + free
+        expected = ssd["per_m3"][key] * (100 + total) / (100 + absorption)
         assert wet["per_m3"][key] == pytest.approx(expected, abs=0.06)
         assert wet["batch"][key] == pytest.approx(expected * 0.05, abs=0.06)
     extra_mass = sum(wet["batch"][k] - ssd["batch"][k] for k in ("fine_agg", "coarse_agg"))
@@ -127,11 +133,13 @@ def test_surface_wet_schedule_increases_masses_and_preserves_free_water():
 
 
 def test_air_dried_mass_uses_oven_dry_moisture_basis():
-    result = design(fine_agg_absorption=10, fine_agg_moisture=5,
-                    coarse_agg_absorption=5, coarse_agg_moisture=2)
+    # Negative free moisture = drier than SSD; total MC stays below absorption.
+    result = design(fine_agg_absorption=10, fine_agg_moisture=-5,
+                    coarse_agg_absorption=5, coarse_agg_moisture=-3)
     entry = calculate_doe_trial_batches(result, moisture_condition="air_dried")["batches"][0]
-    for key, absorption, moisture in (("fine_agg", 10, 5), ("coarse_agg", 5, 2)):
-        expected = entry["batch"][key] * (100 + moisture) / (100 + absorption)
+    for key, absorption, free in (("fine_agg", 10, -5), ("coarse_agg", 5, -3)):
+        total = absorption + free
+        expected = entry["batch"][key] * (100 + total) / (100 + absorption)
         assert entry["dry_aggregate_kg"][key] == pytest.approx(expected, abs=0.06)
 
 

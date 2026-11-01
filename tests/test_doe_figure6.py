@@ -1,11 +1,11 @@
 """BRE 331:1997 Figure 6 — chart-panel readout and workability ranges.
 
-Figure 6 is organised as 3 NMSA pages (10/20/40 mm, §1.2.5) × 4
+Figure 6 is organised as 3 NMSA pages (10/20/40 mm, clause 1.2.5) × 4
 workability columns (Table 3 ranges), each panel carrying one curve per
 % passing 600 µm (15/40/60/80/100). These tests pin:
 
-- the standard's own worked-example anchor points (§7.1, §7.2, §7.3,
-  §8.6, §9.4) through the bilinear panel readout;
+- the standard's own worked-example anchor points (clause 7.1, clause 7.2, clause 7.3,
+  clause 8.6, clause 9.4) through the bilinear panel readout;
 - exactness at digitised grid nodes;
 - slump/Vebe → class boundary mapping (endpoints belong to the lower
   class, matching the printed overlapping ranges);
@@ -43,23 +43,23 @@ class TestFigure6WorkedExamples:
     """
 
     def test_example_1_unrestricted(self):
-        # §7.1: 20 mm, slump 10–30 (class 1), wc 0.47, 70% → 27%
+        # clause 7.1: 20 mm, slump 10–30 (class 1), wc 0.47, 70% → 27%
         assert prop(20, 0.47, 70.0, 1) == pytest.approx(27.7, abs=0.05)
 
     def test_example_2_max_wc(self):
-        # §7.2: 40 mm, slump 30–60 (class 2), wc 0.50, 90% → 22%
+        # clause 7.2: 40 mm, slump 30–60 (class 2), wc 0.50, 90% → 22%
         assert prop(40, 0.50, 90.0, 2) == pytest.approx(21.8, abs=0.05)
 
     def test_example_3_min_cement(self):
-        # §7.3: 40 mm, slump 0–10 (class 0), wc ~0.40, 90% → 15–18%
+        # clause 7.3: 40 mm, slump 0–10 (class 0), wc ~0.40, 90% → 15–18%
         assert 15.0 <= prop(40, 0.40, 90.0, 0) <= 18.0
 
     def test_section_8_air_entrained(self):
-        # §8.6 Table 8: 20 mm, slump 10–30 (class 1), wc ~0.46, 50% → ~32%
+        # clause 8.6 Table 8: 20 mm, slump 10–30 (class 1), wc ~0.46, 50% → ~32%
         assert prop(20, 0.455, 50.0, 1) == pytest.approx(32.9, abs=0.3)
 
     def test_section_9_pfa(self):
-        # §9.4: 20 mm, class 1, W/(C+F) ~0.36, 70% → ~26%
+        # clause 9.4: 20 mm, class 1, W/(C+F) ~0.36, 70% → ~26%
         assert prop(20, 0.3625, 70.0, 1) == pytest.approx(25.8, abs=0.3)
 
 
@@ -86,7 +86,7 @@ class TestFigure6GridExactness:
         assert prop(20, 0.5, 70.0, 1) == pytest.approx(28.25, abs=0.06)
 
     def test_off_grid_wc_interpolates_between_columns(self):
-        # 20 mm, class 1, wc 0.47 (§7.1 read): α=0.35 between 0.4/0.6
+        # 20 mm, class 1, wc 0.47 (clause 7.1 read): α=0.35 between 0.4/0.6
         assert prop(20, 0.47, 70.0, 1) == pytest.approx(27.7, abs=0.05)
 
 

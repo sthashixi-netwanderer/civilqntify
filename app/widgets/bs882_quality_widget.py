@@ -18,11 +18,11 @@ class BS882QualityWidget(QGroupBox):
     stack_changed = pyqtSignal()
 
     # Per-field help, grounded in the extracted standards (BS 882:1992
-    # Tables 3/4/6 §§4.2/5.1/5.2/5.4/App A; BS 812-103.1 §§6/7/8/10;
+    # Tables 3/4/6 clauses 4.2/5.1/5.2/5.4/App A; BS 812-103.1 clauses 6/7/8/10;
     # BS 812-105.1). Keys match the row attribute suffixes.
     _INFO = {
         "sample": (
-            "Sample identification (BS 812-103.1 §10(a)).\n\n"
+            "Sample identification (BS 812-103.1 clause 10(a)).\n\n"
             "The test report must identify the sample and state whether a "
             "certificate of sampling is available. For compliance "
             "assessment also record the source (quarry/pit, BS 882 "
@@ -30,39 +30,39 @@ class BS882QualityWidget(QGroupBox):
             "against a known source."
         ),
         "method": (
-            "Test method (BS 812-103.1 §7).\n\n"
-            "§7.2 washing + sieving is the preferred method and must be "
+            "Test method (BS 812-103.1 clause 7).\n\n"
+            "clause 7.2 washing + sieving is the preferred method and must be "
             "used when the aggregate may contain clay or anything that "
-            "agglomerates particles. §7.3 dry sieving is only for clean "
+            "agglomerates particles. clause 7.3 dry sieving is only for clean "
             "aggregates free of such material. The report must state which "
-            "method was used (§10(c))."
+            "method was used (clause 10(c))."
         ),
         "m1": (
-            "Original oven-dry mass M1 (BS 812-103.1 §6).\n\n"
+            "Original oven-dry mass M1 (BS 812-103.1 clause 6).\n\n"
             "Dry at 105 ± 5 °C to constant mass (within 0.1%) and weigh "
             "as M1; respect the Table 2 minimum test-portion mass for the "
-            "nominal size. Every percentage retained/passing (§8) is "
+            "nominal size. Every percentage retained/passing (clause 8) is "
             "computed against M1 — never against recovered sieve masses."
         ),
         "m2": (
-            "Washed oven-dry residue M2 (BS 812-103.1 §7.2.1).\n\n"
+            "Washed oven-dry residue M2 (BS 812-103.1 clause 7.2.1).\n\n"
             "After washing through the guarded 75 µm sieve until the water "
             "runs clear, dry the residue to constant mass as M2. Fines = "
-            "M1 − M2 (§7.2.1.5). BS 882 Table 6 fines limits use this "
+            "M1 − M2 (clause 7.2.1.5). BS 882 Table 6 fines limits use this "
             "washing-only value — never the dry-sieve pan."
         ),
         "source": (
-            "Aggregate source type (BS 882 §2.2 gravel/crushed rock, "
-            "§2.3 sand; supplier details Appendix A).\n\n"
+            "Aggregate source type (BS 882 clause 2.2 gravel/crushed rock, "
+            "clause 2.3 sand; supplier details Appendix A).\n\n"
             "Selects the applicable limits: Table 6 fines (coarse 2% "
-            "gravel / 4% rock; sand 4% gravel / 16% rock), flakiness §4.2 "
+            "gravel / 4% rock; sand 4% gravel / 16% rock), flakiness clause 4.2 "
             "(50 uncrushed gravel, 40 crushed rock/gravel), and the 150 µm "
             "20% crushed-rock-fines footnote. Also maps to the BRE 331 "
-            "§1.2.4 crushed/uncrushed type in mix design (partially "
+            "clause 1.2.4 crushed/uncrushed type in mix design (partially "
             "crushed gravel has no single equivalent)."
         ),
         "heavy": (
-            "Heavy-duty floor finish (BS 882 §5.2.2).\n\n"
+            "Heavy-duty floor finish (BS 882 clause 5.2.2).\n\n"
             "Sand for heavy-duty floors must satisfy grading C or M — F "
             "is excluded. The crushed-rock-sand Table 6 limit drops from "
             "16% to 9%, and the 150 µm 20% crushed-rock relaxation does "
@@ -78,7 +78,7 @@ class BS882QualityWidget(QGroupBox):
         ),
         "sieve75": (
             "Include the 75 µm sieve in a dry stack.\n\n"
-            "Every washed analysis must end at the 75 µm sieve (§7.2.2.1 — "
+            "Every washed analysis must end at the 75 µm sieve (clause 7.2.2.1 — "
             "preliminary separation never removes all sub-75 µm material, "
             "so it is sieved again dry). Fines assessment (Table 6) still "
             "needs the M1 − M2 washing value, not this sieve alone."
@@ -87,7 +87,7 @@ class BS882QualityWidget(QGroupBox):
             "Flakiness index by BS 812-105.1 (separate shape test).\n\n"
             "Gauged on the 6.3–63 mm fraction with the thickness gauge "
             "(flaky = thickness < 0.6 × mean sieve size); FI = 100 × M3/M2 "
-            "to the nearest whole number. BS 882 §4.2: at most 50 for "
+            "to the nearest whole number. BS 882 clause 4.2: at most 50 for "
             "uncrushed gravel, 40 for crushed rock/gravel. It cannot be "
             "derived from PSD masses. Coarse aggregate only."
         ),
@@ -97,8 +97,8 @@ class BS882QualityWidget(QGroupBox):
         super().__init__("BS 882 / BS 812 laboratory record", parent)
         form = QFormLayout(self)
         self.method_combo = QComboBox()
-        self.method_combo.addItem("Dry sieving — §7.3", "dry")
-        self.method_combo.addItem("Washing + sieving — §7.2", "washed")
+        self.method_combo.addItem("Dry sieving — clause 7.3", "dry")
+        self.method_combo.addItem("Washing + sieving — clause 7.2", "washed")
         self.sample_edit = QLineEdit()
         self.sample_edit.setPlaceholderText("Sample identification")
         self.m1_spin = self._mass_spin()

@@ -5,7 +5,7 @@ branch was covered:
 
 - the ACI trial adjustment computed fine aggregate as a pure remainder and
   aborted when the non-coarse constituents already exceeded 1 m3. That is
-  exactly what §5.3.10.3 linear extrapolation produces when a trial cube comes
+  exactly what clause 5.3.10.3 linear extrapolation produces when a trial cube comes
   in well below target, so the fix has to be proved on the case that used to
   crash: a valid measurement, badly failing;
 - the DOE moisture-condition picker offered air-dried and surface-wet
@@ -64,7 +64,7 @@ def _aci_case(target: float, cube: float):
     (60.0, 30.0),
 ])
 def test_c02_far_below_target_cube_yields_a_next_trial_not_a_crash(target, cube):
-    """§5.3.10.3 extrapolating cement hard must still return a next batch."""
+    """clause 5.3.10.3 extrapolating cement hard must still return a next batch."""
     _, measured = _aci_case(target, cube)
     next_trial = measured["next_trial"]
     assert next_trial is not None, (

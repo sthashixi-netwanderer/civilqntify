@@ -16,16 +16,13 @@ from PyQt6.QtGui import QBrush, QColor, QFont
 from PyQt6.QtWidgets import (
     QCheckBox,
     QComboBox,
-    QDialog,
     QFileDialog,
     QHBoxLayout,
     QHeaderView,
     QLabel,
     QLineEdit,
     QMenu,
-    QMessageBox,
     QPushButton,
-    QSplitter,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -33,7 +30,10 @@ from PyQt6.QtWidgets import (
 )
 
 from history.db import get_db
+from app.widgets.frameless_dialog import open_detached
 from app.widgets.history_detail_dialog import HistoryDetailDialog
+from app.widgets.input_dialog import InputDialog
+from app.widgets.message_dialog import MessageBox as QMessageBox
 
 
 _TAB_TYPE_LABELS = {
@@ -122,7 +122,7 @@ class HistoryTab(QWidget):
         self._table = QTableWidget()
         self._table.setColumnCount(6)
         self._table.setHorizontalHeaderLabels(
-            ["", "ID", "Name", "Type", "Date", "Key Result"]
+            ["", "ID", "Name", "Type", "Date", "Key result"]
         )
         self._table.horizontalHeader().setSectionResizeMode(
             0, QHeaderView.ResizeMode.Fixed
@@ -403,10 +403,10 @@ class HistoryTab(QWidget):
         elif tt == "doe_trial":
             # Trial records are view-only: show the structured detail.
             dlg = HistoryDetailDialog(rec, parent=self)
-            dlg.exec()
+            open_detached(dlg)
         elif tt == "aci_trial":
             dlg = HistoryDetailDialog(rec, parent=self)
-            dlg.exec()
+            open_detached(dlg)
         else:
             QMessageBox.information(
                 self, "Info", f"Cannot load record of type '{tt}'"
@@ -582,7 +582,7 @@ class HistoryTab(QWidget):
             return
         dlg = HistoryDetailDialog(rec, self)
         dlg.load_requested.connect(self._load_record)
-        dlg.exec()
+        open_detached(dlg)
 
     def _toggle_pin(self, calc_id: int) -> None:
         """Pin or unpin the record and refresh so pinned stays at top."""
@@ -598,17 +598,14 @@ class HistoryTab(QWidget):
         self.refresh()
 
     def _rename(self, calc_id: int) -> None:
-        from PyQt6.QtWidgets import QInputDialog, QLineEdit
-
         rec = self._db.get_calculation(calc_id)
         if rec is None:
             return
         old_name = rec.get("name", "") or ""
-        name, ok = QInputDialog.getText(
+        name, ok = InputDialog.getText(
             self,
             "Rename History Entry",
             "Custom name:",
-            QLineEdit.EchoMode.Normal,
             old_name,
         )
         if not ok:

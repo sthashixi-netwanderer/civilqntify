@@ -15,7 +15,7 @@ def defective_k_factor(defective_rate: float) -> float:
     k is the standard-normal quantile (percent-point / probit function) at
     cumulative probability ``(1 - p)``, where ``p`` is the defective
     proportion — i.e. the margin multiplier in ``M = k × s`` used by
-    BRE 331:1997 §4.4 / BS 5328 target-strength calculations.
+    BRE 331:1997 clause 4.4 / BS 5328 target-strength calculations.
 
     Args:
         defective_rate: Allowed defectives, EITHER as a percentage in

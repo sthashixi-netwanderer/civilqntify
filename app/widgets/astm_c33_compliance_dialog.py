@@ -13,16 +13,20 @@ from __future__ import annotations
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
-    QDialog,
     QDialogButtonBox,
+    QFrame,
+    QHBoxLayout,
     QHeaderView,
     QLabel,
+    QScrollArea,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
     QWidget,
 )
 
+from app.widgets.frameless_dialog import FramelessDialog
+from app.widgets.wrap_label import WrapLabel
 from concrete_mix.validation.base import (
     FAIL,
     NOT_EVALUATED,
@@ -42,7 +46,7 @@ _STATUS_COLOR = {
 }
 
 
-class ASTM_C33ComplianceDialog(QDialog):
+class ASTM_C33ComplianceDialog(FramelessDialog):
     """Modal report listing every evaluated requirement of the standard.
 
     The header states how many requirements are not met; the body lists the
@@ -60,32 +64,44 @@ class ASTM_C33ComplianceDialog(QDialog):
         parent: QWidget | None = None,
         standard_name: str = "ASTM C33",
     ) -> None:
-        super().__init__(parent)
-        self.setWindowTitle(f"{standard_name} Compliance — Non-Conformance")
+        super().__init__(
+            parent, title=f"{standard_name} Compliance — Non-Conformance"
+        )
         self.resize(820, 560)
         self.setMinimumSize(680, 420)
 
         failures = [c for c in checks if c.failed]
         kind_label = "fine aggregate" if aggregate_kind == "fine" else "coarse aggregate"
 
-        layout = QVBoxLayout(self)
+        layout = self.content_layout
         layout.setContentsMargins(16, 16, 16, 16)
         layout.setSpacing(12)
 
-        header = QLabel(
+        header = WrapLabel(
             f"⚠ {len(failures)} requirement(s) NOT met — the {kind_label} "
             f"analysis does not conform to {standard_name}."
         )
         header.setObjectName("compliance-failure-banner")
-        header.setWordWrap(True)
         layout.addWidget(header)
+
+        # Body in a resizable scroll area: the wrapped failure details keep
+        # their full natural height (the body scrolls instead of forcing
+        # the window huge when many clauses fail), and the checklist table
+        # absorbs spare height so the body fills the window.
+        body_scroll = QScrollArea()
+        body_scroll.setWidgetResizable(True)
+        body_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        body = QWidget()
+        body_layout = QVBoxLayout(body)
+        body_layout.setContentsMargins(0, 0, 0, 0)
+        body_layout.setSpacing(12)
 
         # Detailed failure paragraphs — one per unmet clause.
         details = QLabel(self._failure_html(failures))
         details.setObjectName("dialog-desc")
         details.setWordWrap(True)
         details.setTextFormat(Qt.TextFormat.RichText)
-        layout.addWidget(details)
+        body_layout.addWidget(details)
 
         # Full checklist table.
         table = QTableWidget(len(checks), 4)
@@ -120,7 +136,10 @@ class ASTM_C33ComplianceDialog(QDialog):
             table.setItem(row, 3, QTableWidgetItem(check.measured))
         table.resizeColumnsToContents()
         table.resizeRowsToContents()
-        layout.addWidget(table, 1)
+        # Minimum, not fixed: the table (Expanding) absorbs spare height so
+        # the body fills the window; the scroll area takes over below it.
+        table.setMinimumHeight(180)
+        body_layout.addWidget(table, 1)
 
         if standard_name == "IS 383":
             note_text = (
@@ -142,7 +161,10 @@ class ASTM_C33ComplianceDialog(QDialog):
         note = QLabel(note_text)
         note.setObjectName("dialog-note")
         note.setWordWrap(True)
-        layout.addWidget(note)
+        body_layout.addWidget(note)
+
+        body_scroll.setWidget(body)
+        layout.addWidget(body_scroll, 1)
 
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok)
         buttons.accepted.connect(self.accept)

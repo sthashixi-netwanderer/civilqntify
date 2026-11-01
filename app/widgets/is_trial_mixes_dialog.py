@@ -15,14 +15,12 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QApplication,
     QCheckBox,
-    QDialog,
     QFileDialog,
     QFrame,
     QGroupBox,
     QHBoxLayout,
     QHeaderView,
     QLabel,
-    QMessageBox,
     QPushButton,
     QScrollArea,
     QTableWidget,
@@ -31,11 +29,13 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from app.widgets.frameless_dialog import FramelessDialog
+from app.widgets.message_dialog import MessageBox as QMessageBox
 from concrete_mix.codes.is10262 import calculate_is10262_trial_mixes
 from concrete_mix.models.mix_result import MixDesignResult
 
 
-class ISTrialMixesDialog(QDialog):
+class ISTrialMixesDialog(FramelessDialog):
     """Dialog displaying the IS 10262:2019 Clause 5.8 Trial Mixes protocol."""
 
     def __init__(
@@ -44,8 +44,10 @@ class ISTrialMixesDialog(QDialog):
         inp: Any = None,
         parent: QWidget | None = None,
     ) -> None:
-        super().__init__(parent)
-        self.setWindowTitle("IS 10262:2019 Clause 5.8 — Trial Mixes Protocol & Reporting")
+        super().__init__(
+            parent,
+            title="IS 10262:2019 Clause 5.8 — Trial Mixes Protocol & Reporting",
+        )
         self.resize(880, 680)
         self.setMinimumSize(700, 520)
 
@@ -56,7 +58,7 @@ class ISTrialMixesDialog(QDialog):
         self._build_ui()
 
     def _build_ui(self) -> None:
-        main_layout = QVBoxLayout(self)
+        main_layout = self.content_layout
         main_layout.setContentsMargins(16, 16, 16, 16)
         main_layout.setSpacing(12)
 
@@ -164,9 +166,12 @@ class ISTrialMixesDialog(QDialog):
         self._table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         for c in range(1, 10):
             self._table.horizontalHeader().setSectionResizeMode(c, QHeaderView.ResizeMode.ResizeToContents)
-        self._table.setFixedHeight(160)
+        # Minimum, not fixed: the Expanding table absorbs spare height so
+        # the schedule fills the window; the surrounding scroll area takes
+        # over when the window is smaller than this.
+        self._table.setMinimumHeight(160)
         tbl_layout.addWidget(self._table)
-        layout.addWidget(tbl_group)
+        layout.addWidget(tbl_group, 1)
 
         # Step-by-step guidance cards
         guide_group = QGroupBox("Clause 5.8 Step-by-Step Lab & Field Procedure")

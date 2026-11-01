@@ -171,9 +171,9 @@ def generate_charts(data: dict[str, Any], output_dir: Path) -> dict[int, Path]:
     _finish_chart(fig, charts[1])
 
     for number, method, title in (
-        (2, "aci", "ACI PRC-211.1-22 §9.2: standard versus app"),
+        (2, "aci", "ACI PRC-211.1-22 clause 9.2: standard versus app"),
         (3, "is", "IS 10262:2019 Annex A: standard versus app"),
-        (4, "doe", "BRE 331:1997 §7.2: standard versus app"),
+        (4, "doe", "BRE 331:1997 clause 7.2: standard versus app"),
     ):
         rows = [
             row
@@ -543,12 +543,12 @@ def _update_methodology(doc: Any) -> None:
         "3. Mixing Water and Air Content.": (
             "3. Mixing Water and Air Content. The approximate mixing-water content and air content are "
             "selected from ACI PRC-211.1-22 Table 5.3.3 for the chosen slump, nominal maximum aggregate "
-            "size, and air-entrainment condition. The report validation uses §9.2 Example 1: 300 lb/yd³ "
+            "size, and air-entrainment condition. The report validation uses clause 9.2 Example 1: 300 lb/yd³ "
             "(177.98 kg/m³) and 1% entrapped air for 1.5 in. (40 mm) rounded aggregate."
         ),
         "4. Water-Cement Ratio.": (
             "4. Water-Cement Ratio. CivilQntify first determines the required average strength using the "
-            "ACI 318 overdesign rules cited by ACI PRC-211.1-22 §4.7.4, then interpolates the strength-based "
+            "ACI 318 overdesign rules cited by ACI PRC-211.1-22 clause 4.7.4, then interpolates the strength-based "
             "w/cm from ACI Table 5.3.4. The adopted value is the lower of the strength-based ratio and any "
             "durability limit. No standalone 7500/(f′c + 2000) equation is used by the application."
         ),
@@ -556,7 +556,7 @@ def _update_methodology(doc: Any) -> None:
         "6. Coarse Aggregate Content.": (
             "6. Coarse Aggregate Content. The dry-rodded coarse-aggregate bulk-volume fraction is read "
             "from ACI PRC-211.1-22 Table 5.3.6 using nominal maximum aggregate size and fine-aggregate "
-            "fineness modulus. Dry-rodded mass is converted to SSD mass using aggregate absorption, as in §9.2.6."
+            "fineness modulus. Dry-rodded mass is converted to SSD mass using aggregate absorption, as in clause 9.2.6."
         ),
         "Step 3: Free Water Content.": (
             "Step 3: Free Water Content. The base water content is selected from IS 10262:2019 Table 4 "
@@ -571,12 +571,12 @@ def _update_methodology(doc: Any) -> None:
         ),
         "Stage 1: Target Mean Strength.": (
             "Stage 1: Target Mean Strength. The target mean strength is fm = fc + k×s. The executable "
-            "validation uses BRE 331:1997 §7.2 Example 2, where a specified 10 MPa margin gives "
+            "validation uses BRE 331:1997 clause 7.2 Example 2, where a specified 10 MPa margin gives "
             "fm = 25 + 10 = 35 MPa."
         ),
         "Stage 2: Free Water–Cement Ratio.": (
             "Stage 2: Free Water–Cement Ratio. BRE Table 2 and Figure 4 provide a strength-derived ratio, "
-            "which is checked against specified durability limits. In §7.2 Example 2 the strength ratio "
+            "which is checked against specified durability limits. In clause 7.2 Example 2 the strength ratio "
             "of 0.57 exceeds the specified maximum 0.50, so 0.50 is adopted."
         ),
         "Stage 3: Free Water Content.": (
@@ -586,17 +586,17 @@ def _update_methodology(doc: Any) -> None:
         ),
         "Stage 4: Cement Content.": (
             "Stage 4: Cement Content. Cement content is C = Wf/(W/C) and is checked against specified "
-            "minimum and maximum contents. For BRE §7.2 Example 2, 160/0.50 = 320 kg/m³, above the "
+            "minimum and maximum contents. For BRE clause 7.2 Example 2, 160/0.50 = 320 kg/m³, above the "
             "290 kg/m³ minimum."
         ),
         "Stage 5: Total Aggregate Content.": (
             "Stage 5: Total Aggregate Content. BRE Figure 5 gives a wet density of 2325 kg/m³ for the "
-            "§7.2 materials. Subtracting 320 kg/m³ cement and 160 kg/m³ water gives 1845 kg/m³ total "
+            "clause 7.2 materials. Subtracting 320 kg/m³ cement and 160 kg/m³ water gives 1845 kg/m³ total "
             "aggregate; Figure 6 divides this into 405 kg/m³ fine and 1440 kg/m³ coarse aggregate."
         ),
         "Target strength formulation: ACI uses": (
             "Target strength formulation: ACI applies the ACI 318 required-average-strength rules cited "
-            "in ACI PRC-211.1-22 §4.7.4; IS uses fck + 1.65S or fck + X, whichever is greater; and BRE "
+            "in ACI PRC-211.1-22 clause 4.7.4; IS uses fck + 1.65S or fck + X, whichever is greater; and BRE "
             "uses fm = fc + k×s or a specified margin."
         ),
         "Water content determination: ACI reads": (
@@ -657,7 +657,7 @@ def _update_results_prose(doc: Any, data: dict[str, Any]) -> None:
 
     replacements = {
         "The ACI 211.1.1 engine was exercised first": (
-            "The ACI engine was verified with the published ACI PRC-211.1-22 §9.2 Example 1. Table 4.1 "
+            "The ACI engine was verified with the published ACI PRC-211.1-22 clause 9.2 Example 1. Table 4.1 "
             "records each manual recomputation and the exact current app result, which agree to 0.00% error."
         ),
         "The IS 10262:2019 engine was tested": (
@@ -665,11 +665,11 @@ def _update_results_prose(doc: Any, data: dict[str, Any]) -> None:
             "water, cement, aggregate masses, admixture, and air. Every value is generated by the current app."
         ),
         "The DOE (BRE) engine was tested next": (
-            "The DOE engine was verified with BRE 331:1997 §7.2 Example 2. The published water, cement, "
+            "The DOE engine was verified with BRE 331:1997 clause 7.2 Example 2. The published water, cement, "
             "fine aggregate, and coarse aggregate values are reproduced exactly by the current app."
         ),
         "The material quantification and cost estimation functions": (
-            "Quantification and cost checks use the actual ACI §9.2 app result. Manual recomputation scales "
+            "Quantification and cost checks use the actual ACI clause 9.2 app result. Manual recomputation scales "
             "the per-m³ result by gross volume and applies the same displayed unit rates and cost bases. "
             "The app outputs and independent arithmetic agree exactly at report precision."
         ),
@@ -684,12 +684,12 @@ def _update_results_prose(doc: Any, data: dict[str, Any]) -> None:
             "than the report’s former manually maintained test count."
         ),
         "Software testing confirms that the code does": (
-            "System validation uses three published worked examples: ACI PRC-211.1-22 §9.2 Example 1, IS "
-            "10262:2019 Annex A, and BRE 331:1997 §7.2 Example 2. The independent manual recomputation and the "
+            "System validation uses three published worked examples: ACI PRC-211.1-22 clause 9.2 Example 1, IS "
+            "10262:2019 Annex A, and BRE 331:1997 clause 7.2 Example 2. The independent manual recomputation and the "
             "system output agree exactly; every comparison records 0.00% error."
         ),
         "The ACI scenario specified": (
-            f"The ACI scenario is §9.2 Example 1: 2500 psi specified strength, 3–4 in. slump, 40 mm rounded "
+            f"The ACI scenario is clause 9.2 Example 1: 2500 psi specified strength, 3–4 in. slump, 40 mm rounded "
             f"aggregate, FM 2.80, and non-air-entrained concrete. The app returns cement "
             f"{next(r['app_result'] for r in examples['aci']['parameters'] if r['key']=='cement_kg'):.1f}, "
             f"water {next(r['app_result'] for r in examples['aci']['parameters'] if r['key']=='water_kg'):.1f}, "
@@ -710,7 +710,7 @@ def _update_results_prose(doc: Any, data: dict[str, Any]) -> None:
             f"and coarse aggregate {next(r['app_result'] for r in examples['is']['parameters'] if r['key']=='coarse_aggregate_kg'):.1f} kg/m³."
         ),
         "The DOE scenario specified": (
-            "The DOE scenario is BRE 331:1997 §7.2 Example 2: C25, class 42.5 cement, 40 mm uncrushed "
+            "The DOE scenario is BRE 331:1997 clause 7.2 Example 2: C25, class 42.5 cement, 40 mm uncrushed "
             "aggregate, 90% passing the 600 µm sieve, 30–60 mm slump, and a specified 10 MPa margin. "
             "CivilQntify exactly reproduces 160 kg/m³ water, 320 kg/m³ cement, 405 kg/m³ fine aggregate, "
             "and 1440 kg/m³ coarse aggregate."
@@ -718,7 +718,7 @@ def _update_results_prose(doc: Any, data: dict[str, Any]) -> None:
         "One feature of the DOE comparison": (
             "This DOE result uses the published example’s actual 40 mm uncrushed aggregate, not the stale "
             "20 mm crushed scenario previously printed in the report. It is therefore directly reproducible "
-            "from the current app and directly traceable to BRE §7.2."
+            "from the current app and directly traceable to BRE clause 7.2."
         ),
         "Because the system can run all three methods": (
             f"For a common 25 MPa, 75 mm slump, 20 mm NMSA brief, the current app returns cement contents "
@@ -728,7 +728,7 @@ def _update_results_prose(doc: Any, data: dict[str, Any]) -> None:
             "not a manual-validation test, because each code retains its own statistical and durability rules."
         ),
         "The quantification module was checked": (
-            f"The quantification case uses 10.0 m³ net concrete, 3% wastage, and the ACI §9.2 app mix. "
+            f"The quantification case uses 10.0 m³ net concrete, 3% wastage, and the ACI clause 9.2 app mix. "
             f"The current pipeline returns {quant['total_cement_kg']:,.1f} kg cement "
             f"({quant['total_cement_bags']:.0f} ACI 94 lb/42.64 kg bags), {quant['total_water_liters']:,.1f} L water, "
             f"{quant['total_fine_aggregate_kg']:,.1f} kg fine aggregate, and "
@@ -818,8 +818,8 @@ def _update_results_prose(doc: Any, data: dict[str, Any]) -> None:
             "concrete mix design, material quantification, and cost estimation. This project developed a "
             "Python/PyQt6 desktop system integrating ACI PRC-211.1-22, IS 10262:2019, and BRE 331:1997 "
             "mix proportioning with material take-off and Ghana-cedi project costing. Validation artifacts "
-            "were regenerated from one executable JSON dataset: the current app was run against ACI §9.2 "
-            "Example 1, IS Annex A, and BRE §7.2 Example 2, then the same results populated the report tables "
+            "were regenerated from one executable JSON dataset: the current app was run against ACI clause 9.2 "
+            "Example 1, IS Annex A, and BRE clause 7.2 Example 2, then the same results populated the report tables "
             f"and charts. The complete pytest suite contained {total} passing cases at generation time. Across "
             f"{summary['parameter_count']} validation parameters, maximum absolute relative error was "
             f"{maximum:.2f}% and mean error was {mean:.2f}%, confirming exact agreement between manual and "
@@ -849,17 +849,17 @@ def update_document(
             row.cells[-1].text = f"{data['summary']['maximum_error_percent']:.2f}% (exact match)"
 
     captions = {
-        1: "Table 4.1 Executable ACI PRC-211.1-22 §9.2 validation checks",
+        1: "Table 4.1 Executable ACI PRC-211.1-22 clause 9.2 validation checks",
         2: "Table 4.2 Executable IS 10262:2019 Annex A validation checks",
-        3: "Table 4.3 Executable BRE 331:1997 §7.2 validation checks",
+        3: "Table 4.3 Executable BRE 331:1997 clause 7.2 validation checks",
         4: "Table 4.4 Executable material quantification and cost checks",
         5: "Table 4.5 Integration test summary for the report-generation pipeline",
         6: "Table 4.6 Current pytest suite distribution and result",
-        7: "Table 4.7 ACI PRC-211.1-22 §9.2 published reference versus current app output",
+        7: "Table 4.7 ACI PRC-211.1-22 clause 9.2 published reference versus current app output",
         8: "Table 4.8 IS 10262:2019 Annex A published reference versus current app output",
-        9: "Table 4.9 BRE 331:1997 §7.2 published reference versus current app output",
+        9: "Table 4.9 BRE 331:1997 clause 7.2 published reference versus current app output",
         10: "Table 4.10 Current app cross-method comparison for a common 25 MPa design brief",
-        11: "Table 4.11 Material quantification for 10 m³ net volume using the ACI §9.2 app mix and 3% wastage",
+        11: "Table 4.11 Material quantification for 10 m³ net volume using the ACI clause 9.2 app mix and 3% wastage",
         12: "Table 4.12 Current app cost output for 100 m³ net volume, 5% wastage, and default Cost Estimation inputs",
         13: "Table 4.13 Summary of executable validation errors across all modules",
     }
@@ -868,9 +868,9 @@ def update_document(
 
     figure_captions = {
         1: "Figure 4.1 Current automated pytest suite distribution by module",
-        2: "Figure 4.2 ACI PRC-211.1-22 §9.2 published reference versus current app output",
+        2: "Figure 4.2 ACI PRC-211.1-22 clause 9.2 published reference versus current app output",
         3: "Figure 4.3 IS 10262:2019 Annex A published reference versus current app output",
-        4: "Figure 4.4 BRE 331:1997 §7.2 published reference versus current app output",
+        4: "Figure 4.4 BRE 331:1997 clause 7.2 published reference versus current app output",
         5: "Figure 4.5 Current ACI, IS, and DOE app outputs for a common 25 MPa design brief",
         6: "Figure 4.6 Current app cost breakdown for a 100 m³ net concrete project",
         7: "Figure 4.7 Executable validation errors between manual and system calculations",

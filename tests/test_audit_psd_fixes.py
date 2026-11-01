@@ -1,7 +1,7 @@
 """Regression evidence for validation report P01–P08.
 
-Limits: IS 383:2016 §§6.1–6.3, Tables 7/9 (including Note 1),
-ASTM C33 §§6.1/6.2/10.1. BS behavior remains governed by BS 882 and
+Limits: IS 383:2016 clauses 6.1–6.3, Tables 7/9 (including Note 1),
+ASTM C33 clauses 6.1/6.2/10.1. BS behavior remains governed by BS 882 and
 BS 812-103.1; no grading tables or reporting policies are changed here.
 """
 from __future__ import annotations
@@ -136,11 +136,12 @@ def test_p05_linkage_uses_explicit_crushed_stone_sand_context():
 @pytest.fixture
 def qt(monkeypatch, tmp_path):
     from PyQt6.QtWidgets import QApplication, QMessageBox
+    from app.widgets import psd_widget as psdmod
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
     app = QApplication.instance() or QApplication([])
-    monkeypatch.setattr(QMessageBox, "question", lambda *a, **k: QMessageBox.StandardButton.Ok)
-    monkeypatch.setattr(QMessageBox, "information", lambda *a, **k: None)
-    monkeypatch.setattr(QMessageBox, "warning", lambda *a, **k: None)
+    monkeypatch.setattr(psdmod.QMessageBox, "question", lambda *a, **k: QMessageBox.StandardButton.Ok)
+    monkeypatch.setattr(psdmod.QMessageBox, "information", lambda *a, **k: None)
+    monkeypatch.setattr(psdmod.QMessageBox, "warning", lambda *a, **k: None)
     monkeypatch.setattr(
         "app.widgets.psd_widget.ParticleSizeDistributionTab._show_astm_compliance_dialog",
         lambda *a: None,
@@ -212,14 +213,14 @@ def test_p01_any_input_edit_invalidates_is_astm_analysis(tab, standard, change):
 @pytest.mark.parametrize("standard", ["is383", "astm_c33", "bs882"])
 @pytest.mark.parametrize("text", ["oops", "NaN", "inf", "-inf", "-1", ""])
 def test_p02_invalid_cells_never_become_zero(tab, monkeypatch, standard, text):
-    from PyQt6.QtWidgets import QMessageBox
+    from app.widgets import psd_widget as psdmod
     tab.standard_combo.setCurrentIndex(tab.standard_combo.findData(standard))
     if standard == "bs882":
         tab.bs_quality.m1_spin.setValue(1000)
     fill(tab)
     input_background = tab.table.item(0, 1).background()
     warnings = []
-    monkeypatch.setattr(QMessageBox, "warning", lambda *a: warnings.append(a[-1]))
+    monkeypatch.setattr(psdmod.QMessageBox, "warning", lambda *a: warnings.append(a[-1]))
     tab.table.item(0, 1).setText(text)
     assert tab.table.item(0, 1).toolTip()
     assert tab.table.item(0, 4).text() == "—"

@@ -100,13 +100,13 @@ class IS10262MixDesign(MixDesignCode):
         if concrete_class == "high_strength":
             if nmsa not in HS_AIR_CONTENT:
                 raise ValueError(
-                    f"NMSA {nmsa} mm has no Table 6 air content (§6.2.3)"
+                    f"NMSA {nmsa} mm has no Table 6 air content (clause 6.2.3)"
                 )
             return HS_AIR_CONTENT[nmsa]
         if concrete_class == "mass":
             if nmsa not in MASS_AIR_CONTENT:
                 raise ValueError(
-                    f"NMSA {nmsa} mm has no Table 11 air content (§9.3)"
+                    f"NMSA {nmsa} mm has no Table 11 air content (clause 9.3)"
                 )
             return MASS_AIR_CONTENT[nmsa]
         air_map = {10: 1.5, 20: 1.0, 40: 0.8, 80: 0.3, 150: 0.2}
@@ -159,51 +159,51 @@ class IS10262MixDesign(MixDesignCode):
                     "(IS 10262:2019 Table 5 Note 4)"
                 )
 
-        # Design route: ordinary (§5), high-strength (§6, fck ≥ M65) or mass
-        # concrete (§9, explicit flag or 80/150 mm aggregate).
+        # Design route: ordinary (clause 5), high-strength (clause 6, fck ≥ M65) or mass
+        # concrete (clause 9, explicit flag or 80/150 mm aggregate).
         is_hs = inp.target_strength_mpa >= 65.0
         is_mass = bool(inp.mass_concrete) or nmsa in (80, 150)
         trial_clause = "5.8"
         if is_hs and is_mass:
             raise ValueError(
                 "IS 10262:2019 offers no combined high-strength mass-concrete "
-                "procedure — design high-strength (§6) and mass (§9) separately"
+                "procedure — design high-strength (clause 6) and mass (clause 9) separately"
             )
         if is_hs:
             trial_clause = "6.2.9"
             # Tables 6/7/8/10 tabulate 10, 12.5 and 20 mm for the
-            # high-strength route (§6.2.2); larger sizes have no §6 data.
+            # high-strength route (clause 6.2.2); larger sizes have no clause 6 data.
             if nmsa not in (10, 12.5, 20):
                 raise ValueError(
                     f"High-strength concrete is generally restricted to 20 mm "
                     f"maximum aggregate — Tables 6/7/8/10 cover 10, 12.5 and "
-                    f"20 mm (IS 10262:2019 §6.2.2); got {nmsa} mm"
+                    f"20 mm (IS 10262:2019 clause 6.2.2); got {nmsa} mm"
                 )
             if grading_zone == "IV":
                 raise ValueError(
                     "Grading Zone IV has no Table 10 coarse-aggregate volume — "
                     "high-strength concrete prefers Zone I/II sand "
-                    "(IS 10262:2019 §6.1.3, §6.2.7)"
+                    "(IS 10262:2019 clause 6.1.3, clause 6.2.7)"
                 )
             if grading_zone == "III":
                 warnings.append(
                     "Zone III sand is tabulated but a coarser Zone I/II sand "
                     "is preferred for high-strength concrete "
-                    "(IS 10262:2019 §6.1.3)"
+                    "(IS 10262:2019 clause 6.1.3)"
                 )
             if inp.target_strength_mpa >= 80.0 and nmsa == 20:
                 warnings.append(
                     "For M80 and above, 10.0–12.5 mm aggregate is preferable "
-                    "to 20 mm (IS 10262:2019 §6.2.2)"
+                    "to 20 mm (IS 10262:2019 clause 6.2.2)"
                 )
             warnings.append(
                 "High-strength route: verify crushed-stone aggregate with "
                 "impact/crushing value ≤ 22% and combined flakiness + "
-                "elongation index ≤ 30% (IS 10262:2019 §6.1.2)"
+                "elongation index ≤ 30% (IS 10262:2019 clause 6.1.2)"
             )
         elif nmsa == 12.5:
             # Ordinary grades have no 12.5 mm water/aggregate tables —
-            # the size is tabulated only in the §6 high-strength tables.
+            # the size is tabulated only in the clause 6 high-strength tables.
             raise ValueError(
                 "12.5 mm aggregate is tabulated only for high-strength "
                 "concrete (IS 10262:2019 Tables 6/7/8/10); ordinary grades "
@@ -214,11 +214,11 @@ class IS10262MixDesign(MixDesignCode):
             if nmsa not in (40, 80, 150):
                 raise ValueError(
                     f"Mass concrete uses 40/80/150 mm nominal aggregate "
-                    f"(IS 10262:2019 §9); got {nmsa} mm"
+                    f"(IS 10262:2019 clause 9); got {nmsa} mm"
                 )
             warnings.append(
                 "Mass concrete: combine coarse fractions to Table 14 (80/150 "
-                "mm) or IS 383 Table 7 (40 mm) grading (IS 10262:2019 §9.9)"
+                "mm) or IS 383 Table 7 (40 mm) grading (IS 10262:2019 clause 9.9)"
             )
 
         # Determine standard deviation: a site record (≥30 results, Cl. 4.2.1)
@@ -249,9 +249,9 @@ class IS10262MixDesign(MixDesignCode):
             )
         )
 
-        # §9.2: for 80/150 mm aggregate the target is raised 20%/25% for the
+        # clause 9.2: for 80/150 mm aggregate the target is raised 20%/25% for the
         # wet-sieved cube results. Strength reporting only — w/c selection
-        # (§9.5) keeps using the un-raised target above. The raised value is
+        # (clause 9.5) keeps using the un-raised target above. The raised value is
         # kept exact (2 dp), like the Cl. 4.2 target itself.
         ftm_report = ftm
         if is_mass and nmsa in (80, 150):
@@ -266,7 +266,7 @@ class IS10262MixDesign(MixDesignCode):
                     {"ftm": ftm, "wet_factor": _wet_factor, "nmsa": nmsa},
                     ftm_report,
                     "MPa",
-                    "IS 10262:2019 §9.2",
+                    "IS 10262:2019 clause 9.2",
                 )
             )
 
@@ -279,9 +279,9 @@ class IS10262MixDesign(MixDesignCode):
         # (Annex A: 186 → 191.58 at 75 mm slump → 148 after 23% reduction.)
         # Step 2: Water content — route table by design section.
         # Ordinary: Table 4 + slump rule + aggregate-shape cut (Cl. 5.3).
-        # High-strength: Table 7 + slump rule (§6.2.4; no shape cuts are
+        # High-strength: Table 7 + slump rule (clause 6.2.4; no shape cuts are
         #   tabulated for high-strength, so none are applied).
-        # Mass: Table 12 + slump rule, with the §9.4 rounded-gravel cut only
+        # Mass: Table 12 + slump rule, with the clause 9.4 rounded-gravel cut only
         #   (other shapes keep the angular-table value — nothing else is
         #   tabulated).
         agg_shape = inp.coarse_aggregate.shape.value
@@ -290,7 +290,7 @@ class IS10262MixDesign(MixDesignCode):
             water_kg = hs_water_content(nmsa, inp.slump_mm)
             base_water = hs_water_content(nmsa, 50.0)
             shape_adj_kg = 0.0
-            water_table_ref = "IS 10262:2019 Table 7 + §6.2.4"
+            water_table_ref = "IS 10262:2019 Table 7 + clause 6.2.4"
         elif is_mass:
             water_kg = mass_water_content(
                 nmsa, inp.slump_mm,
@@ -298,7 +298,7 @@ class IS10262MixDesign(MixDesignCode):
             )
             base_water = mass_water_content(nmsa, 50.0)
             shape_adj_kg = 0.0
-            water_table_ref = "IS 10262:2019 Table 12 + §9.4"
+            water_table_ref = "IS 10262:2019 Table 12 + clause 9.4"
         else:
             base_water = WATER_CONTENT.get(nmsa, 186)
             water_kg = interpolate_water_content(nmsa, inp.slump_mm, grading_zone)
@@ -336,7 +336,7 @@ class IS10262MixDesign(MixDesignCode):
             _formula_parts.append(f"shape adj {shape_adj_kg:+.0f} kg")
         if is_mass and agg_shape == "rounded_gravel":
             _formula_parts.append(
-                f"rounded cut −{MASS_ROUNDED_REDUCTION_KG[nmsa]:.0f} kg (§9.4)"
+                f"rounded cut −{MASS_ROUNDED_REDUCTION_KG[nmsa]:.0f} kg (clause 9.4)"
             )
         steps.append(
             self._make_step(
@@ -380,8 +380,8 @@ class IS10262MixDesign(MixDesignCode):
                 )
             )
 
-        # Step 3: W/C ratio — Figure 1 (ordinary/mass at base target, §9.5)
-        # or Table 8 interpolation for high-strength (§6.2.5, HRWRA +
+        # Step 3: W/C ratio — Figure 1 (ordinary/mass at base target, clause 9.5)
+        # or Table 8 interpolation for high-strength (clause 6.2.5, HRWRA +
         # silica-fume concretes with ≥53 MPa cement).
         if inp.w_c_ratio is not None:
             wc = inp.w_c_ratio
@@ -391,7 +391,7 @@ class IS10262MixDesign(MixDesignCode):
                 warnings.append(
                     f"Target {ftm:.1f} MPa is beyond the Table 8 range "
                     f"(ends at 100 MPa) — 100 MPa row used; verify by trial "
-                    f"(IS 10262:2019 §6.2.5)"
+                    f"(IS 10262:2019 clause 6.2.5)"
                 )
             if cement_type_str in ("OPC_33", "OPC_43", "PPC", "PSC"):
                 warnings.append(
@@ -442,12 +442,12 @@ class IS10262MixDesign(MixDesignCode):
         # "particularly if fly ash is 20 percent or more", e.g. 431 × 1.10
         # = 474 at 30% fly ash — while Annex C (40% GGBS, no fly ash)
         # applies NO increase: 431 split straight into 172 + 259);
-        # mass §9.6.1 (fly ash ≥ 20% or GGBS ≥ 30%);
-        # high-strength §6.2.5/Annex D-7 (§6.2.5: "In case other cementitious
+        # mass clause 9.6.1 (fly ash ≥ 20% or GGBS ≥ 30%);
+        # high-strength clause 6.2.5/Annex D-7 (clause 6.2.5: "In case other cementitious
         # materials such as fly ash, ggbs are also used, the cementitious
         # material content shall be suitably increased" — the D-7 worked
         # example adds 10% at 15% fly ash; silica fume alone is excluded, as
-        # §6.2.5 names only fly ash and ggbs).
+        # clause 6.2.5 names only fly ash and ggbs).
         _bump_due = False
         _bump_ref = ""
         if (not is_hs and not is_mass
@@ -455,10 +455,10 @@ class IS10262MixDesign(MixDesignCode):
             _bump_due, _bump_ref = True, "IS 10262:2019 Clause 5.4.1, Annex B"
         elif is_mass and (_scm_pct("fly_ash", "fly_ash_c") >= 20.0
                           or _scm_pct("ggbfs") >= 30.0):
-            _bump_due, _bump_ref = True, "IS 10262:2019 §9.6.1"
+            _bump_due, _bump_ref = True, "IS 10262:2019 clause 9.6.1"
         elif is_hs and (_scm_pct("fly_ash", "fly_ash_c") > 0.0
                         or _scm_pct("ggbfs") > 0.0):
-            _bump_due, _bump_ref = True, "IS 10262:2019 §6.2.5, Annex D-7"
+            _bump_due, _bump_ref = True, "IS 10262:2019 clause 6.2.5, Annex D-7"
         if _bump_due:
             cementitious_total *= 1.10
             warnings.append(
@@ -575,7 +575,7 @@ class IS10262MixDesign(MixDesignCode):
                 f"design for drying-shrinkage, early thermal cracking and ASR risk"
             )
 
-        # §§5.1.1–5.1.2 and §6.2.4 note: check the final effective ratio
+        # clauses 5.1.1–5.1.2 and clause 6.2.4 note: check the final effective ratio
         # against durability, even if the initial selection was below/equal
         # to the cap. Use the final binder after preliminary/minimum raises.
         w_eff = (water_kg + inp.admixture_water_kg) / cementitious_total
@@ -647,7 +647,7 @@ class IS10262MixDesign(MixDesignCode):
                         )
 
         # High-strength w/cm values are attainable in practice only with
-        # PCE high-range water reducers (§6.1.4, reduction ≥ 30%).
+        # PCE high-range water reducers (clause 6.1.4, reduction ≥ 30%).
         if is_hs and wc <= 0.35:
             _adm = inp.admixture
             _hrwra_ok = (_adm is not None
@@ -656,7 +656,7 @@ class IS10262MixDesign(MixDesignCode):
                 warnings.append(
                     f"w/cm {wc:.2f} ≤ 0.35 normally requires a PCE "
                     f"superplasticiser (≥30% water reduction, IS 10262:2019 "
-                    f"§6.1.4) — confirm workability by trial"
+                    f"clause 6.1.4) — confirm workability by trial"
                 )
 
         # IS 10262:2019 Annex A (A-9e) — Admixture mass and volume calculation
@@ -691,7 +691,7 @@ class IS10262MixDesign(MixDesignCode):
             )
 
         # Step 5: Aggregate proportions — Table 5 (ordinary, Cl. 5.5),
-        # Table 10 at w/cm 0.30 (high-strength, §6.2.7), Table 13 (mass, §9.7).
+        # Table 10 at w/cm 0.30 (high-strength, clause 6.2.7), Table 13 (mass, clause 9.7).
         # A Table 5 row override replaces the zone lookup in any route; the
         # w/c adjustment applies either way (base 0.30 for Table 10).
         ca_fraction_override = getattr(inp, "ca_volume_fraction_override", None)
@@ -715,15 +715,15 @@ class IS10262MixDesign(MixDesignCode):
         if abs(ca_fraction - ca_fraction_base) > 0.001:
             wcr_adj_desc = f" (adjusted from {ca_fraction_base} at W/C={'0.30' if is_hs else '0.50'}, Δ={ca_fraction - ca_fraction_base:+.2f})"
 
-        # Placing-method reduction of the CA fraction: ordinary §5.5.2
+        # Placing-method reduction of the CA fraction: ordinary clause 5.5.2
         # (up to 10% — the worked examples use the full 10%); high-strength
-        # §6.2.7 (up to 5%); mass sizes carry no tabulated pump reduction.
+        # clause 6.2.7 (up to 5%); mass sizes carry no tabulated pump reduction.
         # An explicit pump_ca_reduction_percent (0–10) overrides the route
-        # maximum; anything above it is rejected (§5.5.2 "up to").
+        # maximum; anything above it is rejected (clause 5.5.2 "up to").
         if inp.placing_method == "pump":
             _route_max = 5.0 if is_hs else (None if is_mass else 10.0)
             _route_ref = (
-                "§6.2.7" if is_hs else ("§9 (no tabulated value)" if is_mass else "§5.5.2")
+                "clause 6.2.7" if is_hs else ("clause 9 (no tabulated value)" if is_mass else "clause 5.5.2")
             )
             _explicit = getattr(inp, "pump_ca_reduction_percent", None)
             if _explicit is not None:
@@ -742,24 +742,24 @@ class IS10262MixDesign(MixDesignCode):
                 )
             elif is_hs:
                 ca_fraction = round(ca_fraction * 0.95, 3)
-                wcr_adj_desc += f" (pumped placing: −5% → {ca_fraction:.3f}, §6.2.7)"
+                wcr_adj_desc += f" (pumped placing: −5% → {ca_fraction:.3f}, clause 6.2.7)"
                 warnings.append(
                     "Coarse-aggregate fraction reduced 5% for pumped placing "
-                    "(IS 10262:2019 §6.2.7) — confirm slump, w/cm and strength "
+                    "(IS 10262:2019 clause 6.2.7) — confirm slump, w/cm and strength "
                     "on the trial batches"
                 )
             elif is_mass:
                 warnings.append(
                     "Pumped placing has no tabulated CA reduction for "
                     "mass-concrete sizes — placeability is governed by the "
-                    "§9.10 mortar check below; verify by trial (IS 10262:2019 §9)"
+                    "clause 9.10 mortar check below; verify by trial (IS 10262:2019 clause 9)"
                 )
             else:
                 ca_fraction = round(ca_fraction * 0.9, 3)
-                wcr_adj_desc += f" (pumped placing: −10% → {ca_fraction:.3f}, §5.5.2)"
+                wcr_adj_desc += f" (pumped placing: −10% → {ca_fraction:.3f}, clause 5.5.2)"
                 warnings.append(
                     "Coarse-aggregate fraction reduced 10% for pumped placing "
-                    "(IS 10262:2019 §5.5.2) — confirm slump, w/c and strength on "
+                    "(IS 10262:2019 clause 5.5.2) — confirm slump, w/c and strength on "
                     "the trial batches"
                 )
 
@@ -823,7 +823,7 @@ class IS10262MixDesign(MixDesignCode):
             )
         )
 
-        # §9.10: large-aggregate mixes need a minimum mortar content for
+        # clause 9.10: large-aggregate mixes need a minimum mortar content for
         # placing and workability. Mortar = cement + pozzolana + water +
         # admixture + air + fine aggregate (absolute volumes).
         if is_mass and nmsa in (80, 150):
@@ -837,7 +837,7 @@ class IS10262MixDesign(MixDesignCode):
                     f"Mortar content {_mortar:.3f} m³/m³ is outside the "
                     f"suggested {_m_lo:.2f}–{_m_hi:.2f} for {nmsa} mm "
                     f"{_shape_key} aggregate — adjust fine aggregate and "
-                    f"cementitious contents for placeability (IS 10262:2019 §9.10)"
+                    f"cementitious contents for placeability (IS 10262:2019 clause 9.10)"
                 )
             steps.append(
                 self._make_step(
@@ -847,11 +847,11 @@ class IS10262MixDesign(MixDesignCode):
                     {"mortar": _mortar, "suggested": (_m_lo, _m_hi)},
                     _mortar,
                     "m³/m³",
-                    "IS 10262:2019 §9.10, Table 15",
+                    "IS 10262:2019 clause 9.10, Table 15",
                 )
             )
 
-        # Moisture correction. Shared engine uses the ACI §5.3.9.1 identity
+        # Moisture correction. Shared engine uses the ACI clause 5.3.9.1 identity
         # w_batch = w_SSD·(1+MC)/(1+A); the IS 10262 annexes apply free
         # moisture = MC − A to the SSD mass instead (A-11/B-11). The two
         # formulations differ by ≤ 0.5 kg/m³ per constituent on the annex
@@ -903,7 +903,7 @@ class IS10262MixDesign(MixDesignCode):
                 f"Total absolute volume {actual_vol:.4f} m³ deviates from 1.0 m³"
             )
 
-        # Step 8: Trial Mixes Protocol (Cl. 5.8 ordinary / §6.2.9 HS / §9.11 mass)
+        # Step 8: Trial Mixes Protocol (Cl. 5.8 ordinary / clause 6.2.9 HS / clause 9.11 mass)
         _trial_ref = f"IS 10262:2019 Clause {trial_clause}"
         wc_trial3 = round(wc * 0.90, 2)
         wc_trial4 = round(wc * 1.10, 2)
@@ -932,8 +932,8 @@ class IS10262MixDesign(MixDesignCode):
             f"followed by field trials and Clause {_report_ref} reporting."
         )
 
-        # Self-compacting concrete (§7–§8): fresh-property class checks plus
-        # the §8.3 constituent-envelope checks. NOTE — this is an SCC
+        # Self-compacting concrete (clause 7–clause 8): fresh-property class checks plus
+        # the clause 8.3 constituent-envelope checks. NOTE — this is an SCC
         # compliance overlay on an ordinarily-proportioned mix, NOT the full
         # Annex E proportioning procedure (powder content, water/powder
         # ratio and paste-volume design). Active when a target class or any
@@ -959,20 +959,20 @@ class IS10262MixDesign(MixDesignCode):
                         warnings.append(
                             f"Slump-flow {_sf:.0f} mm is outside the target "
                             f"{inp.scc_class} range ({_lo:.0f}–{_hi:.0f} mm, "
-                            f"IS 10262:2019 §7.2.1) — adjust water/powder and "
+                            f"IS 10262:2019 clause 7.2.1) — adjust water/powder and "
                             f"superplasticiser, then re-test"
                         )
                 elif not _met:
                     warnings.append(
                         f"Slump-flow {_sf:.0f} mm meets no SF class (SF1 550–650, "
-                        f"SF2 660–750, SF3 760–850; §7.2.1)"
+                        f"SF2 660–750, SF3 760–850; clause 7.2.1)"
                     )
             if inp.scc_lbox_ratio is not None:
                 _scc_notes["lbox_ratio"] = inp.scc_lbox_ratio
                 if inp.scc_lbox_ratio < 0.8:
                     warnings.append(
                         f"L-box ratio {inp.scc_lbox_ratio:.2f} is below the 0.80 "
-                        f"passing-ability minimum (IS 10262:2019 §7.2.2)"
+                        f"passing-ability minimum (IS 10262:2019 clause 7.2.2)"
                     )
             if inp.scc_segregation_pct is not None:
                 _sr = inp.scc_segregation_pct
@@ -981,8 +981,8 @@ class IS10262MixDesign(MixDesignCode):
                 if _sr > 20.0:
                     warnings.append(
                         f"Segregation ratio {_sr:.1f}% exceeds the SR1 15–20% "
-                        f"band (IS 10262:2019 §7.2.3) — consider a viscosity- "
-                        f"modifying admixture (§8.3)"
+                        f"band (IS 10262:2019 clause 7.2.3) — consider a viscosity- "
+                        f"modifying admixture (clause 8.3)"
                     )
             if inp.scc_vfunnel_s is not None:
                 _vf = inp.scc_vfunnel_s
@@ -991,9 +991,9 @@ class IS10262MixDesign(MixDesignCode):
                 if _vf > 25.0:
                     warnings.append(
                         f"V-funnel time {_vf:.1f} s exceeds the V2 8–25 s band "
-                        f"(IS 10262:2019 §7.2.4)"
+                        f"(IS 10262:2019 clause 7.2.4)"
                     )
-            # §8.3 constituent envelope on the design itself.
+            # clause 8.3 constituent envelope on the design itself.
             _fa_mass_frac = (fa_kg / (fa_kg + ca_kg)
                              if (fa_kg + ca_kg) > 0 else 0.0)
             _scc_notes["fine_agg_mass_fraction"] = round(_fa_mass_frac, 3)
@@ -1001,27 +1001,27 @@ class IS10262MixDesign(MixDesignCode):
                 warnings.append(
                     f"Fine aggregate is {_fa_mass_frac * 100:.1f}% of total "
                     f"aggregate by mass — SCC typically needs 48–60% "
-                    f"(IS 10262:2019 §8.3(a))"
+                    f"(IS 10262:2019 clause 8.3(a))"
                 )
             if not 150.0 <= water_kg <= 210.0:
                 warnings.append(
                     f"Mixing water {water_kg:.0f} kg/m³ is outside the typical "
-                    f"SCC 150–210 kg/m³ band (IS 10262:2019 §8.3(b))"
+                    f"SCC 150–210 kg/m³ band (IS 10262:2019 clause 8.3(b))"
                 )
             _powder = cement_kg + scm_kg
             if _powder > 600.0:
                 raise ValueError(
                     f"Powder content {_powder:.0f} kg/m³ (cement + mineral "
                     f"admixtures, before aggregate fines) already exceeds the "
-                    f"SCC 400–600 kg/m³ fines band (IS 10262:2019 §8.3(a))"
+                    f"SCC 400–600 kg/m³ fines band (IS 10262:2019 clause 8.3(a))"
                 )
             if _powder < 400.0:
                 warnings.append(
                     f"Cement + mineral admixtures are {_powder:.0f} kg/m³; with "
                     f"aggregate fines the <0.125 mm powder should total "
-                    f"400–600 kg/m³ (IS 10262:2019 §8.3(a))"
+                    f"400–600 kg/m³ (IS 10262:2019 clause 8.3(a))"
                 )
-            # §8.3(c): SCC water reduction comes from a PCE high-range water
+            # clause 8.3(c): SCC water reduction comes from a PCE high-range water
             # reducer at ">30 percent" — gate on 30, not the generic
             # superplasticizer floor.
             _hrwra = (inp.admixture is not None
@@ -1030,7 +1030,7 @@ class IS10262MixDesign(MixDesignCode):
                 warnings.append(
                     "SCC normally requires a PCE high-range water reducer "
                     "(>30% reduction), sometimes with a viscosity-modifying "
-                    "admixture (IS 10262:2019 §8.3(c))"
+                    "admixture (IS 10262:2019 clause 8.3(c))"
                 )
             steps.append(
                 self._make_step(
@@ -1044,7 +1044,7 @@ class IS10262MixDesign(MixDesignCode):
                      "water_kg": water_kg, "powder_kg": _powder},
                     1.0,
                     "check",
-                    "IS 10262:2019 §7.2 / §8.3",
+                    "IS 10262:2019 clause 7.2 / clause 8.3",
                 )
             )
 
@@ -1137,8 +1137,8 @@ def calculate_is10262_trial_mixes(
             ca_frac_base = mass_ca_volume_fraction(nmsa, grading_zone)
         else:
             ca_frac_base = get_ca_volume_fraction(nmsa, grading_zone)
-        # Keep the design's placing assumptions in every variant (§5.5.2,
-        # §6.2.7): ordinary defaults to 10%, high-strength to 5%, mass to
+        # Keep the design's placing assumptions in every variant (clause 5.5.2,
+        # clause 6.2.7): ordinary defaults to 10%, high-strength to 5%, mass to
         # no tabulated cut. Explicit reductions (including zero) take priority.
         pump_reduction = 0.0
         if inp.placing_method == "pump":
@@ -1149,7 +1149,7 @@ def calculate_is10262_trial_mixes(
                     raise ValueError(
                         f"Pump CA reduction {explicit:g}% exceeds the "
                         f"{route_max:g}% maximum for this route "
-                        f"(IS 10262:2019 {'§6.2.7' if _is_hs else '§5.5.2'})"
+                        f"(IS 10262:2019 {'clause 6.2.7' if _is_hs else 'clause 5.5.2'})"
                     )
                 pump_reduction = explicit
             elif route_max is not None:
@@ -1200,8 +1200,8 @@ def calculate_is10262_trial_mixes(
         "action": "Establish confirmed baseline water content for Trials 3 and 4.",
     }
 
-    # §5.4.1's preliminary increase is already reflected in wc1. Trials
-    # 3/4 target actual w/cm (§5.8 / §6.2.9 / §9.11), not a new preliminary
+    # clause 5.4.1's preliminary increase is already reflected in wc1. Trials
+    # 3/4 target actual w/cm (clause 5.8 / clause 6.2.9 / clause 9.11), not a new preliminary
     # selection: derive binder directly, without a second SCM increase.
     # Trial 3: W/C -10%
     wc3 = round(wc1 * 0.90, 2)
@@ -1306,7 +1306,7 @@ def calculate_is10262_trial_mixes(
 
 
 def _scm_absolute_volume(scm_kg: float, inp: MixDesignInput) -> float:
-    """Sum constituent volumes at their own SG (§5.7 / §6.2.8).
+    """Sum constituent volumes at their own SG (clause 5.7 / clause 6.2.8).
 
     The result model stores combined SCM mass. Split that mass by the
     declared replacement shares; using the first SG makes yield depend

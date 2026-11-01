@@ -61,7 +61,7 @@ def _aci_grades() -> tuple[GradeOption, ...]:
             value_mpa=round(psi * aci_tables._PSI_TO_MPA, 4),
             name=f"{psi:,} psi",
             native_unit="psi",
-            clause="ACI 318-19 §26.4.2.1(a)(1) increment grid",
+            clause="ACI 318-19 clause 26.4.2.1(a)(1) increment grid",
             psi=psi,
         )
         for psi in aci_tables.ACI_FC_GRADES_PSI
@@ -85,7 +85,7 @@ def _doe_grades() -> tuple[GradeOption, ...]:
         GradeOption(
             value_mpa=fc,
             native_unit="MPa",
-            clause="BRE 331:1997 §4.3 (app 5 N/mm² grid)",
+            clause="BRE 331:1997 clause 4.3 (app 5 N/mm² grid)",
         )
         for fc in doe_tables.DOE_FC_GRADES_MPA
     )

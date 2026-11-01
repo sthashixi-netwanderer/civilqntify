@@ -28,6 +28,8 @@ from __future__ import annotations
 
 import math
 
+from concrete_mix.utils.rounding import ceil_to_one_decimal
+
 # Table 4: Approximate water content (kg/m³) for concrete per IS 10262:2019
 # Based on angular coarse aggregate and 50 mm slump (Clause 5.3)
 # Format: {nmsa_mm: water_kg_m3}
@@ -283,7 +285,7 @@ def wc_ratio_from_strength(
     The base polynomial (Curve B, OPC 43) is:
         183.0x² - 287.4x + (128.0 - target) = 0
     For Curve A and C the standard shifts the strength axis by the
-    difference in cement strength, per IS 10262:2019 §4.2.3 and Fig.1
+    difference in cement strength, per IS 10262:2019 clause 4.2.3 and Fig.1
     (stronger cement achieves higher strength at same w/c; therefore at a
     given target, stronger cement requires higher w/c).
 
@@ -416,7 +418,7 @@ def interpolate_water_content(
 
 # Table 7: maximum water content (kg/m³) for 50 mm slump, angular aggregate.
 # 12.5 mm is tabulated alongside 10/20 mm for the high-strength route
-# (§6.2.2 prefers 10–12.5 mm aggregate for grades M80 and above).
+# (clause 6.2.2 prefers 10–12.5 mm aggregate for grades M80 and above).
 HS_WATER_CONTENT: dict[int | float, float] = {
     10: 200,
     12.5: 195,
@@ -459,15 +461,15 @@ HS_AIR_CONTENT: dict[int | float, float] = {
 
 
 def hs_water_content(nmsa: int | float, slump_mm: float) -> float:
-    """Table 7 water (50 mm slump base) with the §6.2.4 slump rule.
+    """Table 7 water (50 mm slump base) with the clause 6.2.4 slump rule.
 
     Same ±3% per 25 mm rule as Cl. 5.3. 10/12.5/20 mm NMSA are tabulated
-    (§6.2.2: high-strength aggregate is generally restricted to 20 mm).
+    (clause 6.2.2: high-strength aggregate is generally restricted to 20 mm).
     """
     if nmsa not in HS_WATER_CONTENT:
         raise ValueError(
             f"NMSA {nmsa} mm has no Table 7 water content — high-strength "
-            f"concrete is restricted to 10/12.5/20 mm aggregate (§6.2.2)"
+            f"concrete is restricted to 10/12.5/20 mm aggregate (clause 6.2.2)"
         )
     base = HS_WATER_CONTENT[nmsa]
     return base * (1.0 + 3.0 * (slump_mm - 50.0) / 25.0 / 100.0)
@@ -481,7 +483,7 @@ def hs_wcm_ratio(target_strength_mpa: float, nmsa: int | float) -> float:
     """
     if nmsa not in (10, 12.5, 20):
         raise ValueError(
-            f"NMSA {nmsa} mm has no Table 8 w/cm column (§6.2.5)"
+            f"NMSA {nmsa} mm has no Table 8 w/cm column (clause 6.2.5)"
         )
     targets = sorted(HS_WCM_TABLE.keys())
     if target_strength_mpa <= targets[0]:
@@ -501,13 +503,13 @@ def hs_ca_volume_fraction(nmsa: int | float, grading_zone: str) -> float:
     """Table 10 CA fraction at w/cm = 0.30 (no Zone IV entry)."""
     if nmsa not in HS_CA_VOLUME_FRACTION:
         raise ValueError(
-            f"NMSA {nmsa} mm has no Table 10 coarse-aggregate volume (§6.2.7)"
+            f"NMSA {nmsa} mm has no Table 10 coarse-aggregate volume (clause 6.2.7)"
         )
     zone_volumes = HS_CA_VOLUME_FRACTION[nmsa]
     if grading_zone not in zone_volumes:
         raise ValueError(
             f"Grading Zone {grading_zone} has no Table 10 value — use Zone "
-            f"I/II (coarser sand preferred, §6.1.3) or Zone III"
+            f"I/II (coarser sand preferred, clause 6.1.3) or Zone III"
         )
     return zone_volumes[grading_zone]
 
@@ -523,7 +525,7 @@ MASS_WATER_CONTENT: dict[int, float] = {
     150: 125,
 }
 
-# §9.4 rounded-gravel reductions (kg/m³) by NMSA. Specified for rounded
+# clause 9.4 rounded-gravel reductions (kg/m³) by NMSA. Specified for rounded
 # gravel only — other shapes keep the angular-table value.
 MASS_ROUNDED_REDUCTION_KG: dict[int, float] = {
     40: 20.0,
@@ -556,9 +558,9 @@ MASS_MORTAR_VOLUME: dict[tuple[int, str], tuple[float, float]] = {
 
 
 def mass_water_content(nmsa: int, slump_mm: float, rounded_gravel: bool = False) -> float:
-    """Table 12 water with the §9.4 slump rule and rounded-gravel cut."""
+    """Table 12 water with the clause 9.4 slump rule and rounded-gravel cut."""
     if nmsa not in MASS_WATER_CONTENT:
-        raise ValueError(f"NMSA {nmsa} mm has no Table 12 water content (§9.4)")
+        raise ValueError(f"NMSA {nmsa} mm has no Table 12 water content (clause 9.4)")
     water = MASS_WATER_CONTENT[nmsa] * (1.0 + 3.0 * (slump_mm - 50.0) / 25.0 / 100.0)
     if rounded_gravel:
         water -= MASS_ROUNDED_REDUCTION_KG[nmsa]
@@ -572,7 +574,7 @@ def mass_ca_volume_fraction(nmsa: int, grading_zone: str) -> float:
     instead of silently defaulting (see get_ca_volume_fraction).
     """
     if nmsa not in MASS_CA_VOLUME_FRACTION:
-        raise ValueError(f"NMSA {nmsa} mm has no Table 13 volume (§9.7)")
+        raise ValueError(f"NMSA {nmsa} mm has no Table 13 volume (clause 9.7)")
     if grading_zone not in MASS_CA_VOLUME_FRACTION[nmsa]:
         raise ValueError(
             f"Grading zone '{grading_zone}' not in IS 10262 Table 13 — "
@@ -675,10 +677,11 @@ def calculate_target_strength(
     f'ck = fck + X           (if higher)
 
     Both formulae are evaluated; the higher value is selected, then rounded
-    UP to the next whole MPa (app policy — conservative; Annex A M40
-    48.25 → 49). IS 10262:2019 itself states no rounding rule, so rounding
-    up never under-designs; the exact intermediates are shown in the
-    description and the ceiled value chains into the Figure 1 w/c lookup.
+    UP to one decimal place (app policy — conservative; Annex A M40
+    48.25 → 48.3). IS 10262:2019 itself states no rounding rule, so
+    rounding up never under-designs; the exact intermediates are shown in
+    the description and the rounded value chains into the Figure 1 w/c
+    lookup.
 
     Returns (target_strength, description_string).
     """
@@ -691,11 +694,11 @@ def calculate_target_strength(
     ftm_sigma = fck + 1.65 * std_dev
     ftm_x = fck + x_val
 
-    # Exact values to 2 dp, higher governs, then UP to whole MPa
-    # (IS 10262:2019 Cl. 4.2; 1e-9 guards float noise at exact integers).
+    # Exact values to 2 dp, higher governs, then UP to one decimal place
+    # (app policy; IS 10262:2019 Cl. 4.2 states no rounding rule).
     ftm_sigma_r = round(ftm_sigma, 2)
     ftm_x_r = round(ftm_x, 2)
-    ftm = math.ceil(max(ftm_sigma_r, ftm_x_r) - 1e-9)
+    ftm = ceil_to_one_decimal(max(ftm_sigma_r, ftm_x_r))
 
     sigma_desc = f"f'ck = {fck} + 1.65 × {std_dev} = {ftm_sigma_r:.2f} MPa"
     x_desc = f"f'ck = {fck} + {x_val} = {ftm_x_r:.2f} MPa"
@@ -704,14 +707,14 @@ def calculate_target_strength(
         desc = (
             f"Formula 1: {sigma_desc}\n"
             f"Formula 2: {x_desc}\n"
-            f"→ Higher value = Formula 1 (1.65×S) = {ftm_sigma_r:.2f} → {ftm:.0f} MPa (rounded up)"
+            f"→ Higher value = Formula 1 (1.65×S) = {ftm_sigma_r:.2f} → {ftm:.1f} MPa (rounded up)"
         )
         return ftm, desc
     else:
         desc = (
             f"Formula 1: {sigma_desc}\n"
             f"Formula 2: {x_desc}\n"
-            f"→ Higher value = Formula 2 (X factor) = {ftm_x_r:.2f} → {ftm:.0f} MPa (rounded up)"
+            f"→ Higher value = Formula 2 (X factor) = {ftm_x_r:.2f} → {ftm:.1f} MPa (rounded up)"
         )
         return ftm, desc
 
@@ -721,7 +724,7 @@ def adjust_ca_volume_for_wcr(
 ) -> float:
     """Adjust coarse aggregate volume fraction for W/C ratio.
 
-    IS 10262:2019 Clause 5.5.1 (§9.7 identical for mass concrete):
+    IS 10262:2019 Clause 5.5.1 (clause 9.7 identical for mass concrete):
     Base at W/C = `base_wcr` (0.50 for Tables 5/13, 0.30 for Table 10).
     Increase 0.01 for every 0.05 decrease in W/C, decrease 0.01 for every
     0.05 increase in W/C.
@@ -938,7 +941,7 @@ def compute_water_reduction(
     IS 10262:2019 Annex G:
         Plasticizer:       0.3–0.5%  →  8–12% water reduction
         Superplasticizer:  0.5–1.5%  → 15–30% water reduction
-    ACI 211.1-22 §6.3 / ASTM C494:
+    ACI 211.1-22 clause 6.3 / ASTM C494:
         Water Reducer:     0.2–0.6%  →  5–12% water reduction
         HRWRA:             0.5–1.5%  → 12–40% water reduction
 
@@ -964,7 +967,7 @@ def compute_water_reduction(
         reduction = r_min + fraction * (r_max - r_min)
 
     reduction = round(reduction, 1)
-    std_name = "IS 10262:2019 Annex G" if code == "is10262" else ("ACI 211.1-22 §6.3" if code == "aci211" else "BRE 331:1997 §5.3")
+    std_name = "IS 10262:2019 Annex G" if code == "is10262" else ("ACI 211.1-22 clause 6.3" if code == "aci211" else "BRE 331:1997 clause 5.3")
     desc = (
         f"{std_name}\n"
         f"  {admixture_type.replace('_', ' ').title()}: dosage {d_min}–{d_max}% → water reduction {r_min}–{r_max}%\n"

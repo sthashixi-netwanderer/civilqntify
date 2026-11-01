@@ -35,6 +35,7 @@ from concrete_mix.engine.volume_calculator import absolute_volume
 from concrete_mix.models.mix_input import MixDesignInput
 from concrete_mix.models.mix_result import CalculationStep, MixDesignResult
 from concrete_mix.utils.constants import SG_WATER
+from concrete_mix.utils.rounding import ceil_to_one_decimal
 
 
 class ACI211MixDesign(MixDesignCode):
@@ -68,14 +69,12 @@ class ACI211MixDesign(MixDesignCode):
         When has_production_data=False (no prior data):
             Uses ACI 318 Table 26.4.3.1(b) / Table 4.7.4.1 overdesign rules.
 
-        App policy: the reported f'cr is rounded UP to the next whole MPa
-        (e.g. 24.13 -> 25) — e.g.
-        30.87 → 30.9. ACI 318 works f'cr at psi granularity (≈0.007 MPa)
-        with no rounding rule; whole-MPa rounding adds up to ~145 psi of
-        conservatism, which is accepted as a uniform app policy across all
-        three codes (IS and DOE targets are likewise ceiled to whole MPa).
-        Rounding up (never down) stays conservative. The 1e-9 epsilon
-        guards against float noise just above an exact integer.
+        App policy: the reported f'cr is rounded UP to one decimal place
+        (e.g. 24.13 -> 24.2; 30.87 -> 30.9). ACI 318 works f'cr at psi
+        granularity (≈0.007 MPa) with no rounding rule, so the app applies
+        the same one-decimal upward rule to all three codes. Rounding up
+        (never down) stays conservative; the epsilon guards against float
+        noise just above an exact tenth.
 
         Args:
             target_strength_mpa: Specified compressive strength f'c (MPa)
@@ -87,7 +86,9 @@ class ACI211MixDesign(MixDesignCode):
                 None) uses s unmodified
         """
         if not has_production_data:
-            return math.ceil(get_no_data_overdesign(target_strength_mpa) - 1e-9)
+            return ceil_to_one_decimal(
+                get_no_data_overdesign(target_strength_mpa)
+            )
 
         s = std_dev if std_dev is not None else 4.0  # default 4 MPa ≈ 600 psi
         k = modification_factor_k(num_tests) if num_tests is not None else 1.0
@@ -106,7 +107,7 @@ class ACI211MixDesign(MixDesignCode):
         # Must be at least f'c + 2.4 MPa (≈350 psi) per ACI 318
         fcr = max(fcr, target_strength_mpa + 2.4)
 
-        return math.ceil(fcr - 1e-9)
+        return ceil_to_one_decimal(fcr)
 
     def get_water_content(
         self, nmsa: int, slump_mm: float, **kwargs
@@ -143,8 +144,8 @@ class ACI211MixDesign(MixDesignCode):
         nmsa = inp.nmsa
         if nmsa in (80, 150):
             raise ValueError(
-                f"NMSA {nmsa} mm is an IS 10262 mass-concreting size (§9) — "
-                f"ACI PRC-211.1-22 Tables 5.3.3/5.3.6 cover at most 40 mm (1-1/2 in.)"
+                f"NMSA {nmsa} mm is an IS 10262 mass-concreting size (clause 9) — "
+                f"ACI PRC-211.1-22 Tables 5.3.3/5.3.6 cover at most 75 mm (3 in.)"
             )
 
         # Determine exposure level for air content
@@ -157,7 +158,7 @@ class ACI211MixDesign(MixDesignCode):
         }
         exposure = exposure_map.get(inp.exposure_class or "moderate", "moderate")
 
-        # ACI 318 26.4.2.1(a)(5) / PRC-211.1-22 §4.3.2 — NMSA must fit the
+        # ACI 318 26.4.2.1(a)(5) / PRC-211.1-22 clause 4.3.2 — NMSA must fit the
         # structure: ≤ 1/5 of form width, ≤ 1/3 of slab depth, ≤ 3/4 of clear
         # bar spacing. Dimensions are optional; only supplied ones are checked.
         nmsa_violations = check_nmsa_limits(
@@ -188,7 +189,7 @@ class ACI211MixDesign(MixDesignCode):
             )
 
         # ACI 301 Table 4.2.2.6(c) / ACI 318 Chapter 19 — freezing-and-thawing
-        # exposure (PRC-211.1-22 §4.7.3, Table 4.7.3b). Fail fast on
+        # exposure (PRC-211.1-22 clause 4.7.3, Table 4.7.3b). Fail fast on
         # non-compliant combinations, mirroring the IS 456 minimum-grade gate:
         # a frost-exposed mix cannot satisfy durability below these limits.
         f_class = getattr(inp, "freezing_exposure_class", "F0") or "F0"
@@ -363,7 +364,7 @@ class ACI211MixDesign(MixDesignCode):
         ):
             warnings.append(
                 "Silica fume / calcined-clay SCMs usually increase mixing-water "
-                "demand vs portland-only concrete (PRC-211.1-22 §4.7.6) — no "
+                "demand vs portland-only concrete (PRC-211.1-22 clause 4.7.6) — no "
                 "table rate exists, so none was applied; verify by trial batch"
             )
         _adj_pct, _adj_applied = water_adjustment_531(
@@ -375,7 +376,7 @@ class ACI211MixDesign(MixDesignCode):
         # The admixture water reduction joins the SAME percentage ledger:
         # every Table 5.3.3.1 row and the WRA/HRWRA reduction are
         # percentages of the Table 5.3.3 base water, applied additively —
-        # exactly as Example 2 (§9.3.3): 280 − 14 (WRA −5%) − 17 (fly ash
+        # exactly as Example 2 (clause 9.3.3): 280 − 14 (WRA −5%) − 17 (fly ash
         # −6%) − 22 (rounded −8%) = 227 lb/yd³. Compounding them
         # sequentially would double-count the base.
         _admixture_reduction_pct = 0.0
@@ -384,7 +385,7 @@ class ACI211MixDesign(MixDesignCode):
             _adj_pct -= _admixture_reduction_pct
             _adj_applied = _adj_applied + [
                 f"admixture −{_admixture_reduction_pct:.1f}% "
-                f"({inp.admixture.type_string}, §6.3)"
+                f"({inp.admixture.type_string}, clause 6.3)"
             ]
         # The 22.5 °C baseline contributes exactly 0.0%; drop it from the
         # record so legacy designs show no adjustment step at all.
@@ -403,13 +404,13 @@ class ACI211MixDesign(MixDesignCode):
                 {"base_water": base_water_kg, "adjustment_pct": _adj_pct,
                  "admixture_reduction_pct": _admixture_reduction_pct},
                 water_kg, "kg/m³",
-                "ACI PRC-211.1-22 Table 5.3.3.1 / §6.3"
+                "ACI PRC-211.1-22 Table 5.3.3.1 / clause 6.3"
             ))
 
         # Table 5.3.3.1 also lists −8% for rounded aggregate. The standard
-        # is inconsistent in its own examples — Example 1 (§9.2.3) keeps the
+        # is inconsistent in its own examples — Example 1 (clause 9.2.3) keeps the
         # tabulated water for a rounded coarse aggregate while Example 2
-        # (§9.3.3) applies the −8% — so the engine keeps the tabulated
+        # (clause 9.3.3) applies the −8% — so the engine keeps the tabulated
         # value (Example-1 parity) unless apply_rounded_aggregate_reduction
         # is set, and otherwise surfaces the clause for the trial batch
         # instead of silently cutting water.
@@ -418,15 +419,15 @@ class ACI211MixDesign(MixDesignCode):
                 else str(inp.coarse_aggregate.shape)) == "rounded_gravel"
         if getattr(inp, "apply_rounded_aggregate_reduction", False):
             _adj_pct -= 8.0
-            _adj_applied = _adj_applied + ["rounded aggregate −8.0% (Table 5.3.3.1, §9.3.3)"]
+            _adj_applied = _adj_applied + ["rounded aggregate −8.0% (Table 5.3.3.1, clause 9.3.3)"]
             water_kg = base_water_kg * (1.0 + _adj_pct / 100.0)
             steps.append(self._make_step(
                 3.2, "Water content (rounded-aggregate reduction)",
                 "Table 5.3.3.1 −8% for rounded coarse aggregate, "
-                "as applied in §9.3 Example 2 Step 3",
+                "as applied in clause 9.3 Example 2 Step 3",
                 {"base_water": base_water_kg, "adjustment_pct": _adj_pct},
                 water_kg, "kg/m³",
-                "ACI PRC-211.1-22 Table 5.3.3.1 / §9.3.3"
+                "ACI PRC-211.1-22 Table 5.3.3.1 / clause 9.3.3"
             ))
             if not _is_rounded:
                 warnings.append(
@@ -443,7 +444,7 @@ class ACI211MixDesign(MixDesignCode):
                 "via water_adjustment_531(rounded_aggregate=True)"
             )
 
-        # PRC-211.1-22 §4.7.6: conventional water-reducers should cut ≥5%,
+        # PRC-211.1-22 clause 4.7.6: conventional water-reducers should cut ≥5%,
         # HRWRAs ≥12%. Below that the admixture is likely under-dosed or the
         # wrong type for the claimed reduction — warn, don't second-guess.
         if inp.admixture and inp.admixture.water_reduction_percent > 0:
@@ -457,13 +458,13 @@ class ACI211MixDesign(MixDesignCode):
                              "water_reducer_accelerator") and _red < 5.0:
                 warnings.append(
                     f"Conventional water-reducer claims only {_red:.1f}% reduction; "
-                    f"PRC-211.1-22 §4.7.6 expects at least 5% — verify dosage"
+                    f"PRC-211.1-22 clause 4.7.6 expects at least 5% — verify dosage"
                 )
             elif _adm_type in ("superplasticizer", "hrwra", "hrwra_retarder") \
                     and _red < 12.0:
                 warnings.append(
                     f"High-range water-reducer claims only {_red:.1f}% reduction; "
-                    f"PRC-211.1-22 §4.7.6 expects at least 12% — verify dosage"
+                    f"PRC-211.1-22 clause 4.7.6 expects at least 12% — verify dosage"
                 )
 
         # Step 4: Air content
@@ -527,7 +528,7 @@ class ACI211MixDesign(MixDesignCode):
                 f"(ACI PRC-211.1-22 Table 5.3.4 Note 1)"
             )
 
-        # Sulfate cap joins lowest-governs (§4.7.1) via S_CLASS_LIMITS
+        # Sulfate cap joins lowest-governs (clause 4.7.1) via S_CLASS_LIMITS
         # (values identical to ACI_MAX_WC_FOR_EXPOSURE for S1–S3).
         sulfate_class = s_class
         s_max_wc = s_limits["max_wc"]
@@ -539,7 +540,7 @@ class ACI211MixDesign(MixDesignCode):
             )
             wc = s_max_wc
 
-        # Lowest-w/cm-governs (PRC-211.1-22 §4.7.1): the freezing-exposure
+        # Lowest-w/cm-governs (PRC-211.1-22 clause 4.7.1): the freezing-exposure
         # cap competes with strength and sulfate caps; the minimum wins.
         f_max_wc = f_limits["max_wc"]
         if f_max_wc is not None and wc > f_max_wc:
@@ -566,13 +567,27 @@ class ACI211MixDesign(MixDesignCode):
             )
             wc = c_max_wc
 
+        if inp.w_c_ratio is not None:
+            wc_basis = (
+                "Specified w/cm (ACI 4.7.2/5.3.4); durability caps "
+                "compete under 4.7.1"
+            )
+            wc_clause = (
+                "ACI PRC-211.1-22 clause 4.7.2 / clause 5.3.4 (specified w/cm) + "
+                "ACI 318 Table 19.3.2"
+            )
+        else:
+            wc_basis = "From Table 5.3.4 by required average strength (interpolated)"
+            wc_clause = "ACI PRC-211.1-22 Table 5.3.4 / ACI 318 Table 19.3.2"
         steps.append(self._make_step(
             5, "Water-cement ratio",
-            "From Table 5.3.4 by required average strength (interpolated)",
-            {"f'cr": fcr, "air_entrained": inp.air_entrained, "sulfate_class": sulfate_class,
+            wc_basis,
+            {"f'cr": fcr, "air_entrained": inp.air_entrained,
+             "specified_w_cm": inp.w_c_ratio,
+             "sulfate_class": sulfate_class,
              "freezing_class": f_class, "water_class": w_class, "corrosion_class": c_class},
             wc, "",
-            "ACI PRC-211.1-22 Table 5.3.4 / ACI 318 Table 19.3.2"
+            wc_clause
         ))
 
         # Step 6: Cement content
@@ -586,7 +601,7 @@ class ACI211MixDesign(MixDesignCode):
             "Cementitious = Water / w/cm ratio",
             {"water": water_kg, "wc": wc, "scm_replacement_pct": scm_replacement},
             cement_kg, "kg/m³",
-            "ACI PRC-211.1-22 §5.3.5"
+            "ACI PRC-211.1-22 clause 5.3.5"
         ))
 
         if scm_kg > 0:
@@ -615,38 +630,54 @@ class ACI211MixDesign(MixDesignCode):
                 f"Admixture = {inp.admixture.dosage_percent:.2f}% by mass of cementitious material",
                 {"cementitious_total": cementitious_total, "dosage_pct": inp.admixture.dosage_percent, "admixture_mass_kg": admixture_mass_kg},
                 admixture_mass_kg, "kg/m³",
-                "ACI PRC-211.1-22 §4.5 / §6.3"
+                "ACI PRC-211.1-22 clause 4.5 / clause 6.3"
             ))
 
-        # Step 7: Coarse aggregate volume (ACI PRC-211.1-22 §5.3.6)
-        ca_vol_fraction = self.get_coarse_aggregate_volume(
-            nmsa, fineness_modulus=inp.fine_aggregate.fineness_modulus
-        )
+        # Step 7: Coarse aggregate volume (ACI PRC-211.1-22 clause 5.3.6)
+        _ca_override = getattr(inp, "ca_volume_fraction_override", None)
+        if _ca_override is not None:
+            # Table 5.3.6 note: less-workable concrete (e.g. pavement) may
+            # increase the tabulated volume by approximately 10%. The UI
+            # passes Table 5.3.6 × 1.10 through this override.
+            ca_vol_fraction = float(_ca_override)
+            ca_basis = (
+                f"CA volume = {ca_vol_fraction:.3f} "
+                f"(specified Table 5.3.6 fraction incl. less-workable adjustment)"
+            )
+        else:
+            ca_vol_fraction = self.get_coarse_aggregate_volume(
+                nmsa, fineness_modulus=inp.fine_aggregate.fineness_modulus
+            )
+            ca_basis = (
+                f"CA (SSD) = Table 5.3.6 value × dry-rodded density × "
+                f"(1 + {inp.coarse_aggregate.absorption_percent:.1f}%)"
+            )
         # CA volume = fraction × total concrete volume (1 m³)
         ca_vol_m3 = ca_vol_fraction  # per 1 m³ of concrete
         # Oven-dry-rodded weight = dry-rodded volume × dry-rodded density;
         # convert to SSD basis by multiplying by (1 + absorption), exactly as
-        # ACI PRC-211.1-22 Example 1 (§9.2.6):
+        # ACI PRC-211.1-22 Example 1 (clause 9.2.6):
         #   1917 lb/yd³ × (1 + 0.5%) = 1927 lb/yd³ (SSD)
         ca_dry_kg = ca_vol_m3 * inp.coarse_aggregate.bulk_density_kg_m3
         ca_kg = ca_dry_kg * (1.0 + inp.coarse_aggregate.absorption_percent / 100.0)
 
         steps.append(self._make_step(
             7, "Coarse aggregate volume",
-            f"CA (SSD) = Table 5.3.6 value × dry-rodded density × (1 + {inp.coarse_aggregate.absorption_percent:.1f}%)",
+            ca_basis,
             {
                 "nmsa": nmsa,
                 "fm": inp.fine_aggregate.fineness_modulus,
+                "ca_volume_fraction": ca_vol_fraction,
                 "dry_rodded_kg": ca_dry_kg,
                 "absorption_pct": inp.coarse_aggregate.absorption_percent,
             },
             ca_kg, "kg/m³",
-            "ACI PRC-211.1-22 Table 5.3.6 + §5.3.6 (SSD conversion)"
+            "ACI PRC-211.1-22 Table 5.3.6 + clause 5.3.6 (SSD conversion)"
         ))
 
         # Step 8: Fine aggregate volume (by absolute volume method)
         vol_cement = absolute_volume(cement_kg, inp.cement.specific_gravity)
-        # §4.7.7.3: sum constituent volumes, independent of SCM order.
+        # clause 4.7.7.3: sum constituent volumes, independent of SCM order.
         vol_scm = sum(
             absolute_volume(cementitious_total * s.replacement_percent / 100.0, s.specific_gravity)
             for s in inp.scms
@@ -664,15 +695,15 @@ class ACI211MixDesign(MixDesignCode):
             "FA mass = vol × SG × 1000",
             {"vol_cement": vol_cement, "vol_scm": vol_scm, "vol_water": vol_water, "vol_ca": vol_ca, "vol_air": vol_air, "vol_admixture": vol_admixture},
             fa_kg, "kg/m³",
-            "ACI PRC-211.1-22 §5.3.7"
+            "ACI PRC-211.1-22 clause 5.3.7"
         ))
 
         # Step 8.1: paste volume — cementitious + water absolute volumes as
-        # a percentage of the concrete volume (§9.5 Step 1). Reported for
+        # a percentage of the concrete volume (clause 9.5 Step 1). Reported for
         # every design; a target PV (Example 4 / AASHTO PP 84, e.g. 25%)
         # triggers the redesign below.
         # Harmonic SG is the exact single-density restatement of the
-        # summed SCM absolute volumes, also used by the §9.5 paste solver.
+        # summed SCM absolute volumes, also used by the clause 9.5 paste solver.
         _scm_sg_eff = scm_kg / (vol_scm * 1000.0) if vol_scm > 0 else 2.20
         _pv = paste_volume_percent(
             cement_kg, scm_kg, water_kg,
@@ -684,7 +715,7 @@ class ACI211MixDesign(MixDesignCode):
             {"cement": cement_kg, "scm": scm_kg, "water": water_kg,
              "cement_sg": inp.cement.specific_gravity, "scm_sg": _scm_sg_eff},
             _pv, "%",
-            "ACI PRC-211.1-22 §9.5 (Example 4)"
+            "ACI PRC-211.1-22 clause 9.5 (Example 4)"
         ))
 
         # Step 8.2: Example 4 Steps 2–4 — solve the cementitious contents
@@ -730,7 +761,7 @@ class ACI211MixDesign(MixDesignCode):
                  "coarse_agg": ca_kg, "fine_agg": fa_kg,
                  "achieved_pv_pct": _pv},
                 _pv, "%",
-                "ACI PRC-211.1-22 §9.5 (Example 4, Steps 2–4)"
+                "ACI PRC-211.1-22 clause 9.5 (Example 4, Steps 2–4)"
             ))
             warnings.append(
                 f"Target paste volume {_target_pv:g}% reached at w/cm {wc:.2f} — "
@@ -752,7 +783,7 @@ class ACI211MixDesign(MixDesignCode):
                 "Adjusted water = Design water - free moisture on aggregates",
                 {"design_water": water_kg, "adjusted": adjusted_water},
                 adjusted_water, "kg/m³",
-                "ACI PRC-211.1-22 §5.3.9.1"
+                "ACI PRC-211.1-22 clause 5.3.9.1"
             ))
 
         # Field batch weights
@@ -760,7 +791,7 @@ class ACI211MixDesign(MixDesignCode):
         field_ca = correct_for_moisture(ca_kg, inp.coarse_aggregate.absorption_percent, inp.coarse_aggregate.moisture_content_percent)
         field_water = adjusted_water
 
-        # Step 10: Theoretical density and yield basis (ASTM C138 / §4.7.9).
+        # Step 10: Theoretical density and yield basis (ASTM C138 / clause 4.7.9).
         # Always reported: the design batch mass per 1 m³ IS the theoretical
         # fresh density. Relative yield needs a MEASURED fresh density
         # (trial input below); working tolerance Ry 0.98–1.02, with batch
@@ -772,7 +803,7 @@ class ACI211MixDesign(MixDesignCode):
             "Theoretical density = batch mass / 1 m³; Ry = 1.0/Ry needs measured density",
             {"batch_mass_kg": _batch_mass, "design_volume_m3": 1.0},
             _batch_mass, "kg/m³",
-            "ACI PRC-211.1-22 §4.7.9 / ASTM C138"
+            "ACI PRC-211.1-22 clause 4.7.9 / ASTM C138"
         ))
 
         # Appendix B — high-density concrete. Above ~180 lb/ft³ (2885 kg/m³,
@@ -793,11 +824,11 @@ class ACI211MixDesign(MixDesignCode):
                 f"handling (PRC-211.1-22 Appendix B)"
             )
 
-        # Step 10.1–10.3: Post-trial adjustments (§5.3.10) from measured
+        # Step 10.1–10.3: Post-trial adjustments (clause 5.3.10) from measured
         # trial observations. Each rule fires only on its own input; with no
         # trial inputs the design stands as the first-trial proportions.
         _trial_ry = None
-        _re_water = water_kg  # re-estimated water per unit volume (§5.3.10.1)
+        _re_water = water_kg  # re-estimated water per unit volume (clause 5.3.10.1)
         if inp.trial_density_kg_m3 is not None:
             _trial_yield = _batch_mass / inp.trial_density_kg_m3
             _trial_ry = _trial_yield / 1.0
@@ -812,12 +843,12 @@ class ACI211MixDesign(MixDesignCode):
                  "measured_density": inp.trial_density_kg_m3,
                  "trial_yield_m3": _trial_yield, "relative_yield": _trial_ry},
                 _trial_yield, "m³",
-                "ACI PRC-211.1-22 §5.3.10 / ASTM C138"
+                "ACI PRC-211.1-22 clause 5.3.10 / ASTM C138"
             ))
             if not 0.98 <= _trial_ry <= 1.02:
                 warnings.append(
                     f"Trial relative yield {_trial_ry:.3f} is outside the 0.98–1.02 "
-                    f"working tolerance (§4.7.9.3) — check batch weights, specific "
+                    f"working tolerance (clause 4.7.9.3) — check batch weights, specific "
                     f"gravities, moisture and air before adjusting proportions"
                 )
             if inp.trial_slump_mm is not None:
@@ -831,7 +862,7 @@ class ACI211MixDesign(MixDesignCode):
                     {"trial_water": water_kg, "trial_yield_m3": _trial_yield,
                      "slump_correction": _slump_corr},
                     _re_water_slump, "kg/m³",
-                    "ACI PRC-211.1-22 §5.3.10.1"
+                    "ACI PRC-211.1-22 clause 5.3.10.1"
                 ))
         if inp.trial_air_pct is not None and inp.air_entrained:
             # ∓5 lb/yd³ (2.97 kg/m³) per 1% air change; re-estimate
@@ -845,7 +876,7 @@ class ACI211MixDesign(MixDesignCode):
                 {"trial_air": inp.trial_air_pct, "target_air": air_percent,
                  "water_correction": _air_corr},
                 _re_water + _air_corr, "kg/m³",
-                "ACI PRC-211.1-22 §5.3.10.2"
+                "ACI PRC-211.1-22 clause 5.3.10.2"
             ))
         if inp.trial_strength_mpa is not None:
             # Adjustment 3: cement efficiency = strength per kg of cement per
@@ -864,14 +895,14 @@ class ACI211MixDesign(MixDesignCode):
                      "efficiency": _eff, "delta_cement": _d_cem,
                      "delta_water": _d_water},
                     _d_cem, "kg/m³",
-                    "ACI PRC-211.1-22 §5.3.10.3"
+                    "ACI PRC-211.1-22 clause 5.3.10.3"
                 ))
                 if abs(_d_cem) > 0.5:
                     warnings.append(
                         f"Trial strength suggests {'adding' if _d_cem > 0 else 'removing'} "
                         f"{abs(_d_cem):.0f} kg/m³ cementitious "
                         f"({_d_water:+.1f} kg/m³ water at constant w/cm, sand rebalanced) — "
-                        f"verify with a second trial batch (§5.3.10.3)"
+                        f"verify with a second trial batch (clause 5.3.10.3)"
                     )
 
         # Warnings

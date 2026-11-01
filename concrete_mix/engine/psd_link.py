@@ -4,14 +4,14 @@ Every supported design standard makes a sieve analysis of the aggregates a
 mandatory pre-design test, and each consumes a **different** parameter
 derived from it (per AGENTS.md ground-truth extracts):
 
-* ACI PRC-211.1-22 §4.3.5 + Appendix test list item (d) ("Sieve analysis
+* ACI PRC-211.1-22 clause 4.3.5 + Appendix test list item (d) ("Sieve analysis
   and fineness modulus ... ASTM C136"): the fineness modulus "results from
   an ASTM C136/C136M sieve analysis" and is used with NMSA in Table 5.3.6
   (bulk volume of coarse aggregate per unit volume of concrete).
 * IS 10262:2019 Clause 5.4/6.2.7 + IS 383:2016 Table 9: the grading zone
   of the fine aggregate, determined by sieve analysis, keys Table 5
   (volume of coarse aggregate per unit volume of total aggregate).
-* BRE 331:1997 §1.2.5: combined grading curves are not used; the grading is
+* BRE 331:1997 clause 1.2.5: combined grading curves are not used; the grading is
   characterised by the percentage passing the 600 µm test sieve, which
   feeds Figure 6 (recommended proportion of fine aggregate).
 
@@ -117,15 +117,15 @@ def derive_mix_design_params(
         grading zone and the DOE/BRE %passing 600 µm value, plus warnings.
     """
     if standard == "bs882":
-        # BRE §1.2.5 consumes the actual 600 µm sieve, not a BS grading
-        # label or synthetic interpolation. BS 812-103.1 §10 reports whole %.
+        # BRE clause 1.2.5 consumes the actual 600 µm sieve, not a BS grading
+        # label or synthetic interpolation. BS 812-103.1 clause 10 reports whole %.
         from concrete_mix.engine.bs812 import report_whole_percent
 
         p600 = next((report_whole_percent(p) for s, p in zip(
             result.sieve_sizes, result.percent_passing
         ) if abs(s - _P600_MM) < 1e-8), None)
         notes = () if p600 is not None else (
-            "BRE 331 §1.2.5 needs an actual 600 µm sieve measurement.",
+            "BRE 331 clause 1.2.5 needs an actual 600 µm sieve measurement.",
         )
         return PSDLinkage(None, None, p600, notes)
 
@@ -161,7 +161,7 @@ def derive_mix_design_params(
             f"{', '.join(_fmt_sieve(s) for s in missing)} to determine it."
         )
 
-    # ---- Fineness modulus availability (ACI 211.1-22 §4.3.5) --------------
+    # ---- Fineness modulus availability (ACI 211.1-22 clause 4.3.5) --------------
     if fm is None:
         missing_fm = sorted(_FM_SIEVES_REQUIRED - sizes)
         if missing_fm:
@@ -169,7 +169,7 @@ def derive_mix_design_params(
                 "Fineness modulus could not be computed — ACI 211.1-22 uses it "
                 "with NMSA in Table 5.3.6. Add sieves "
                 f"{', '.join(_fmt_sieve(s) for s in missing_fm)} "
-                "(ACI 211.1-22 §4.3.5, ASTM C136)."
+                "(ACI 211.1-22 clause 4.3.5, ASTM C136)."
             )
         else:
             # The FM sieve series is present; the FM was simply not
@@ -187,7 +187,7 @@ def derive_mix_design_params(
     if p600 is None:
         warnings.append(
             "BRE 331:1997 Figure 6 needs the percentage passing the 600 µm "
-            "test sieve; include the 600 µm (0.600 mm) sieve or a sieve stack spanning it (DOE §1.2.5)."
+            "test sieve; include the 600 µm (0.600 mm) sieve or a sieve stack spanning it (DOE clause 1.2.5)."
         )
 
     return PSDLinkage(

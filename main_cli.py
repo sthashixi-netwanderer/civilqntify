@@ -298,7 +298,7 @@ def collect_mix_inputs() -> dict:
         if n_cubes < 20:
             print("    → Standard deviation s = 8 MPa (Figure 3 Line A, n<20)")
         else:
-            print("    → Standard deviation s = 4 MPa (Figure 3 Line B, n≥20, §4.4)")
+            print("    → Standard deviation s = 4 MPa (Figure 3 Line B, n≥20, clause 4.4)")
         defective_percent = _prompt_float("Defective percent (%) [1=2.33, 2.5=1.96, 5=1.64, 10=1.28]", 5.0, 1.0, 10.0)
         age_choices = ["3", "7", "28", "91"]
         age_str = _prompt_choice("Test age (days)", age_choices, "28")

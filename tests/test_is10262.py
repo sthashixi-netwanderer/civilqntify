@@ -371,16 +371,16 @@ class TestISDesignIntegration:
         )
 
     def test_m25_target_mean_strength(self):
-        """ftm = 25 + 1.65 × 4.0 = 31.6 → 32 MPa (ceiled, Cl. 4.2)."""
+        """ftm = 25 + 1.65 × 4.0 = 31.6 MPa (one decimal)."""
         designer = IS10262MixDesign()
         result = designer.calculate_target_mean_strength(25.0, 4.0)
-        assert abs(result - 32) < 0.01
+        assert abs(result - 31.6) < 0.01
 
     def test_m20_target_mean_strength(self):
-        """ftm = 20 + 1.65 × 4.0 = 26.6 → 27 MPa (ceiled, Cl. 4.2)."""
+        """ftm = 20 + 1.65 × 4.0 = 26.6 MPa (one decimal)."""
         designer = IS10262MixDesign()
         result = designer.calculate_target_mean_strength(20.0, 4.0)
-        assert abs(result - 27) < 0.01
+        assert abs(result - 26.6) < 0.01
 
     def test_no_double_water_adjustment(self):
         """Verify water is NOT double-counted for high slump."""
@@ -527,8 +527,8 @@ class TestIS10262TrialMixesClause58:
         result = designer.design(MixDesignInput(
             code="is10262", target_strength_mpa=20.0, slump_mm=75.0,
             exposure_class="mild"))
-        # ftm = max(20 + 1.65×4.0, 20 + 5.5) = 26.6 → 27 MPa (ceiled, Cl. 4.2)
-        assert abs(result.target_mean_strength_mpa - 27) < 0.01
+        # ftm = max(20 + 1.65×4.0, 20 + 5.5) = 26.6 MPa (one decimal)
+        assert abs(result.target_mean_strength_mpa - 26.6) < 0.01
 
     def test_sanity_floor_still_guards(self):
         """The [5, 100] MPa sanity range still rejects nonsense."""
@@ -542,7 +542,7 @@ class TestIS10262TrialMixesClause58:
 # ---------------------------------------------------------------------------
 class TestISPlacingSiteControlAdmixWater:
     def test_pump_reduces_ca_ten_percent(self):
-        """Pumped placing cuts the Table 5 fraction by 10% (§5.5.2)."""
+        """Pumped placing cuts the Table 5 fraction by 10% (clause 5.5.2)."""
         from concrete_mix import design_mix_simple
 
         chute = design_mix_simple(code="is10262", target_strength_mpa=30.0,
@@ -552,7 +552,7 @@ class TestISPlacingSiteControlAdmixWater:
                                  placing_method="pump")
         assert pump.fine_aggregate_kg > chute.fine_aggregate_kg
         assert pump.coarse_aggregate_kg < chute.coarse_aggregate_kg
-        assert any("§5.5.2" in w for w in pump.warnings)
+        assert any("clause 5.5.2" in w for w in pump.warnings)
 
     def test_invalid_placing_rejected(self):
         with pytest.raises(ValueError, match="Placing method"):
@@ -575,7 +575,7 @@ class TestISPlacingSiteControlAdmixWater:
 
     def test_pump_percent_above_route_max_rejected(self):
         """12% is rejected at the model (0–10); 8% on a high-strength
-        route is rejected by the engine (§6.2.7 caps at 5%)."""
+        route is rejected by the engine (clause 6.2.7 caps at 5%)."""
         with pytest.raises(ValueError, match="0–10"):
             MixDesignInput(code="is10262", target_strength_mpa=30.0,
                            placing_method="pump",
@@ -601,9 +601,9 @@ class TestISPlacingSiteControlAdmixWater:
 
         good = calculate_target_strength("is10262", 30.0, site_control="good")
         fair = calculate_target_strength("is10262", 30.0, site_control="fair")
-        # good: 30 + 1.65×5 = 38.25 → 39; fair: 30 + 1.65×6 = 39.9 → 40 (ceiled, Cl. 4.2)
-        assert good.target_mean_strength_mpa == pytest.approx(39)
-        assert fair.target_mean_strength_mpa == pytest.approx(40)
+        # good: 30 + 1.65×5 = 38.25 → 38.3; fair: 30 + 1.65×6 = 39.9
+        assert good.target_mean_strength_mpa == pytest.approx(38.3)
+        assert fair.target_mean_strength_mpa == pytest.approx(39.9)
         assert fair.target_mean_strength_mpa > good.target_mean_strength_mpa
         assert fair.standard_deviation_mpa == 6.0
 
@@ -613,21 +613,21 @@ class TestISPlacingSiteControlAdmixWater:
 
         r = calculate_target_strength("is10262", 30.0, std_deviation=4.0)
         assert r.standard_deviation_mpa == 4.0
-        # 30 + 1.65×4 = 36.6 → 37 MPa (ceiled, IS 10262 Cl. 4.2)
-        assert abs(r.target_mean_strength_mpa - 37) < 0.01
+        # 30 + 1.65×4 = 36.6 MPa (one decimal)
+        assert abs(r.target_mean_strength_mpa - 36.6) < 0.01
 
     def test_design_honours_site_control_and_override(self):
         designer = IS10262MixDesign()
         fair_inp = MixDesignInput(code="is10262", target_strength_mpa=30.0,
                                   site_control="fair")
-        # 30 + 1.65×6 = 39.9 → 40 MPa (ceiled, IS 10262 Cl. 4.2)
+        # 30 + 1.65×6 = 39.9 MPa (one decimal)
         assert abs(designer.design(fair_inp).target_mean_strength_mpa
-                   - 40) < 0.01
+                   - 39.9) < 0.01
         user_inp = MixDesignInput(code="is10262", target_strength_mpa=30.0,
                                   std_deviation=4.5)
-        # 30 + 1.65×4.5 = 37.425 → 38 MPa (ceiled, IS 10262 Cl. 4.2)
+        # 30 + 1.65×4.5 = 37.425 → 37.5 (rounded up to 0.1)
         assert abs(designer.design(user_inp).target_mean_strength_mpa
-                   - 38) < 0.01
+                   - 37.5) < 0.01
 
     def test_std_helpers_validate_records(self):
         from concrete_mix.codes.tables.is_tables import (
@@ -660,7 +660,7 @@ class TestISPlacingSiteControlAdmixWater:
         with pytest.raises(ValueError, match="durability maximum"):
             designer.design(bad_inp)
 # ---------------------------------------------------------------------------
-# IS 10262 §6 — high-strength concrete (M65+)
+# IS 10262 clause 6 — high-strength concrete (M65+)
 # ---------------------------------------------------------------------------
 class TestISHighStrength:
     def _m70(self, **kw):
@@ -681,10 +681,10 @@ class TestISHighStrength:
         return MixDesignInput(**base)
 
     def test_m70_uses_table8_and_table7(self):
-        """ftm max(70 + 1.65×6, 70 + 8) = 79.9 → 80 (ceiled) → w/cm ≈0.29 (Table 8); water 186 (Table 7); air 0.5."""
+        """ftm max(70 + 1.65×6, 70 + 8) = 79.9 → w/cm ≈0.29 (Table 8); water 186 (Table 7); air 0.5."""
         designer = IS10262MixDesign()
         result = designer.design(self._m70())
-        assert abs(result.target_mean_strength_mpa - 80) < 0.05
+        assert abs(result.target_mean_strength_mpa - 79.9) < 0.05
         assert abs(result.w_c_ratio - 0.29) < 0.02
         assert result.water_kg == 186.0
         assert result.air_volume_percent == 0.5
@@ -704,7 +704,7 @@ class TestISHighStrength:
         designer = IS10262MixDesign()
         inp = self._m70(coarse_aggregate=CoarseAggregate(
             nominal_max_size_mm=40, specific_gravity=2.74))
-        with pytest.raises(ValueError, match="§6.2.2"):
+        with pytest.raises(ValueError, match="clause 6.2.2"):
             designer.design(inp)
 
     def test_zone_iv_blocked(self):
@@ -748,12 +748,12 @@ class TestISHighStrength:
         assert hs_ca_volume_fraction(20, "II") == 0.66
         with pytest.raises(ValueError, match="Table 10"):
             hs_ca_volume_fraction(20, "IV")
-        with pytest.raises(ValueError, match="§6.2.2"):
+        with pytest.raises(ValueError, match="clause 6.2.2"):
             hs_water_content(40, 50.0)
 
 
 # ---------------------------------------------------------------------------
-# IS 10262 §9 — mass concrete
+# IS 10262 clause 9 — mass concrete
 # ---------------------------------------------------------------------------
 class TestISMassConcrete:
     def _m25_80mm(self, **kw):
@@ -775,22 +775,22 @@ class TestISMassConcrete:
         return MixDesignInput(**base)
 
     def test_80mm_uses_table12_and_wet_sieving(self):
-        """Water 145 (Table 12); target 32 × 1.2 = 38.4 (§9.2,
-        reporting only — w/c keeps the un-raised 32); air 0.3."""
+        """Water 145 (Table 12); target 31.6 × 1.2 = 37.92 (clause 9.2,
+        reporting only — w/c keeps the un-raised target); air 0.3."""
         designer = IS10262MixDesign()
         result = designer.design(self._m25_80mm())
         assert result.water_kg == 145.0
-        assert abs(result.target_mean_strength_mpa - 38.4) < 0.01
+        assert abs(result.target_mean_strength_mpa - 37.92) < 0.01
         assert result.air_volume_percent == 0.3
 
     def test_mortar_check_present(self):
-        """80 mm designs carry the §9.10/Table 15 mortar step."""
+        """80 mm designs carry the clause 9.10/Table 15 mortar step."""
         designer = IS10262MixDesign()
         result = designer.design(self._m25_80mm())
         assert any(s.step_number == 6.1 for s in result.steps)
 
     def test_rounded_cut(self):
-        """Rounded 80 mm gravel cuts 15 kg (§9.4): 145 → 130."""
+        """Rounded 80 mm gravel cuts 15 kg (clause 9.4): 145 → 130."""
         from concrete_mix.models.materials import (
             AggregateShape, CoarseAggregate,
         )
@@ -820,7 +820,7 @@ class TestISMassConcrete:
         assert result.water_kg == 145.0
 
     def test_mass_ggbs30_bump(self):
-        """Mass GGBS ≥30% earns the §9.6.1 preliminary-trial increase."""
+        """Mass GGBS ≥30% earns the clause 9.6.1 preliminary-trial increase."""
         from concrete_mix.models.materials import SCM, SCMType
 
         designer = IS10262MixDesign()
@@ -844,7 +844,7 @@ class TestISMassConcrete:
 
 
 # ---------------------------------------------------------------------------
-# IS 10262 §§7–8 — self-compacting concrete checks
+# IS 10262 clauses 7–8 — self-compacting concrete checks
 # ---------------------------------------------------------------------------
 class TestISSCC:
     def _scc_base(self, **kw):
@@ -871,7 +871,7 @@ class TestISSCC:
     def test_passing_scc_has_no_scc_warnings(self):
         """In-class SF2 measurements on an in-envelope mix stay quiet.
 
-        Slump 100 mm with the §8.3(c) PCE reduction (30%) keeps the mixing
+        Slump 100 mm with the clause 8.3(c) PCE reduction (30%) keeps the mixing
         water inside the 150–210 kg/m³ band; coarser Zone I sand keeps fine
         aggregate within 48–60%.
         """
@@ -887,7 +887,7 @@ class TestISSCC:
                        for w in result.warnings)
 
     def test_scc_admixture_below_30pct_warns(self):
-        """§8.3(c): SCC water reduction comes from PCE HRWRA at >30%."""
+        """clause 8.3(c): SCC water reduction comes from PCE HRWRA at >30%."""
         from concrete_mix.models.materials import Admixture, AdmixtureType
 
         designer = IS10262MixDesign()
@@ -914,7 +914,7 @@ class TestISSCC:
         assert any("V2" in w for w in result.warnings)
 
     def test_powder_over_600_blocks(self):
-        """Cement+SCM alone above 600 kg/m³ provably breaches §8.3(a)."""
+        """Cement+SCM alone above 600 kg/m³ provably breaches clause 8.3(a)."""
         from concrete_mix.models.materials import SCM, SCMType
 
         designer = IS10262MixDesign()

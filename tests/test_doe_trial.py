@@ -1,4 +1,4 @@
-"""Tests for DOE (BRE 331:1997 §6) trial-mix batch schedule and evaluation."""
+"""Tests for DOE (BRE 331:1997 clause 6) trial-mix batch schedule and evaluation."""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ from concrete_mix.codes.tables.doe_tables import wc_ratio_from_strength
 
 
 def _make_design(**overrides):
-    """BRE 331:1997 §7.1 Example 1 basis (unrestricted design).
+    """BRE 331:1997 clause 7.1 Example 1 basis (unrestricted design).
 
     fc 30 N/mm², 2.5% defectives (k=1.96), s=8 → target mean 46;
     class 42.5 cement, uncrushed aggregates, SG 2.6, 20 mm NMSA,
@@ -46,20 +46,20 @@ def _make_design(**overrides):
 
 
 # ----------------------------------------------------------------------
-# §6.1 batch schedule
+# clause 6.1 batch schedule
 # ----------------------------------------------------------------------
 
 def test_s71_stage123_chain_reproduces_standard():
-    """C1–C3: target 46, w/c 0.47, water 160, cement 340 (BRE §7.1)."""
+    """C1–C3: target 45.7, w/c 0.47, water 160, cement 340 (BRE clause 7.1)."""
     res = _make_design()
-    assert res.target_mean_strength_mpa == 46.0
+    assert res.target_mean_strength_mpa == 45.7
     assert res.w_c_ratio == pytest.approx(0.47)
     assert res.water_kg == pytest.approx(160.0)
     assert res.cement_kg == pytest.approx(340.0)
 
 
 def test_batch_scaling_matches_s71_example():
-    """0.05 m³ batch: cement 17.0 and water 8.0 exactly (§7.1); the
+    """0.05 m³ batch: cement 17.0 and water 8.0 exactly (clause 7.1); the
     aggregate split sums to the C4 total scaled, with the standard's
     half-down rounding convention at the first decimal."""
     res = _make_design()
@@ -77,9 +77,9 @@ def test_batch_scaling_matches_s71_example():
 
 
 def test_oven_dry_batching_matches_s71_procedure():
-    """Oven-dry batching: ×100/(100+A) and absorption water added (§6.1).
+    """Oven-dry batching: ×100/(100+A) and absorption water added (clause 6.1).
 
-    With fine A=2% and coarse A=1% the §7.1 example reports absorption
+    With fine A=2% and coarse A=1% the clause 7.1 example reports absorption
     water 1.2 kg for a 50-litre batch; the app follows the same
     mass-chain from the reported batch masses.
     """
@@ -122,7 +122,7 @@ def test_surface_wet_deducts_free_water():
 
 
 def test_variant_batches_hold_water_constant():
-    """§6 intro: variants share the water content, cement = W ÷ w/c on
+    """clause 6 intro: variants share the water content, cement = W ÷ w/c on
     the 5-kg grid (C3), aggregates recomputed via C4/C5."""
     res = _make_design()
     sched = calculate_doe_trial_batches(
@@ -187,11 +187,11 @@ def test_non_ssd_without_input_record_rejected():
 
 
 # ----------------------------------------------------------------------
-# §6.3 evaluation
+# clause 6.3 evaluation
 # ----------------------------------------------------------------------
 
 def test_density_correction_factor():
-    """§6.3.2: corrected unit proportions = design × measured/assumed."""
+    """clause 6.3.2: corrected unit proportions = design × measured/assumed."""
     res = _make_design()
     assumed = evaluate_doe_trial(
         res, measurements={"measured_density_kg_m3": 2400.0,
@@ -254,7 +254,7 @@ def test_over_strength_relaxes_wc_and_under_strength_tightens():
 def test_verdict_thresholds():
     """App policy: |D − B′| ≤ 0.05 → minor; larger → second trial."""
     res = _make_design()
-    # C = 50 → D = 0.50 (see §6.3.3 walk-through), Δ ≈ 0.03 → minor.
+    # C = 50 → D = 0.50 (see clause 6.3.3 walk-through), Δ ≈ 0.03 → minor.
     ev_minor = evaluate_doe_trial(
         res, measurements={"cube_strength_mpa": 50.0},
     )
@@ -298,7 +298,7 @@ def test_retrial_verdict_scales_second_trial_batches():
     )
     rv = ev["revised"]
     assert rv["basis"] == "second_trial"
-    # §6.3.3: recalculated on the updated (measured) density.
+    # clause 6.3.3: recalculated on the updated (measured) density.
     assert rv["density_basis"] == pytest.approx(2385.0)
     assert rv["batch"] is not None
     assert rv["batch"]["cement"] == pytest.approx(

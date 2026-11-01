@@ -39,7 +39,7 @@ class MixDesignTransferData:
         admixture_type: Identity of the admixture ("pce", "hrwra", ...), for
             the same reason as ``scm_type``
         ca_split_kg: DOE single-size coarse aggregate split (BRE 331:1997
-            §5.5) as per-m³ masses keyed by size, e.g.
+            clause 5.5) as per-m³ masses keyed by size, e.g.
             ``{"10 mm": 460.0, "20 mm": 925.0}``. None when the design uses
             a single graded stock.
     """
@@ -62,7 +62,7 @@ class MixDesignTransferData:
     fine_agg_specific_gravity: float
     coarse_agg_specific_gravity: float
 
-    # Purchasing density includes interparticle voids (ACI §4.7.7.2).
+    # Purchasing density includes interparticle voids (ACI clause 4.7.7.2).
     # This default is an explicit project assumption, NOT a standard density.
     fine_agg_bulk_density_kg_m3: float = 1600.0
     fine_agg_bulk_density_basis: str = "Project assumption: as-delivered bulk density; verify on site"

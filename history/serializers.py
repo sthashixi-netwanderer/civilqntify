@@ -152,20 +152,20 @@ def serialize_psd_result(result: Any) -> str:
 
 
 def serialize_doe_trial_payload(payload: dict) -> str:
-    """Serialize a DOE (BRE 331 §6) trial-mix input/result dict to JSON.
+    """Serialize a DOE (BRE 331 clause 6) trial-mix input/result dict to JSON.
 
     Both payloads are plain JSON-serialisable dicts assembled by the
-    DOE trial mixes dialog (measurements, batch schedule, §6.3
+    DOE trial mixes dialog (measurements, batch schedule, clause 6.3
     evaluation); floats and None values pass through directly.
     """
     return json.dumps(payload, default=str)
 
 
 def serialize_aci_trial_payload(payload: dict) -> str:
-    """Serialize an ACI (PRC-211.1-22 §5.3.9–5.3.10) trial payload to JSON.
+    """Serialize an ACI (PRC-211.1-22 clause 5.3.9–5.3.10) trial payload to JSON.
 
     Same plain-dict convention as the DOE trial payloads (measurements,
-    Table 5.3.9.1 schedule, §5.3.10 adjustments).
+    Table 5.3.9.1 schedule, clause 5.3.10 adjustments).
     """
     return json.dumps(payload, default=str)
 

@@ -11,10 +11,10 @@ import warnings
 # ── Specified compressive strength (f'c) grades ───────────────────────────
 # ACI has no single "grade table" the way IS 10262 lists M-grades. The
 # selectable set is the set of values f'c may lawfully take, per ACI 318-19
-# §26.4.2.1(a)(1): multiples of 100 psi at or below 5000 psi, and multiples
+# clause 26.4.2.1(a)(1): multiples of 100 psi at or below 5000 psi, and multiples
 # of 500 psi above 5000 psi. PRC-211.1-22 itself does not restate that rule
 # — it only notes strengths are "commonly specified … from 2500 psi to
-# greater than 10,000 psi" (§3.4) — but its own Table 5.3.4 (which drives
+# greater than 10,000 psi" (clause 3.4) — but its own Table 5.3.4 (which drives
 # the w/cm lookup) tops out at 7000 psi, and the ACI 301-20 exposure tables
 # it reproduces (Tables 4.7.3a–4.7.3d) put floors at 2500/3500/4000/4500/5000
 # psi. The 100 psi grid is what makes those floors selectable at all: a
@@ -102,6 +102,14 @@ WATER_CONTENT_NON_AIR_ENTRAINED: dict[int, dict[int, float]] = {
         150: 181,  # 305 (5-6")
         175: 187,  # 315 (6-7")
     },
+    75: {
+        25: 131,  # 220 (1-2", 3 in. column)
+        50: 131,
+        75: 145,  # 245 (3-4")
+        100: 145,
+        150: 151,  # 255 (5-6")
+        175: 160,  # 270 (6-7")
+    },
 }
 
 # Table 5.3.3: Air-entrained concrete per ACI PRC-211.1-22
@@ -138,6 +146,14 @@ WATER_CONTENT_AIR_ENTRAINED: dict[int, dict[int, float]] = {
         150: 166,  # 280
         175: 172,  # 290
     },
+    75: {
+        25: 122,  # 205 (1-2", 3 in. column)
+        50: 122,
+        75: 133,  # 225 (3-4")
+        100: 133,
+        150: 142,  # 240 (5-6")
+        175: 154,  # 260 (6-7")
+    },
 }
 
 # Table 5.3.3: Required total air content (%) by NMSA and ACI 318 exposure
@@ -149,6 +165,7 @@ AIR_CONTENT: dict[int, dict[str, float]] = {
     10: {"mild": 3.0, "moderate": 6.0, "severe": 7.5},
     20: {"mild": 2.0, "moderate": 5.0, "severe": 6.0},
     40: {"mild": 1.0, "moderate": 4.5, "severe": 5.5},
+    75: {"mild": 1.5, "moderate": 3.5, "severe": 4.5},
 }
 
 # Entrapped air (non-air-entrained concrete) per ACI PRC-211.1-22 Table 5.3.3
@@ -158,6 +175,7 @@ AIR_CONTENT_ENTRAPPED: dict[int, float] = {
     19: 2.0,  # 3/4"
     20: 2.0,  # 3/4" approx (20 mm)
     40: 1.0,  # 1-1/2"
+    75: 0.3,  # 3"
 }
 
 # Table 5.3.4 — Relationship between w/cm and compressive strength of
@@ -213,6 +231,11 @@ CA_VOLUME_FRACTION: dict[tuple[int, float], float] = {
     (40, 2.60): 0.73,
     (40, 2.80): 0.71,
     (40, 3.00): 0.69,
+    # NMSA 75mm (3 in.)
+    (75, 2.40): 0.82,
+    (75, 2.60): 0.80,
+    (75, 2.80): 0.78,
+    (75, 3.00): 0.76,
 }
 
 
@@ -259,7 +282,7 @@ def interpolate_w_c_ratio(
     strengths = sorted(table.keys(), reverse=True)
 
     # Preserve the boundary estimate for existing callers, but never imply
-    # the table establishes attainable strength outside its data (§5.3.4).
+    # the table establishes attainable strength outside its data (clause 5.3.4).
     if target_strength_mpa > strengths[0]:
         warnings.warn(
             f"Required average strength {target_strength_mpa:g} MPa exceeds "
@@ -346,7 +369,7 @@ ACI_MAX_WC_FOR_EXPOSURE: dict[str, float] = {
 # durability cap beyond strength; min_fc_mpa is the required specified
 # strength (exact psi conversions, 1 psi = 0.00689476 MPa: 3500 → 24.13,
 # 4500 → 31.03, 5000 → 34.47 — 1 dp rounding would reject the standard's
-# own §9.3 Example 2 input of 5000 psi (34.47 MPa) under F3).
+# own clause 9.3 Example 2 input of 5000 psi (34.47 MPa) under F3).
 # F1–F3 additionally REQUIRE air entrainment (Table 4.2.2.6(c)).
 F_CLASS_LIMITS: dict[str, dict[str, float | None]] = {
     "F0": {"max_wc": None, "min_fc_mpa": None},  # Not exposed to freezing
@@ -413,6 +436,7 @@ F_CLASS_AIR_CONTENT: dict[int, dict[str, float]] = {
     19: {"F1": 5.0, "F2": 6.0, "F3": 6.0},  # 3/4 in. (same as 20 mm)
     20: {"F1": 5.0, "F2": 6.0, "F3": 6.0},
     40: {"F1": 4.5, "F2": 5.5, "F3": 5.5},
+    75: {"F1": 3.5, "F2": 4.5, "F3": 4.5},  # 3 in. (ACI 301 Table 4.2.2.6(c)1)
 }
 
 # ACI 301-20 Table 4.2.1.1(b) (PRC-211.1-22 Table 4.7.3.2) — maximum SCM
@@ -449,12 +473,12 @@ F3_SCM_BUCKETS: dict[str, str] = {
 # by the engine — Table 5.3.3 interpolation already encodes slump and the
 # air-entrained/non-air-entrained split, and the standard's own Example 1
 # uses unadjusted Table 5.3.3 water for rounded gravel. They live here for
-# explicit trial-batch refinement (§5.3.10) only.
+# explicit trial-batch refinement (clause 5.3.10) only.
 WATER_ADJUST_531_ROUNDED_AGG_PCT = -8.0      # rounded (vs angular) aggregate
 WATER_ADJUST_531_PER_PCT_AIR_PCT = -3.0      # per 1% increase in air content
 WATER_ADJUST_531_PER_INCH_SLUMP_PCT = 3.0    # per 1 in. slump increase
 WATER_ADJUST_531_WRA_MIN_PCT = -5.0          # conventional WRA expectation
-WATER_ADJUST_531_HRWRA_MIN_PCT = -12.0       # HRWRA expectation (§4.7.6)
+WATER_ADJUST_531_HRWRA_MIN_PCT = -12.0       # HRWRA expectation (clause 4.7.6)
 WATER_ADJUST_531_PER_10F_TEMP_PCT = 2.0      # per 10 °F concrete-temp rise
 WATER_ADJUST_531_PER_10PCT_FLYASH_PCT = -3.0  # per 10% fly-ash replacement
 WATER_ADJUST_531_PER_10PCT_SLAG_PCT = -5.0    # per 10% slag replacement
@@ -474,7 +498,7 @@ def water_adjustment_531(
     """Sum Table 5.3.3.1 water-content adjustments (percent of base water).
 
     Only non-baseline arguments contribute. Silica fume / metakaolin carry
-    no table rate (silica usually *increases* demand, §4.7.6) and are handled
+    no table rate (silica usually *increases* demand, clause 4.7.6) and are handled
     as guidance warnings by the caller, not here.
 
     Returns (total_percent, [applied rule descriptions]).
@@ -693,7 +717,7 @@ def get_f_class_limits(
     return dict(F_CLASS_LIMITS[f_class])
 
 
-# PRC-211.1-22 §9.5 (Example 4) — paste volume PV is the sum of the
+# PRC-211.1-22 clause 9.5 (Example 4) — paste volume PV is the sum of the
 # cementitious and water absolute volumes as a percentage of the concrete
 # volume. Example 4 Step 2 solves the cementitious contents that hit a
 # target PV at a fixed w/cm and SCM proportion (metric restatement of the
@@ -708,7 +732,7 @@ def paste_volume_percent(
     cement_sg: float,
     scm_sg: float,
 ) -> float:
-    """Paste volume (%) of the 1 m³ design volume (§9.5 Step 1)."""
+    """Paste volume (%) of the 1 m³ design volume (clause 9.5 Step 1)."""
     vol = (
         cement_kg / (cement_sg * 1000.0)
         + (scm_kg / (scm_sg * 1000.0) if scm_kg > 0 else 0.0)
@@ -732,7 +756,7 @@ def cementitious_for_target_paste_volume(
 
     For multiple SCMs pass the mass-weighted harmonic specific gravity
     as ``scm_sg`` so SCM volume equals the sum of constituent absolute
-    volumes (§4.7.7.3), not an arithmetic-average density.
+    volumes (clause 4.7.7.3), not an arithmetic-average density.
     """
     p = float(scm_fraction)
     pv_m3 = float(target_pv_percent) / 100.0

@@ -14,8 +14,8 @@ MATERIAL_LABELS = {
 def batching_schedule(result: MixDesignResult) -> dict:
     """Masses are kg/m³; totals scale once by the requested volume.
 
-    ACI PRC-211.1-22 §4.7.8 / Table 5.3.9.1, IS 10262:2019 D-9.1
-    and BRE 331:1997 §6 distinguish SSD design from mixer quantities.
+    ACI PRC-211.1-22 clause 4.7.8 / Table 5.3.9.1, IS 10262:2019 D-9.1
+    and BRE 331:1997 clause 6 distinguish SSD design from mixer quantities.
     Missing field measurements remain None, not an assumed SSD schedule.
     """
     design = {

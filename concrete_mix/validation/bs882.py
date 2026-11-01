@@ -1,7 +1,7 @@
 """BS 882:1992 single-sample grading and independently tested quality.
 
-Table 4 classes overlap (also BRE 331 §1.2.5); no one sample establishes
-§5.2.1's consecutive-sample condition or full BS 882 compliance.
+Table 4 classes overlap (also BRE 331 clause 1.2.5); no one sample establishes
+clause 5.2.1's consecutive-sample condition or full BS 882 compliance.
 """
 
 from __future__ import annotations
@@ -21,8 +21,8 @@ class BS882QualityInputs:
 
     source_type: uncrushed_gravel, partially_crushed_gravel, crushed_gravel,
         or crushed_rock. These source categories apply to both sand/coarse.
-    washed_fines_pct: Washing-only 100(M1-M2)/M1 (§7.2.1), NOT dry pan plus
-        washing loss and NOT PSD percent passing 75 µm (§8).
+    washed_fines_pct: Washing-only 100(M1-M2)/M1 (clause 7.2.1), NOT dry pan plus
+        washing loss and NOT PSD percent passing 75 µm (clause 8).
     flakiness_index_pct: Independently measured BS 812-105.1 shape index;
         PSD masses cannot supply the gauged flaky mass (clauses 3/7/8).
     """
@@ -84,7 +84,7 @@ def classify_bs882_sand(
     """Return ALL complete matching C/M/F gradings, never interpolate gaps.
 
     Heavy-duty use affects the 150 µm exception, not the classification
-    labels: an F-only sample remains classified F but fails §5.2.2.
+    labels: an F-only sample remains classified F but fails clause 5.2.2.
     """
     return tuple(
         grade for grade in ("C", "M", "F")
@@ -112,7 +112,7 @@ def _max_check(
 
 
 def _fines_check(kind: str, inputs: BS882QualityInputs) -> ClauseCheck:
-    # BS 882 Table 6 (§5.4): washing-only §7.2.1, not §8 pan-combined PSD.
+    # BS 882 Table 6 (clause 5.4): washing-only clause 7.2.1, not clause 8 pan-combined PSD.
     if inputs.source_type == "unknown":
         return ClauseCheck(
             "5.4, Table 6", "Washed-out fines", NOT_EVALUATED,
@@ -125,7 +125,7 @@ def _fines_check(kind: str, inputs: BS882QualityInputs) -> ClauseCheck:
     )
     return _max_check(
         inputs.washed_fines_pct, limit, "5.4, Table 6", "Washed-out fines",
-        "BS 812-103.1 §7.2.1; washing only",
+        "BS 812-103.1 clause 7.2.1; washing only",
     )
 
 
@@ -167,10 +167,10 @@ def evaluate_bs882_coarse(
     band: dict[float, tuple[float, float]],
     inputs: BS882QualityInputs,
 ) -> list[ClauseCheck]:
-    """Evaluate Table 3, Table 6 and independent §4.2 flakiness index."""
+    """Evaluate Table 3, Table 6 and independent clause 4.2 flakiness index."""
     _validate_inputs(inputs)
     passing = dict(zip(result.sieve_sizes, result.percent_passing))
-    # §4.2 gives no explicit limit for partially crushed gravel; do not
+    # clause 4.2 gives no explicit limit for partially crushed gravel; do not
     # invent one or infer a shape index from particle-size distribution.
     fi_limit = {"uncrushed_gravel": 50, "crushed_gravel": 40,
                 "crushed_rock": 40}.get(inputs.source_type)

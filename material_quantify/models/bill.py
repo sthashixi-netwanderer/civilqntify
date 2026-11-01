@@ -31,7 +31,7 @@ class MaterialBill:
         transfer_data: Reference to the mix design data used
         coarse_aggregate_split_kg: Per-size coarse aggregate totals (kg) when
             the design subdivides the stock into single sizes (DOE / BRE 331
-            §5.5), e.g. ``{"10 mm": 4600.0, "20 mm": 9250.0}``. Sums to
+            clause 5.5), e.g. ``{"10 mm": 4600.0, "20 mm": 9250.0}``. Sums to
             ``total_coarse_aggregate_kg``. None for a single graded stock.
     """
 
@@ -57,7 +57,7 @@ class MaterialBill:
 
     transfer_data: MixDesignTransferData
 
-    # SSD particle volume is not purchasing bulk volume (ACI §4.7.7.2).
+    # SSD particle volume is not purchasing bulk volume (ACI clause 4.7.7.2).
     total_fine_aggregate_absolute_m3: float | None = None
     fine_aggregate_volume_basis: str = "Legacy bulk volume: density basis unverified"
     # None unless the design subdivided the coarse aggregate into single sizes.

@@ -175,7 +175,10 @@ class DailyForecastDayWidget(QWidget):
         scroll_area.setVerticalScrollBarPolicy(
             Qt.ScrollBarPolicy.ScrollBarAlwaysOff
         )
-        scroll_area.setFixedHeight(140)
+        # Minimum, not fixed: the Expanding strip absorbs spare height
+        # handed down by the stretched day tabs (QAbstractScrollArea's
+        # default policy) so the day view fills its space.
+        scroll_area.setMinimumHeight(140)
 
         self._hourly_container = QWidget()
         self._hourly_layout = QHBoxLayout(self._hourly_container)
@@ -308,7 +311,7 @@ class WeatherWidget(QWidget):
         conditions_layout.setSpacing(4)
         conditions_layout.setContentsMargins(10, 8, 10, 8)
 
-        conditions_title = QLabel("Current Conditions")
+        conditions_title = QLabel("Current conditions")
         conditions_title.setObjectName("section-title")
         conditions_layout.addWidget(conditions_title)
 
@@ -323,7 +326,7 @@ class WeatherWidget(QWidget):
         layout.addWidget(conditions_frame)
 
         # 5-Day Forecast section
-        daily_header = QLabel("5-Day Forecast")
+        daily_header = QLabel("5-day forecast")
         daily_header.setObjectName("section-title")
         layout.addWidget(daily_header)
 
@@ -337,10 +340,13 @@ class WeatherWidget(QWidget):
             self._day_tab_widgets.append(day_widget)
             self._day_tabs.addTab(day_widget, "—")
 
-        layout.addWidget(self._day_tabs)
+        # Stretch 1: the forecast area absorbs spare height so the widget
+        # fills tall containers (the dialog embeds this widget in a
+        # widgetResizable scroll area) instead of leaving a dead gap.
+        layout.addWidget(self._day_tabs, 1)
 
         # 24-Hour Forecast section
-        forecast_header = QLabel("24-Hour Forecast")
+        forecast_header = QLabel("24-hour forecast")
         forecast_header.setObjectName("section-title")
         layout.addWidget(forecast_header)
 

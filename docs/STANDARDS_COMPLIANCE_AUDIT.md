@@ -382,13 +382,13 @@ standards' own worked examples end-to-end.
 
 | Example | Source | Result |
 |---------|--------|--------|
-| BRE 331 Ex. 1 (30 N/mm², 20 mm, 70 % p600) | §7.1 / Table 4 form | W/C 0.47, W 160, C 340, fine 27 % (515 kg) — exact ✓ |
-| BRE 331 Ex. 2 (25 N/mm², max W/C 0.50, 40 mm) | §7.2 / Table 5 form | W/C 0.50, C 320, fine 22 % (405 kg) — exact ✓ |
-| BRE 331 Ex. 3 (min cement 290) | §7.3 / Table 6 form | W 115, C 290, modified W/C 0.40, fine 15–18 % ✓ |
-| BRE 331 Ex. 4 (max cement 550, mixed agg.) | §7.4 / Table 7 form | W/C 0.37, W = ⅓·230+⅔·205 = 215, capped 550 ✓ |
+| BRE 331 Ex. 1 (30 N/mm², 20 mm, 70 % p600) | clause 7.1 / Table 4 form | W/C 0.47, W 160, C 340, fine 27 % (515 kg) — exact ✓ |
+| BRE 331 Ex. 2 (25 N/mm², max W/C 0.50, 40 mm) | clause 7.2 / Table 5 form | W/C 0.50, C 320, fine 22 % (405 kg) — exact ✓ |
+| BRE 331 Ex. 3 (min cement 290) | clause 7.3 / Table 6 form | W 115, C 290, modified W/C 0.40, fine 15–18 % ✓ |
+| BRE 331 Ex. 4 (max cement 550, mixed agg.) | clause 7.4 / Table 7 form | W/C 0.37, W = ⅓·230+⅔·205 = 215, capped 550 ✓ |
 | IS 10262 Annex A (M40 PPC + SP) | A-3…A-9 | f'tm 48.25, W/C 0.36, W 147.5≈148, CA frac 0.648 ✓ |
 | IS 10262 Annex B (M40 + 30 % fly ash) | B-3…B-9 | W 155, cementitious 474, fly ash 142, OPC 332 ✓ |
-| ACI PRC-211.1-22 Example 1 | §9.2 | W 178, w/cm 0.62, C 287, CA(SSD) 1142, FA ≈776 ✓ |
+| ACI PRC-211.1-22 Example 1 | clause 9.2 | W 178, w/cm 0.62, C 287, CA(SSD) 1142, FA ≈776 ✓ |
 
 ## Errors found and corrected
 
@@ -405,10 +405,10 @@ standards' own worked examples end-to-end.
 3. **6–7 in. slump class missing** from the water tables — added (410/360/315
    lb non-air; 365/325/290 lb air for 3/8–1-1/2 in.).
 4. **Coarse aggregate was not converted from oven-dry-rodded to SSD** before
-   the absolute-volume step; §5.3.6 and Example 1 require ×(1 + A). Added.
+   the absolute-volume step; clause 5.3.6 and Example 1 require ×(1 + A). Added.
 5. **No-data overdesign breakpoint**: f'c = 20 MPa applied +8.5 MPa, but
    20 MPa < 3000 psi (20.7 MPa) → must be +7 MPa (f'cr = 27.0). Fixed.
-6. **Batch weights ignored the /(1 + A) divisor** of the §5.3.9.1 formula
+6. **Batch weights ignored the /(1 + A) divisor** of the clause 5.3.9.1 formula
    w_batched = w_SSD × (1 + MC %)/(1 + A %). Fixed in
    `engine/moisture_correction.py` (shared with the IS engine).
 
@@ -453,7 +453,7 @@ standards' own worked examples end-to-end.
 
 ## Known gaps (documented, not implemented)
 
-- DOE air-entrained modifications (§8: target mean /(1 − 0.055a), water from
+- DOE air-entrained modifications (clause 8: target mean /(1 − 0.055a), water from
   one workability class lower, density −10·a·RD_A) and PFA mix design (Part B
   of Table 9) are not implemented.
 - IS 10262 high-strength grades (M65+, Section 6), SCC (Annex E) and mass

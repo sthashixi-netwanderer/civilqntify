@@ -25,12 +25,12 @@ def test_report_aci_values_come_from_current_engine(report_data):
     assert values == pytest.approx(
         {
             # Table 26.4.3.1(b): 2500 psi + 1000 psi = 3500 psi = 24.13 MPa,
-            # reported ceiled to whole MPa (app policy, conservative).
-            "target_mean_strength_mpa": 25.0,
-            "w_c_ratio": 0.6114492753623189,
+            # reported rounded up to 0.1 MPa (app policy).
+            "target_mean_strength_mpa": 24.2,
+            "w_c_ratio": 0.6242028985507246,
             "water_kg": 178.0,
-            "cement_kg": 291.1,
-            "fine_aggregate_kg": 775.1,
+            "cement_kg": 285.2,
+            "fine_aggregate_kg": 780.0,
             "coarse_aggregate_kg": 1141.7,
             "air_volume_percent": 1.0,
         }
@@ -41,16 +41,16 @@ def test_report_is_values_come_from_current_engine(report_data):
     values = _app_values(report_data["standard_examples"]["is"])
     assert values == pytest.approx(
         {
-            # Clause 4.2 / Annex A: 40 + 1.65 x 5 = 48.25 -> 49 MPa
-            # (app policy: target ceiled to whole MPa for all codes).
+            # Clause 4.2 / Annex A: 40 + 1.65 x 5 = 48.25 -> 48.3 MPa
+            # (app policy: target rounded up to 0.1 MPa for all codes).
             # Reported quantities follow the annexes' whole-kg convention.
-            "target_mean_strength_mpa": 49.0,
+            "target_mean_strength_mpa": 48.3,
             "w_c_ratio": 0.36,
             "water_kg": 148.0,
-            "cement_kg": 415.0,
-            "fine_aggregate_kg": 646.0,
-            "coarse_aggregate_kg": 1235.0,
-            "admixture_kg": 4.15,
+            "cement_kg": 410.0,
+            "fine_aggregate_kg": 650.0,
+            "coarse_aggregate_kg": 1237.0,
+            "admixture_kg": 4.1,
             "air_volume_percent": 1.0,
         }
     )
@@ -77,10 +77,10 @@ def test_report_quantification_values_come_from_current_pipeline(report_data):
     assert values == pytest.approx(
         {
             "gross_concrete_volume_m3": 10.3,
-            "total_cement_kg": 2998.3,
-            "total_cement_bags": 71.0,
+            "total_cement_kg": 2937.6,
+            "total_cement_bags": 69.0,
             "total_water_liters": 1833.4,
-            "total_fine_aggregate_kg": 7983.5,
+            "total_fine_aggregate_kg": 8034.0,
             "total_coarse_aggregate_kg": 11759.5,
         }
     )
@@ -89,13 +89,13 @@ def test_report_quantification_values_come_from_current_pipeline(report_data):
 def test_report_cost_values_come_from_shared_app_service(report_data):
     estimate = report_data["cost"]["estimate"]
     # Q02: purchase sand using the labelled project bulk-density assumption,
-    # not particle absolute volume from SG (ACI §4.7.7.2).
-    assert report_data["cost"]["bill"]["total_fine_aggregate_bulk_m3"] == pytest.approx(50.8659375)
+    # not particle absolute volume from SG (ACI clause 4.7.7.2).
+    assert report_data["cost"]["bill"]["total_fine_aggregate_bulk_m3"] == pytest.approx(51.1875)
     assert "Project assumption" in estimate["fine_aggregate_volume_basis"]
-    assert estimate["total_material_cost"] == pytest.approx(108998.02812500001)
-    assert estimate["material_cost_per_m3"] == pytest.approx(1038.0764583333334)
-    assert estimate["total_project_cost"] == pytest.approx(155069.2869140625)
-    assert estimate["cost_per_bag"] == pytest.approx(216.27515608655858)
+    assert estimate["total_material_cost"] == pytest.approx(107920.57500000001)
+    assert estimate["material_cost_per_m3"] == pytest.approx(1027.815)
+    assert estimate["total_project_cost"] == pytest.approx(153655.1296875)
+    assert estimate["cost_per_bag"] == pytest.approx(218.57059699502136)
 
 
 def test_all_published_validation_checks_meet_acceptance_limit(report_data):
@@ -111,10 +111,11 @@ def test_all_published_validation_checks_meet_acceptance_limit(report_data):
 def test_cross_method_table_contains_all_three_current_engine_outputs(report_data):
     methods = report_data["cross_method_comparison"]["methods"]
     assert set(methods) == {"ACI 211.1-22", "IS 10262:2019", "DOE (BRE 331)"}
-    assert methods["ACI 211.1-22"]["cement_kg"] == pytest.approx(415.2)
-    # IS result reports whole kg per the annexes (ceiled target 32 MPa).
-    assert methods["IS 10262:2019"]["cement_kg"] == pytest.approx(398.0)
-    # BRE 331 §5.1 (C04 fix): the comparison brief supplies std_deviation=4.0
-    # with no record count, so Line A applies (s=8 MPa → target 39 MPa),
-    # not the supplied 4.0 MPa. Cement is therefore 345 kg/m³, not 305.
-    assert methods["DOE (BRE 331)"]["cement_kg"] == pytest.approx(345.0)
+    assert methods["ACI 211.1-22"]["cement_kg"] == pytest.approx(407.5)
+    # IS result reports whole kg per the annexes (target 31.6 MPa).
+    assert methods["IS 10262:2019"]["cement_kg"] == pytest.approx(395.0)
+    # BRE 331 clause 4.4: the comparison brief supplies std_deviation=4.0
+    # from previous control data with no record count, so the known s
+    # governs (clause 7.4 Example 4 semantics; ≥ the Line B floor of 4).
+    # Target = 30 + 1.64×4 = 36.6 MPa → cement 305 kg/m³.
+    assert methods["DOE (BRE 331)"]["cement_kg"] == pytest.approx(305.0)

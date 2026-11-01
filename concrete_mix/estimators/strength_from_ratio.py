@@ -6,8 +6,8 @@ official target-strength margin to produce the target mean strength.
 
 References:
     IS 10262:2019 Clause 4.2, Table 2 — target mean strength margin (f'ck = fck + 1.65·S)
-    ACI 318 §26.4.3.1 — f'cr = max(f'c + 1.34·s, f'c + 2.33·s − 3.45)
-    BRE 331:1997 §4 — f_m = f_c + k·s  (k = 1.64 for 5% defectives)
+    ACI 318 clause 26.4.3.1 — f'cr = max(f'c + 1.34·s, f'c + 2.33·s − 3.45)
+    BRE 331:1997 clause 4 — f_m = f_c + k·s  (k = 1.64 for 5% defectives)
 """
 
 from __future__ import annotations
@@ -96,7 +96,7 @@ def _is10262_target(fck: float) -> tuple[float, float, str]:
 
 # ── ACI 318 target margin ───────────────────────────────────────────
 def _aci_target(fck: float, s: float = 4.0) -> tuple[float, float, str]:
-    """Return (target, std_dev, description) per ACI 318 §26.4.3.1.
+    """Return (target, std_dev, description) per ACI 318 clause 26.4.3.1.
 
     f'cr = max(f'c + 1.34·s,  f'c + 2.33·s − 3.45)
     Floor: f'cr ≥ f'c + 2.4
@@ -109,10 +109,10 @@ def _aci_target(fck: float, s: float = 4.0) -> tuple[float, float, str]:
 
 # ── DOE / BRE 331 target margin ─────────────────────────────────────
 def _doe_target(fck: float) -> tuple[float, float, str]:
-    """Return (target, std_dev, description) per BRE 331:1997 §4.
+    """Return (target, std_dev, description) per BRE 331:1997 clause 4.
 
     k = 1.64 (5% defective level).
-    Standard deviation per BRE 331 Figure 3 (any grade, §4.4):
+    Standard deviation per BRE 331 Figure 3 (any grade, clause 4.4):
     n < 20 → Line A (s = 0.4×fc for fc ≤ 20, else 8 MPa);
     n ≥ 20 → Line B (s = 0.2×fc for fc ≤ 20, else 4 MPa).
     This estimator defaults to the well-controlled case (n≥20, s=4 MPa)

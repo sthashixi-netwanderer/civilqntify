@@ -24,7 +24,7 @@ def tab(qapp):
 def test_doe_ui_visibility(tab):
     tab.code_combo.setCurrentIndex(tab.code_combo.findData("doe"))
 
-    # BRE 331 §1.2.4: Aggregate is classified ONLY as crushed or uncrushed.
+    # BRE 331 clause 1.2.4: Aggregate is classified ONLY as crushed or uncrushed.
     # No aggregate shape (Angular, Sub-angular, Gravel, etc.) and no dry-rodded bulk density.
     assert tab._lbl_shape.isHidden() is True
     assert tab.agg_shape_combo.isHidden() is True
@@ -49,7 +49,7 @@ def test_doe_ui_visibility(tab):
     assert tab._lbl_admix_sg.isHidden() is True
     assert tab.admix_sg_spin.isHidden() is True
 
-    # DOE Admixture types (BS 5075 / BS EN 934-2 / BRE 331 §5.3)
+    # DOE Admixture types (BS 5075 / BS EN 934-2 / BRE 331 clause 5.3)
     doe_admix_data = [tab.admix_type_combo.itemData(i) for i in range(tab.admix_type_combo.count())]
     assert "" in doe_admix_data
     assert "plasticizer" in doe_admix_data
@@ -145,11 +145,11 @@ def test_aci211_ui_visibility(tab):
     assert tab._lbl_sulfate.isHidden() is False
     assert tab.sulfate_combo.isHidden() is False
 
-    # Admixture SG is visible for ACI 211.1 (§4.5 / §4.7.7 absolute volume method)
+    # Admixture SG is visible for ACI 211.1 (clause 4.5 / clause 4.7.7 absolute volume method)
     assert tab._lbl_admix_sg.isHidden() is False
     assert tab.admix_sg_spin.isHidden() is False
 
-    # ACI 211.1 Admixture types (ASTM C494 / ASTM C260 & ACI 211.1 §6.3)
+    # ACI 211.1 Admixture types (ASTM C494 / ASTM C260 & ACI 211.1 clause 6.3)
     aci_admix_data = [tab.admix_type_combo.itemData(i) for i in range(tab.admix_type_combo.count())]
     assert "water_reducer" in aci_admix_data
     assert "water_reducer_retarder" in aci_admix_data

@@ -14,6 +14,7 @@ Structure:
 
 from __future__ import annotations
 
+import io
 import os
 import re
 import shutil
@@ -28,6 +29,7 @@ from fpdf import FPDF
 
 from concrete_mix.models.mix_result import MixDesignResult
 from concrete_mix.export.batching import batching_schedule, MATERIAL_LABELS
+from concrete_mix.utils import latex_math
 from concrete_mix.utils.display import display_name
 
 # ── Logo resolution ─────────────────────────────────────────────────
@@ -145,6 +147,67 @@ def _sanitize(text: str) -> str:
     for char, replacement in _UNICODE_MAP.items():
         text = text.replace(char, replacement)
     return text.encode("latin-1", errors="replace").decode("latin-1")
+
+
+# ── Typeset workings for the fpdf2 fallback ─────────────────────────
+#
+# fpdf2 has no maths engine, so the fallback used to print the LaTeX source
+# itself ("Calculation (LaTeX): $W = \frac{2}{3}...$"). The working is
+# rasterised with matplotlib's mathtext instead — the same Computer Modern
+# shapes the app paints — and embedded as an image, so the exported PDF
+# matches the report preview whether or not a TeX engine is installed.
+
+#: Point size and resolution for the embedded workings. 10 pt matches the
+#: report's body text; 200 dpi keeps the raster crisp when printed.
+_FORMULA_POINTS = 10
+_FORMULA_DPI = 200
+
+#: Print-size ceilings for one working. A long fragment is scaled down to
+#: fit rather than overflowing the page; it stays legible because the
+#: raster is rendered well above print resolution.
+_FORMULA_MAX_WIDTH_MM = 175.0
+_FORMULA_MAX_HEIGHT_MM = 90.0
+
+
+def _render_formula_image(formula: str) -> tuple[bytes, float, float] | None:
+    """Rasterise a step's working for the fpdf2 report.
+
+    Args:
+        formula: The step's LaTeX fragment (or raw ASCII, which
+            :func:`latex_math.render_png` converts first).
+
+    Returns:
+        ``(png_bytes, width_mm, height_mm)`` sized for print, or ``None``
+        when the fragment cannot be drawn — the caller then falls back to
+        plain text so a parse failure never drops a step's working.
+    """
+    png = latex_math.render_png(
+        formula, fontsize=_FORMULA_POINTS, dpi=_FORMULA_DPI
+    )
+    size = latex_math.png_dimensions(png) if png else None
+    if not size:
+        return None
+    width_px, height_px = size
+    width_mm = width_px / _FORMULA_DPI * 25.4
+    height_mm = height_px / _FORMULA_DPI * 25.4
+    if width_mm > _FORMULA_MAX_WIDTH_MM:
+        shrink = _FORMULA_MAX_WIDTH_MM / width_mm
+        width_mm, height_mm = _FORMULA_MAX_WIDTH_MM, height_mm * shrink
+    if height_mm > _FORMULA_MAX_HEIGHT_MM:
+        shrink = _FORMULA_MAX_HEIGHT_MM / height_mm
+        height_mm, width_mm = _FORMULA_MAX_HEIGHT_MM, width_mm * shrink
+    return png, width_mm, height_mm
+
+
+def _place_formula_image(
+    pdf: FPDF, image: tuple[bytes, float, float]
+) -> None:
+    """Draw a rasterised working at the left margin (indented x=15 mm)."""
+    png, width_mm, height_mm = image
+    y = pdf.get_y()
+    pdf.set_x(15)
+    pdf.image(io.BytesIO(png), x=15, y=y, w=width_mm, h=height_mm)
+    pdf.set_y(y + height_mm + 1.0)
 
 
 class _MixReportPDF(FPDF):
@@ -312,7 +375,7 @@ def _generate_pdf_via_fpdf(result: MixDesignResult, input_params: dict[str, Any]
             _n = input_params.get("num_test_cubes", input_params.get("n_cubes", "—"))
             pdf.key_value_row("Test Cubes (n, Figure 3)", f"{_n}")
             pdf.key_value_row("Test Age", f"{input_params.get('age_days', 28)} days")
-            pdf.key_value_row("Entrained Air (§8)", f"{input_params.get('air_pct', 0.0)}%")
+            pdf.key_value_row("Entrained Air (clause 8)", f"{input_params.get('air_pct', 0.0)}%")
         else:
             pdf.subsection_title("IS-Specific Options")
             exposure = input_params.get("exposure_class")
@@ -363,15 +426,25 @@ def _generate_pdf_via_fpdf(result: MixDesignResult, input_params: dict[str, Any]
     pdf.section_title("4. Calculation Steps (Detailed)")
     pdf.note_text("Each step below shows the formula used, the input values, and the result. Clause references point to the relevant section of the design code.")
     for step in result.steps:
-        pdf.check_page_space(35)
+        formula_latex = step.latex or step.formula
+        # Rasterise first: the page break below must account for the image's
+        # height so the step title never lands on a different page.
+        formula_image = _render_formula_image(formula_latex)
+        needed = 24.0 + (formula_image[2] + 3.0 if formula_image else 12.0)
+        pdf.check_page_space(needed)
         pdf.set_font("Helvetica", "B", 10)
         pdf.set_text_color(44, 62, 80)
         ref = f"  [{step.clause_ref}]" if step.clause_ref else ""
         pdf.cell(0, 6, _sanitize(f"Step {step.step_number}: {step.description}{ref}"), new_x="LMARGIN", new_y="NEXT")
-        pdf.set_font("Courier", "", 9)
-        pdf.set_text_color(107, 114, 128)
-        pdf.set_x(15)
-        pdf.cell(0, 5, _sanitize(f"Formula: {step.formula}"), new_x="LMARGIN", new_y="NEXT")
+        if formula_image is not None:
+            _place_formula_image(pdf, formula_image)
+        else:
+            # A fragment mathtext cannot parse: keep the working visible as
+            # source rather than dropping it from the report.
+            pdf.set_font("Courier", "", 9)
+            pdf.set_text_color(107, 114, 128)
+            pdf.set_x(15)
+            pdf.multi_cell(180, 5, _sanitize(f"Calculation (LaTeX): {formula_latex}"))
         if step.inputs:
             pdf.set_font("Courier", "", 9)
             pdf.set_text_color(107, 114, 128)
@@ -541,11 +614,10 @@ def generate_latex_source(
     for step in result.steps:
         inputs = ", ".join(f"{_sanitize_latex(k)}={_sanitize_latex(str(v))}" for k, v in (step.inputs or {}).items())
         inputs_line = f"\\textbf{{Inputs:}} {inputs}\\\\" if inputs else ""
-        formula = _sanitize_latex(step.formula)
-        # Keep formulas readable; if they contain math, wrap in \( \)
+        formula_latex = step.latex or _sanitize_latex(step.formula)
         steps_latex += f"""
 \\noindent\\textbf{{Step {_sanitize_latex(str(step.step_number))}: {_sanitize_latex(step.description)}}}\\hfill\\textsf{{\\footnotesize [{_sanitize_latex(step.clause_ref)}]}}\\\\
-\\texttt{{Formula: {formula}}}\\\\
+\\textbf{{Calculation (LaTeX):}} {formula_latex}\\\\
 {inputs_line}
 \\textcolor{{accentblue}}{{\\textbf{{Result: {step.result:.2f} { _sanitize_latex(step.unit)}}}}}\\\\[0.8em]
 """

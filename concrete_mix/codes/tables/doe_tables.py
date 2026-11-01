@@ -14,8 +14,8 @@ from concrete_mix.utils.statistics import defective_k_factor
 # ---------------------------------------------------------------------------
 # Selectable characteristic strengths (fc, N/mm²)
 #
-# Unlike IS 10262, BRE 331 never enumerates grades — §4.3 defines fc as
-# any specified strength and §4.4/Figure 3 treat it as a continuous axis
+# Unlike IS 10262, BRE 331 never enumerates grades — clause 4.3 defines fc as
+# any specified strength and clause 4.4/Figure 3 treat it as a continuous axis
 # (the standard-deviation curves go flat above 20 N/mm²). So this is a
 # chosen 5 N/mm² grid, not a quoted table: 20–60 covers every strength
 # the standard's own worked examples design (20, 25, 30, 35, 40 and 50
@@ -107,14 +107,14 @@ WATER_CONTENT: dict[int, dict[str, dict[int, float]]] = {
 #
 # The standard never takes an exact slump as a design input: Table 3 and
 # every Figure 6 panel are organised by four workability ranges, with the
-# slump and Vebe time scales side by side (§1.2.2, §2.1, Table 3):
+# slump and Vebe time scales side by side (clause 1.2.2, clause 2.1, Table 3):
 #   class 0: Slump 0–10 mm   / Vebe >12 s
 #   class 1: Slump 10–30 mm  / Vebe 6–12 s
 #   class 2: Slump 30–60 mm  / Vebe 3–6 s
 #   class 3: Slump 60–180 mm / Vebe 0–3 s
 # The printed ranges overlap at 10/30/60 mm; endpoints belong to the lower
 # class (columns are read left to right), which is what the mappers below
-# implement. NMSA (10/20/40 mm, §1.2.5) selects the Figure 6 page; the
+# implement. NMSA (10/20/40 mm, clause 1.2.5) selects the Figure 6 page; the
 # class selects the column on that page.
 # ---------------------------------------------------------------------------
 WORKABILITY_CLASS_INFO: tuple[dict, ...] = (
@@ -195,7 +195,7 @@ def validate_doe_inputs(
     if nmsa not in valid_nmsa:
         warnings.append(
             f"NMSA {nmsa} mm not in Table 3. Valid sizes: {valid_nmsa} mm "
-            f"(BRE 331:1997 §1.2.5)"
+            f"(BRE 331:1997 clause 1.2.5)"
         )
 
     # Check slump range
@@ -210,7 +210,7 @@ def validate_doe_inputs(
     if agg_type.lower() not in valid_agg_types:
         warnings.append(
             f"Aggregate type '{agg_type}' not in Table 3. "
-            f"Valid types: {valid_agg_types} (BRE 331:1997 §1.2.4)"
+            f"Valid types: {valid_agg_types} (BRE 331:1997 clause 1.2.4)"
         )
 
     return warnings
@@ -238,7 +238,7 @@ def resolve_workability_class(
     """Resolve the Table 3 / Figure 6 workability class from slump/Vebe.
 
     The two scales are parallel readings of the same four classes (BRE
-    331:1997 §1.2.2, Table 3): whichever is provided selects the chart
+    331:1997 clause 1.2.2, Table 3): whichever is provided selects the chart
     column. When BOTH are provided they must land on the same class; if
     they disagree, Vebe governs (it is the definitive measure at low
     workability where slump cannot discriminate) and a warning string is
@@ -254,7 +254,7 @@ def resolve_workability_class(
     if not have_slump and not have_vebe:
         raise ValueError(
             "Either slump_mm or vebe_s must be provided to select the "
-            "Table 3 / Figure 6 workability class (BRE 331:1997 §1.2.2)"
+            "Table 3 / Figure 6 workability class (BRE 331:1997 clause 1.2.2)"
         )
     cls_vebe = vebe_to_workability_class(vebe_s) if have_vebe else None
     cls_slump = slump_to_workability_class(slump_mm) if have_slump else None
@@ -287,7 +287,7 @@ def get_free_water_content(
         slump_mm: Slump in mm (provide if using slump)
         vebe_s: Vebe time in seconds (provide if using Vebe)
         workability_class: Explicit Table 3 class 0–3, bypassing slump/Vebe
-            derivation. Used for §8 air-entrained designs, which take water
+            derivation. Used for clause 8 air-entrained designs, which take water
             from one workability class lower than specified.
 
     Returns:
@@ -315,7 +315,7 @@ def get_free_water_content(
 # ---------------------------------------------------------------------------
 # Figure 3 — Standard deviation vs characteristic strength (any grade)
 #
-# Piecewise lines (BRE 331:1997 §4.4):
+# Piecewise lines (BRE 331:1997 clause 4.4):
 #   Line A (< 20 results): s = 0.4×fc for fc ≤ 20, else s = 8 MPa
 #   Line B (≥ 20 results): s = 0.2×fc for fc ≤ 20, else s = 4 MPa
 # Both ramps meet their plateaus continuously at fc = 20 MPa.
@@ -325,10 +325,17 @@ def resolve_standard_deviation(
     std_dev: float | None = None,
     n: int | None = None,
 ) -> float:
-    """BRE §5.1: Line A without 20 records; otherwise enforce Line B.
+    """BRE 331:1997 clause 4.4, Item 1.2 — which standard deviation governs.
 
-    A production-data flag alone does not establish the number of records.
-    Explicit n takes precedence, as in the existing Figure 3 lookup.
+    Priority per clause 4.4: a known s "based on results obtained using
+    the same plant, materials and supervision" is used directly — Figure 3
+    applies only "in the absence of such information". Clause 7.4 Example 4
+    works exactly this way (expected s = 5 N/mm², no record count stated).
+    The known s is never taken below the Figure 3 line-B value ("the value
+    used for mix design should not be less than that shown by line B").
+    When s is calculated from fewer than 20 results the small-sample rule
+    overrides: 8 N/mm² (line A) for fc ≥ 20 — an explicit n < 20 states
+    precisely that case.
     """
     import math
 
@@ -336,10 +343,19 @@ def resolve_standard_deviation(
         raise ValueError("Number of test cubes (n) must be a positive integer")
     if std_dev is not None and (not math.isfinite(std_dev) or std_dev < 0):
         raise ValueError("Standard deviation must be finite and non-negative")
-    minimum = get_standard_deviation(characteristic_strength, n=n or 0)
-    if n is None or n < 20:
-        return minimum
-    return max(minimum, std_dev or 0.0)
+    if n is not None and n < 20:
+        # Small-sample estimate (clause 4.4: "If fewer results are available
+        # a standard deviation of 8 N/mm² should be used"): line A governs
+        # even when the sample's own s was supplied.
+        return get_standard_deviation(characteristic_strength, n=n)
+    if std_dev is not None and std_dev > 0:
+        # Known s from previous control data governs (Item 1.2, Example 4),
+        # floored at the line-B value.
+        line_b = get_standard_deviation(characteristic_strength, n=20)
+        return max(line_b, std_dev)
+    # No known s: Figure 3 — line A until adequate production data exist,
+    # line B from 20 results.
+    return get_standard_deviation(characteristic_strength, n=n or 0)
 
 
 def get_standard_deviation(
@@ -400,9 +416,9 @@ FIGURE_4_CURVES: dict[int, list[tuple[float, float]]] = {
     # Digitized from the validated log-quadratic model
     #   wc = 0.5 - 0.370938*R + 0.045970*R^2,  R = ln(f_target / f_ref_at_0.5)
     # which reproduces the standard's own worked examples exactly:
-    #   Example 1 (§7.1): target 46, ref 42 → wc 0.47
-    #   Example 2 (§7.2): target 35, ref 42 → wc 0.57
-    #   Example 4 (§7.4): target 62, ref 43 (7-day) → wc 0.37
+    #   Example 1 (clause 7.1): target 46, ref 42 → wc 0.47
+    #   Example 2 (clause 7.2): target 35, ref 42 → wc 0.57
+    #   Example 4 (clause 7.4): target 62, ref 43 (7-day) → wc 0.37
     20: [(0.3, 35.8), (0.4, 26.4), (0.5, 20.0), (0.6, 15.4), (0.7, 12.0), (0.8, 9.5)],
     25: [(0.3, 44.7), (0.4, 33.1), (0.5, 25.0), (0.6, 19.3), (0.7, 15.1), (0.8, 11.9)],
     30: [(0.3, 53.6), (0.4, 39.7), (0.5, 30.0), (0.6, 23.1), (0.7, 18.1), (0.8, 14.3)],
@@ -675,16 +691,16 @@ def get_fine_aggregate_proportion(
     where f/g are the panel values on the p0/p1 curves. Inputs are
     clamped to the chart frame (w/c 0.2–0.8, passing 15–100%) and the
     result to 10–80%, rounded to 1 dp. Reproduces the standard's worked
-    examples: §7.1 (20 mm, class 1, 0.47, 70%) → 27.7% (standard: 27%);
-    §7.2 (40 mm, class 2, 0.50, 90%) → 21.8% (standard: 22%);
-    §7.3 (40 mm, class 0, 0.40, 90%) → 16.5% (standard: 15–18%);
-    §8.6 (20 mm, class 1, ~0.46, 50%) → 32.9% (standard: ~32%);
-    §9.4 (20 mm, class 1, ~0.36, 70%) → 25.8% (standard: ~26%).
+    examples: clause 7.1 (20 mm, class 1, 0.47, 70%) → 27.7% (standard: 27%);
+    clause 7.2 (40 mm, class 2, 0.50, 90%) → 21.8% (standard: 22%);
+    clause 7.3 (40 mm, class 0, 0.40, 90%) → 16.5% (standard: 15–18%);
+    clause 8.6 (20 mm, class 1, ~0.46, 50%) → 32.9% (standard: ~32%);
+    clause 9.4 (20 mm, class 1, ~0.36, 70%) → 25.8% (standard: ~26%).
 
     Args:
         nmsa: Nominal maximum aggregate size (10, 20, or 40 mm)
         wc_ratio: Free-water/cement ratio (Figure 6 x-axis; W/(C+F)
-            for pfa per §9.3.5)
+            for pfa per clause 9.3.5)
         pct_passing_600um: Percentage of fine aggregate passing 600 µm
             sieve (Figure 6 curve family)
         slump_mm: Required slump in mm (derives the panel column;
@@ -752,7 +768,7 @@ def _interpolate_fine_pct(p600: float, curve: dict[int, float]) -> float:
 # Table 9 Part B — reductions in free-water content (kg/m³) for Portland
 # cement/pfa concrete, by pfa proportion p (% of cement + pfa) and Table 3
 # workability class (0=0–10 mm, 1=10–30 mm, 2=30–60 mm, 3=60–180 mm).
-# (BRE 331:1997 §9.2.1; Part A repeats Table 3.)
+# (BRE 331:1997 clause 9.2.1; Part A repeats Table 3.)
 # ---------------------------------------------------------------------------
 TABLE_9B_WATER_REDUCTION: dict[int, dict[int, float]] = {
     10: {0: 5, 1: 5, 2: 5, 3: 10},
@@ -762,11 +778,11 @@ TABLE_9B_WATER_REDUCTION: dict[int, dict[int, float]] = {
     50: {0: 25, 1: 25, 2: 30, 3: 30},
 }
 
-# Cementing efficiency factor for pfa at 28 days (BRE 331:1997 §9.2.2):
+# Cementing efficiency factor for pfa at 28 days (BRE 331:1997 clause 9.2.2):
 # strength follows the free-water/'equivalent cement' ratio W/(C + kF).
 PFA_EFFICIENCY_K = 0.30
 
-# Rough-guide water reduction for ggbs replacement (BRE 331:1997 §10.2.1).
+# Rough-guide water reduction for ggbs replacement (BRE 331:1997 clause 10.2.1).
 GGBS_WATER_REDUCTION_KG = 5.0
 
 
@@ -789,7 +805,7 @@ def pfa_water_reduction(pfa_percent: float, workability_class: int) -> float:
     return float(TABLE_9B_WATER_REDUCTION[rows[-1]][workability_class])
 
 
-# k-value for the target-mean-strength margin M = k × s (BRE 331 §4.4).
+# k-value for the target-mean-strength margin M = k × s (BRE 331 clause 4.4).
 # Computed dynamically from the standard-normal quantile — no lookup table
 # (defective_k_factor imported at module top).
 # ---------------------------------------------------------------------------
@@ -799,7 +815,7 @@ def get_k_value(defective_percent: float = 5.0) -> float:
     """Get k-value for target mean strength margin calculation.
 
     k is the standard-normal quantile at cumulative probability (1 − p)
-    for the defective proportion p (BRE 331:1997 §4.4; BS 5328 uses the 5%
+    for the defective proportion p (BRE 331:1997 clause 4.4; BS 5328 uses the 5%
     level, k = 1.64). The standard's worked examples quote k to 2dp, so the
     computed value is rounded to 2dp here — the single point where the
     standard's precision applies. Use

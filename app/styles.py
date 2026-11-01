@@ -15,15 +15,73 @@ import pathlib
 import sys
 
 
-def uppercase_preserving_si_units(text: str) -> str:
-    """Uppercase label text while keeping SI unit symbols lowercase.
+import re
 
-    Both Qt's ``text-transform: uppercase`` and ``str.upper()`` map the
-    micro sign µ to capital Greek Mu, which renders like "M" — "75-µm"
-    would read as "75-MM". SI unit symbols are lowercase by convention
-    (µm, kg), so the micro unit is restored after uppercasing.
+
+# Mixed-case abbreviations and unit symbols that keep their typed casing
+# under sentence case. All-uppercase tokens (initialisms such as "IS",
+# "PSD", "OPC", "NMSA", "W/C", "D10", "GH₵") are preserved automatically
+# without needing an entry here.
+_KEEP_CASE_TOKENS = frozenset({
+    "MPa", "kPa", "kN",
+    "Agg", "Qty", "Vol", "No", "Ref", "Fn", "Ch",
+    "Cu", "Cc", "Vebe",
+})
+
+_WS_SPLIT = re.compile(r"(\s+)")
+_LABEL_PUNCT = "()[]{},.:;'\"“”‘’"
+
+
+def _sentence_case_subtoken(sub: str) -> str:
+    """Sentence-case one slash-separated sub-token ("W", "C", "mm", "m³")."""
+    if not sub or sub in _KEEP_CASE_TOKENS:
+        return sub
+    has_upper = any(ch.isupper() for ch in sub)
+    has_lower = any(ch.islower() for ch in sub)
+    if has_upper and not has_lower:
+        return sub  # initialism: "IS", "PSD", "NMSA", "D10", "GH₵"
+    if not has_upper:
+        return sub  # already lowercase: "kg", "mm", "µm", digits
+    return sub.lower()  # Title-case word → sentence-case word
+
+
+def sentence_case_si_units(text: str) -> str:
+    """Convert display text to sentence case, preserving abbreviations.
+
+    Field names render in sentence case ("Target mean strength (MPa)"),
+    while initialisms, abbreviations and unit symbols keep their typed or
+    canonical casing ("IS 10262", "PSD", "OPC", "W/C", "NMSA", "MPa",
+    "kg/m³", "75-µm"). Purely lowercase tokens are untouched, so the SI
+    micro sign µ is never rewritten — unlike ``str.upper()`` and Qt's
+    ``text-transform: uppercase``, which map µ to capital Greek Mu and
+    would render "75-µm" as "75-MM".
+
+    The operation is idempotent: applying it twice returns the same text.
     """
-    return text.upper().replace("\u039cM", "µm")
+    if not text:
+        return text
+    parts = _WS_SPLIT.split(text)
+    for i, part in enumerate(parts):
+        if not part or part.isspace():
+            continue
+        core = part.strip(_LABEL_PUNCT)
+        if not core:
+            continue
+        rebuilt = "/".join(
+            _sentence_case_subtoken(sub) for sub in core.split("/")
+        )
+        if rebuilt != core:
+            parts[i] = part.replace(core, rebuilt, 1)
+    out = "".join(parts)
+    # Capitalise the first ASCII letter only — uppercasing µ maps it to
+    # capital Greek Mu, which reads as "M" (the reason Python-side casing
+    # replaced Qt's text-transform in the first place).
+    for j, ch in enumerate(out):
+        if ch.isalpha():
+            if "a" <= ch <= "z":
+                out = out[:j] + ch.upper() + out[j + 1:]
+            break
+    return out
 
 
 def _resource_base() -> pathlib.Path:
@@ -90,12 +148,21 @@ _CHECK_MARK = _get_resource_path("checkmark.svg")
 #   Badges & Pills:     4px
 
 _STYLESHEET_RAW = """
-/* ── Global Desktop Canvas ── */
-QMainWindow, QWidget {
-    background-color: #f3f4f6;
+/* ── Global Desktop Canvas ──
+ * Keep the neutral canvas on window surfaces only. Painting it on every
+ * QWidget (as this rule previously did) also painted QLabel and form-row
+ * containers, producing a grey chip behind every field name on the white
+ * tab panels. Child widgets stay transparent so they inherit their panel.
+ */
+QWidget {
+    background: transparent;
     color: #111827;
     font-family: "Inter", "Segoe UI", -apple-system, "SF Pro Text", "Roboto", "Noto Sans", sans-serif;
     font-size: 13px;
+}
+
+QMainWindow {
+    background-color: #f3f4f6;
 }
 
 /* ── Tab Navigation ── */
@@ -138,6 +205,7 @@ QTabBar::tab:disabled {
 
 /* ── Typography & Labels ── */
 QLabel {
+    background: transparent;
     color: #111827;
     font-size: 13px;
 }
@@ -146,7 +214,6 @@ QLabel#section-title {
     color: #111827;
     font-size: 11px;
     font-weight: 700;
-    text-transform: uppercase;
     letter-spacing: 0.05em;
     padding: 8px 0 3px 0;
     border-bottom: 1px solid #e5e7eb;
@@ -155,7 +222,6 @@ QLabel#section-title {
 QLabel#form-label {
     font-size: 11px;
     font-weight: 600;
-    text-transform: uppercase;
     letter-spacing: 0.03em;
     color: #374151;
 }
@@ -198,11 +264,9 @@ QLabel#warning-text {
 
 /* ── Banners & Status Badges ── */
 QLabel#warning-banner {
-    background-color: #fef3c7;
+    /* Inline caution note: text only on the app background — no badge
+       background, border or padding. */
     color: #92400e;
-    border: 1px solid #f59e0b;
-    border-radius: 4px;
-    padding: 8px 12px;
     font-weight: 600;
     font-size: 12px;
 }
@@ -370,7 +434,6 @@ QLabel#result-label, QLabel#stat-label {
     color: #4b5563;
     font-size: 11px;
     font-weight: 700;
-    text-transform: uppercase;
     letter-spacing: 0.04em;
 }
 
@@ -726,7 +789,6 @@ QGroupBox {
     padding-top: 16px;
     font-weight: 700;
     font-size: 11px;
-    text-transform: uppercase;
     letter-spacing: 0.04em;
     color: #111827;
     background-color: #ffffff;
@@ -843,7 +905,6 @@ QHeaderView::section {
     border-right: 1px solid #e5e7eb;
     font-weight: 700;
     font-size: 11px;
-    text-transform: uppercase;
     letter-spacing: 0.03em;
 }
 
@@ -893,14 +954,58 @@ QDoubleSpinBox::down-arrow:disabled, QSpinBox::down-arrow:disabled {
     image: url(__DOWN_ARROW_DISABLED_PATH__);
 }
 
-/* ── Toolbars & Status Bars ── */
-QToolBar {
+/* ── Custom Window Chrome ── */
+QWidget#titlebar {
     background-color: #ffffff;
     border-bottom: 1px solid #d1d5db;
-    spacing: 6px;
-    padding: 4px 8px;
 }
 
+QWidget#titlebar-brand {
+    background: transparent;
+}
+
+QLabel#titlebar-logo,
+QLabel#titlebar-title,
+QLabel#titlebar-subtitle {
+    background: transparent;
+}
+
+QLabel#titlebar-title {
+    font-size: 14px;
+    font-weight: 700;
+    color: #111827;
+    letter-spacing: 0.01em;
+}
+
+QLabel#titlebar-subtitle {
+    font-size: 9px;
+    font-weight: 600;
+    color: #6b7280;
+    letter-spacing: 0.14em;
+}
+
+QLabel#titlebar-version {
+    font-size: 10px;
+    font-weight: 600;
+    color: #1e40af;
+    background-color: #eff6ff;
+    border: 1px solid #bfdbfe;
+    border-radius: 4px;
+    padding: 1px 6px;
+}
+
+QFrame#titlebar-divider {
+    background-color: #e5e7eb;
+    border: none;
+}
+
+QAbstractButton#titlebar-control {
+    background: transparent;
+    border: none;
+    padding: 0;
+}
+
+/* ── Status Bars ── */
 QStatusBar {
     background-color: #f3f4f6;
     color: #4b5563;
@@ -939,6 +1044,34 @@ QFrame#dialog-header-danger {
     border: 1px solid #ef4444;
     border-radius: 4px;
     padding: 10px 14px;
+}
+
+QMenu {
+    background-color: #ffffff;
+    color: #111827;
+    border: 1px solid #d1d5db;
+    border-radius: 4px;
+    padding: 4px;
+}
+
+QMenu::item {
+    padding: 6px 20px 6px 12px;
+    border-radius: 2px;
+}
+
+QMenu::item:selected {
+    background-color: #eff6ff;
+    color: #1d4ed8;
+}
+
+QMenu::item:disabled {
+    color: #9ca3af;
+}
+
+QMenu::separator {
+    height: 1px;
+    background-color: #e5e7eb;
+    margin: 4px 8px;
 }
 
 QToolTip {

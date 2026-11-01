@@ -33,6 +33,7 @@ from concrete_mix.codes.tables.doe_tables import (
     wc_ratio_from_strength,
 )
 from concrete_mix.models.mix_input import MixDesignInput
+from concrete_mix.utils.rounding import ceil_to_one_decimal
 from concrete_mix.models.mix_result import CalculationStep, MixDesignResult
 
 
@@ -67,9 +68,9 @@ class DOEMixDesign(MixDesignCode):
     ) -> float:
         """Stage 1: f_m = f_c + M  (Calculation C2).
 
-        BRE §5.1 requires Line A without at least 20 recorded results;
+        BRE clause 5.1 requires Line A without at least 20 recorded results;
         an established deviation must not be below Line B. A specified
-        margin bypasses the statistical route (§4.4).
+        margin bypasses the statistical route (clause 4.4).
         """
         margin = kwargs.get("margin_mpa")
         if margin is not None:
@@ -84,9 +85,10 @@ class DOEMixDesign(MixDesignCode):
             if not 0.5 <= defective_pct <= 15.0:
                 raise ValueError("Defective percent must be between 0.5 and 15%")
             margin = get_k_value(defective_pct) * std_dev
-        # C2 rounding: target mean rounded up to the whole N/mm² (§7.1:
-        # 45.68 → 46; §7.4: 61.65 → 62).
-        return float(math.ceil(target_strength_mpa + margin))
+        # C2 expresses the target to two significant figures; the app
+        # rounds UP to one decimal place for every code (clause 7.1: 45.68 →
+        # 45.7; clause 7.4: 61.65 → 61.7).
+        return ceil_to_one_decimal(target_strength_mpa + margin)
 
     def get_water_content(
         self, nmsa: int, slump_mm: float, **kwargs: Any,
@@ -147,7 +149,7 @@ class DOEMixDesign(MixDesignCode):
         # designable: the deviation follows the piecewise lines —
         #   Line A (n < 20 results):  s = 0.4×fc for fc ≤ 20, else s = 8 MPa
         #   Line B (n ≥ 20 results):  s = 0.2×fc for fc ≤ 20, else s = 4 MPa
-        # (get_standard_deviation implements exactly this; §4.4).
+        # (get_standard_deviation implements exactly this; clause 4.4).
         # n counts previous strength results, not planned trial specimens.
         num_cubes: int | None = getattr(inp, "num_test_cubes", None)
         # Record the Figure 3 basis as an informational warning.
@@ -159,10 +161,10 @@ class DOEMixDesign(MixDesignCode):
         else:
             s_desc = "Line A (record count unknown)"
         structural_note = (
-            "DOE design per BRE 331:1997 Figure 3 (§4.4) — any characteristic "
+            "DOE design per BRE 331:1997 Figure 3 (clause 4.4) — any characteristic "
             f"strength grade (fc = {fc:g} MPa). "
             f"Standard deviation s follows {s_desc} for n test cubes "
-            f"(n={n_str}). Ensure trial batch verification per BRE 331 §6."
+            f"(n={n_str}). Ensure trial batch verification per BRE 331 clause 6."
         )
         warnings.append(structural_note)
 
@@ -178,7 +180,7 @@ class DOEMixDesign(MixDesignCode):
                 f"DOE Table 2 class {cement_class} for {cement_type} is a project "
                 "mapping, not certified national cement equivalence; confirm "
                 "material-specific strength development by supplier data and trials "
-                "(BRE 331 §3.2, §6)"
+                "(BRE 331 clause 3.2, clause 6)"
             )
         if "53" not in cement_type and "52" not in cement_type and (
             "33" in cement_type or "32" in cement_type
@@ -221,16 +223,16 @@ class DOEMixDesign(MixDesignCode):
         )
         warnings.extend(validation_warnings)
 
-        # --- Air entrainment (§8): 0 = non-air-entrained (legacy path) ---
+        # --- Air entrainment (clause 8): 0 = non-air-entrained (legacy path) ---
         air_pct = float(getattr(inp, "air_pct", 0.0) or 0.0)
         if air_pct > 0 and not 3.0 <= air_pct <= 7.0:
             warnings.append(
                 f"Entrained air {air_pct:.1f}% is outside the 3–7% range over "
-                f"which the §8 allowances were validated (BRE 331:1997 §8) — "
+                f"which the clause 8 allowances were validated (BRE 331:1997 clause 8) — "
                 f"expect larger trial adjustments"
             )
 
-        # --- SCM mode (Part three): pfa §9 / ggbs §10, single addition only.
+        # --- SCM mode (Part three): pfa clause 9 / ggbs clause 10, single addition only.
         # Previously SCMs were silently ignored by the DOE engine; now they
         # select a standard branch — or fail loudly where BRE gives none.
         scm_mode: str | None = None
@@ -253,27 +255,42 @@ class DOEMixDesign(MixDesignCode):
                 if not 15.0 <= p_pct <= 40.0:
                     warnings.append(
                         f"pfa proportion {p_pct:g}% is outside the typical 15–40% "
-                        f"range (BRE 331:1997 §9.2.3); sulfate soils need 25–40% "
+                        f"range (BRE 331:1997 clause 9.2.3); sulfate soils need 25–40% "
                         f"(Digest 363), ASR mitigation ≥ 30% (Digest 330)"
+                    )
+                # 9.2.2: the cementing efficiency factor k = 0.30 is defined
+                # only for 28-day designs — "strengths at other ages could be
+                # used but these would require different values for the k
+                # factor", and the standard publishes none. As with ggbs above
+                # 40%, the design stops rather than silently extrapolating.
+                _pfa_age = int(getattr(inp, "age_days", 28) or 28)
+                if _pfa_age != 28:
+                    raise ValueError(
+                        f"pfa design at {_pfa_age} days is outside BRE 331:1997 "
+                        f"clause 9.2.2: the cementing efficiency factor k = 0.30 "
+                        f"applies to 28-day strengths only, and the standard "
+                        f"publishes no k for other ages. Design the mix for "
+                        f"28 days (the pfa path's reference strengths come from "
+                        f"Table 10 at that age), or clear the pfa addition."
                     )
             elif _t == "ggbfs":
                 scm_mode = "ggbs"
                 if p_pct > 40.0:
                     raise ValueError(
                         f"ggbs proportion {p_pct:g}% exceeds 40%: BRE 331:1997 "
-                        f"§10.3 gives no standard procedure above 40% (strength "
+                        f"clause 10.3 gives no standard procedure above 40% (strength "
                         f"needs +10 to +50 kg/m³ cementitious) — consult the "
                         f"cement/ggbs supplier for the mix design"
                     )
             else:
                 raise ValueError(
                     f"DOE (BR 331:1997) has no procedure for '{_t}' SCM — Part "
-                    f"three covers pfa (§9) and ggbs (§10) only"
+                    f"three covers pfa (clause 9) and ggbs (clause 10) only"
                 )
         if scm_mode is not None and air_pct > 0:
             warnings.append(
                 f"Combined air-entrained {scm_mode} design is outside the "
-                f"scope of BRE 331 Part three (§8 with §9/§10) — both "
+                f"scope of BRE 331 Part three (clause 8 with clause 9/clause 10) — both "
                 f"modifications were applied independently; verify by trial mix"
             )
 
@@ -283,18 +300,23 @@ class DOEMixDesign(MixDesignCode):
 
         # Step 1.1: Standard deviation (Figure 3 piecewise lines, any grade).
         # Line A (n<20): s = 0.4×fc for fc≤20 else 8 MPa.
-        # Line B (n≥20): s = 0.2×fc for fc≤20 else 4 MPa (BRE 331 §4.4).
+        # Line B (n≥20): s = 0.2×fc for fc≤20 else 4 MPa (BRE 331 clause 4.4).
         user_std_dev = getattr(inp, 'std_deviation', None)
         std_dev = resolve_standard_deviation(fc, user_std_dev, num_cubes)
-        if user_std_dev is not None and num_cubes is not None and num_cubes >= 20:
+        if user_std_dev is not None and user_std_dev > 0 and (
+            num_cubes is None or num_cubes >= 20
+        ):
+            # Known s from previous control data governs the margin
+            # (clause 4.4, Item 1.2; Example 4), floored at line B.
+            _n_note = "" if num_cubes is None else f" (n={num_cubes})"
             steps.append(self._make_step(
                 number=1,
-                description="Standard deviation (s) — established record, Line B minimum",
-                formula=f"s = max(record {user_std_dev:g}, Figure 3 Line B) = {std_dev:g} MPa (n={num_cubes})",
+                description="Standard deviation (s) — previous control data, Line B minimum",
+                formula=f"s = max(record {user_std_dev:g}, Figure 3 Line B) = {std_dev:g} MPa{_n_note}",
                 inputs={"fc": fc, "std_deviation": std_dev, "n_test_cubes": num_cubes},
                 result=std_dev,
                 unit="MPa",
-                clause_ref="User input (BRE 331:1997 §4.4)",
+                clause_ref="User input (BRE 331:1997 clause 4.4)",
             ))
         else:
 
@@ -319,7 +341,7 @@ class DOEMixDesign(MixDesignCode):
                             "figure3_line": _line},
                     result=std_dev,
                     unit="MPa",
-                    clause_ref=f"Figure 3 {_line}, BRE 331 §4.4",
+                    clause_ref=f"Figure 3 {_line}, BRE 331 clause 4.4",
                 ))
             else:
                 steps.append(self._make_step(
@@ -333,7 +355,7 @@ class DOEMixDesign(MixDesignCode):
                 ))
 
         # Step 1.2: Margin (Calculation C1)
-        # Check if user specified margin directly (BRE 331:1997 §4.4)
+        # Check if user specified margin directly (BRE 331:1997 clause 4.4)
         user_margin = getattr(inp, 'margin_mpa', None)
         if user_margin is not None and user_margin > 0:
             margin = user_margin
@@ -344,7 +366,7 @@ class DOEMixDesign(MixDesignCode):
                 inputs={"margin": margin},
                 result=margin,
                 unit="MPa",
-                clause_ref="User input (BRE 331:1997 §4.4)",
+                clause_ref="User input (BRE 331:1997 clause 4.4)",
             ))
         else:
             defective_pct = inp.defective_percent
@@ -361,22 +383,22 @@ class DOEMixDesign(MixDesignCode):
             ))
 
         # Step 1.3: Target mean strength (Calculation C2). C2 is "expressed
-        # to two significant figures" — the standard's own examples round
-        # UP to the whole N/mm² (45.68 → 46, §7.1; 61.65 → 62, §7.4), so
-        # the ceiling is applied here and the whole number feeds Figure 4.
+        # to two significant figures"; the app's shared policy rounds UP to
+        # 0.1 N/mm² (45.68 → 45.7, clause 7.1; 61.65 → 61.7, clause 7.4), and that
+        # value feeds Figure 4.
         target_mean = self.calculate_target_mean_strength(fc, margin_mpa=margin)
         steps.append(self._make_step(
             number=3,
             description="Target mean strength (f_m = f_c + M)",
             formula=f"f_m = {fc:g} + {margin:.2f} = {fc + margin:.2f}"
-                    f" → {target_mean:g} N/mm² (rounded up, C2)",
+                    f" → {target_mean:.1f} N/mm² (rounded up, C2)",
             inputs={"fc": fc, "M": margin, "fm_exact": fc + margin},
             result=target_mean,
             unit="MPa",
             clause_ref="Calculation C2 (two significant figures)",
         ))
 
-        # §8.1: air-entrained mixes aim higher to compensate ~5.5% strength
+        # clause 8.1: air-entrained mixes aim higher to compensate ~5.5% strength
         # loss per 1% entrained air. The modified target feeds Figure 4.
         target_fig4 = target_mean
         if air_pct > 0:
@@ -388,30 +410,47 @@ class DOEMixDesign(MixDesignCode):
                 inputs={"fc": fc, "M": margin, "air_pct": air_pct},
                 result=target_fig4,
                 unit="MPa",
-                clause_ref="BRE 331:1997 §8.1",
+                clause_ref="BRE 331:1997 clause 8.1",
             ))
 
-        # Step 1.4: Reference strength at W/C=0.5 (Table 2; Table 10 for pfa
-        # lists identical 28-day values, so the same lookup serves §9.3.1).
+        # Step 1.4: Reference strength. Plain/ggbs: Table 2 at the design age.
+        # pfa (clause 9.3.1): Table 10 — the 28-day strengths of a
+        # W/(C+0.30F) = 0.5 mix, listed per cement strength class and coarse
+        # aggregate type (42.5: 42/49; 52.5: 48/55 N/mm²). The values coincide
+        # with Table 2's 28-day column, so the same lookup serves, and the
+        # age is pinned to 28 days by the clause 9.2.2 guard above.
         age_days = inp.age_days
         ref_strength = get_reference_strength(cement_class, agg_type, age_days)
-        steps.append(self._make_step(
-            number=4,
-            description="Reference strength at W/C=0.5 (Table 2"
-                        + (" / Table 10 for pfa" if scm_mode == "pfa" else "") + ")",
-            formula=f"Table 2: class={cement_class}, agg={agg_type}, age={age_days}d",
-            inputs={"cement_class": cement_class, "agg_type": agg_type, "age_days": age_days},
-            result=ref_strength,
-            unit="MPa",
-            clause_ref="Table 2" + (" + Table 10 (§9.3.1)" if scm_mode == "pfa" else ""),
-        ))
+        if scm_mode == "pfa":
+            steps.append(self._make_step(
+                number=4,
+                description="Reference strength at W/(C+0.30F) = 0.5 (Table 10)",
+                formula=(f"Table 10: cement class {cement_class}, coarse "
+                         f"aggregate {agg_type}, 28 days — identical to the "
+                         f"Table 2 value"),
+                inputs={"cement_class": cement_class, "agg_type": agg_type,
+                        "age_days": 28},
+                result=ref_strength,
+                unit="MPa",
+                clause_ref="Table 10 (clause 9.3.1)",
+            ))
+        else:
+            steps.append(self._make_step(
+                number=4,
+                description="Reference strength at W/C=0.5 (Table 2)",
+                formula=f"Table 2: class={cement_class}, agg={agg_type}, age={age_days}d",
+                inputs={"cement_class": cement_class, "agg_type": agg_type, "age_days": age_days},
+                result=ref_strength,
+                unit="MPa",
+                clause_ref="Table 2",
+            ))
 
         # Step 1.5: Free-W/C ratio from Figure 4. For pfa this ratio is
-        # W/(C + 0.30F) (cementing efficiency k = 0.30, §9.2.2); the
+        # W/(C + 0.30F) (cementing efficiency k = 0.30, clause 9.2.2); the
         # durability cap then compares against W/(C+F) at Stage 3 (Item 3.8),
         # not against this ratio — so it is deferred for pfa.
         # Figure 4 is read to 2 dp and the worked examples chain that read
-        # straight into C3 (§7.1: 160 ÷ 0.47 = 340 → 340; §7.4:
+        # straight into C3 (clause 7.1: 160 ÷ 0.47 = 340 → 340; clause 7.4:
         # 215 ÷ 0.37 = 581 → 580), so the ratio is rounded here.
         wc_calc = round(wc_ratio_from_strength(target_fig4, ref_strength), 2)
 
@@ -433,7 +472,7 @@ class DOEMixDesign(MixDesignCode):
             inputs={"target_mean": target_fig4, "ref_strength": ref_strength, "max_wc": max_wc},
             result=wc_final,
             unit="",
-            clause_ref="Figure 4, Item 1.7/1.8" + (" + §9.3.1" if scm_mode == "pfa" else ""),
+            clause_ref="Figure 4, Item 1.7/1.8" + (" + clause 9.3.1" if scm_mode == "pfa" else ""),
         ))
 
         # ==================================================================
@@ -446,12 +485,12 @@ class DOEMixDesign(MixDesignCode):
 
         # When coarse and fine aggregates are of different types, use the
         # weighted formula: W = 2/3 Wf + 1/3 Wc (BRE 331:1997 Note to Table 3).
-        # §8.2: air-entrained mixes take water from one workability class
+        # clause 8.2: air-entrained mixes take water from one workability class
         # lower than specified (entrained air itself adds workability).
         water_cls = max(0, wc_class - 1) if air_pct > 0 else wc_class
         # Part three water cuts, applied to the Table 3 base below: pfa
-        # Table 9 Part B by proportion and class (§9.3.2); ggbs rough-guide
-        # −5 kg/m³ (§10.2.1).
+        # Table 9 Part B by proportion and class (clause 9.3.2); ggbs rough-guide
+        # −5 kg/m³ (clause 10.2.1).
         scm_water_cut = 0.0
         scm_water_note = ""
         scm_clause = ""
@@ -459,12 +498,12 @@ class DOEMixDesign(MixDesignCode):
             scm_water_cut = pfa_water_reduction(p_pct, water_cls)
             scm_water_note = (f" − Table 9B pfa cut {scm_water_cut:.0f} "
                               f"(p={p_pct:g}%, class {water_cls})")
-            scm_clause = " + Table 9 (§9.3.2)"
+            scm_clause = " + Table 9 (clause 9.3.2)"
         elif scm_mode == "ggbs":
             scm_water_cut = GGBS_WATER_REDUCTION_KG
             scm_water_note = (f" − ggbs rough-guide cut {scm_water_cut:.0f} "
-                              f"(§10.2.1)")
-            scm_clause = " + §10.2.1"
+                              f"(clause 10.2.1)")
+            scm_clause = " + clause 10.2.1"
         water_raw = 0.0
         if coarse_agg_type != fine_agg_type:
             w_fine = get_free_water_content(nmsa, fine_agg_type, workability_class=water_cls)
@@ -483,7 +522,7 @@ class DOEMixDesign(MixDesignCode):
                         "scm_water_cut": scm_water_cut},
                 result=water,
                 unit="kg/m³",
-                clause_ref="Table 3 Note, Item 2.3" + (" + §8.2 (one class lower)" if air_pct > 0 else "") + scm_clause,
+                clause_ref="Table 3 Note, Item 2.3" + (" + clause 8.2 (one class lower)" if air_pct > 0 else "") + scm_clause,
             ))
         else:
             water_raw = float(get_free_water_content(nmsa, coarse_agg_type, workability_class=water_cls))
@@ -498,10 +537,10 @@ class DOEMixDesign(MixDesignCode):
                         "water_class": water_cls, "scm_water_cut": scm_water_cut},
                 result=water,
                 unit="kg/m³",
-                clause_ref="Table 3, Item 2.3" + (" + §8.2 (one class lower)" if air_pct > 0 else "") + scm_clause,
+                clause_ref="Table 3, Item 2.3" + (" + clause 8.2 (one class lower)" if air_pct > 0 else "") + scm_clause,
             ))
 
-        # Admixture water reduction (BRE 331:1997 §5.3 — only when a
+        # Admixture water reduction (BRE 331:1997 clause 5.3 — only when a
         # water-reducing admixture is explicitly selected; "None" keeps the
         # Table 3 water unchanged).
         admixture_mass_kg = 0.0
@@ -522,13 +561,13 @@ class DOEMixDesign(MixDesignCode):
                 inputs={"base_water": water_before, "reduction_pct": reduction_pct, "admixture_type": inp.admixture.type_string},
                 result=water,
                 unit="kg/m³",
-                clause_ref="BRE 331:1997 §5.3",
+                clause_ref="BRE 331:1997 clause 5.3",
             ))
 
         # ==================================================================
         # STAGE 3 — Cement content
-        # Normal: C3 (W ÷ W/C). pfa: C6/C7/C8 with k = 0.30 (§9.3.3).
-        # ggbs ≤ 40%: C3 total then mass-for-mass split (§10.3).
+        # Normal: C3 (W ÷ W/C). pfa: C6/C7/C8 with k = 0.30 (clause 9.3.3).
+        # ggbs ≤ 40%: C3 total then mass-for-mass split (clause 10.3).
         # ==================================================================
 
         scm_content = 0.0  # pfa (F) or ggbs (G) content; 0 for plain mixes
@@ -550,7 +589,7 @@ class DOEMixDesign(MixDesignCode):
                 inputs={"water": water, "pfa_pct": p_pct, "equiv_ratio": wc_final},
                 result=cement_c,
                 unit="kg/m³",
-                clause_ref="Calculation C6 (§9.3.3)",
+                clause_ref="Calculation C6 (clause 9.3.3)",
             ))
             steps.append(self._make_step(
                 number=7.1,
@@ -559,7 +598,12 @@ class DOEMixDesign(MixDesignCode):
                 inputs={"pfa_pct": p_pct, "cement": cement_c},
                 result=scm_content,
                 unit="kg/m³",
-                clause_ref="Calculation C7 (§9.3.3)",
+                # clause 9.1: "For the purposes of this publication the pfa
+                # is assumed to comply with BS 3892:Part 1" — the k = 0.30
+                # efficiency and the Table 9 Part B water cuts are calibrated
+                # on that grade (conformity: BS 3892-1 clauses 5–12).
+                clause_ref="Calculation C7 (clause 9.3.3); pfa assumed to "
+                           "comply with BS 3892-1 (clause 9.1)",
             ))
             # C8 + Item 3.8 durability comparison on W/(C+F).
             fig6_ratio = water / combined if combined > 0 else wc_final
@@ -581,16 +625,18 @@ class DOEMixDesign(MixDesignCode):
                         "max_wc_item38": max_wc},
                 result=fig6_ratio,
                 unit="",
-                clause_ref="Calculation C8, Item 3.7/3.8 (§9.3.3)",
+                clause_ref="Calculation C8, Item 3.7/3.8 (clause 9.3.3)",
             ))
-            # Items 3.2/3.3 compare against combined (C+F) (Table 12).
-            if max_cement is not None and combined > max_cement:
-                # §5.3 / Example 4: the specification cannot be met — stop.
+            # Items 3.2/3.3 compare against combined (C+F) (Table 12),
+            # reported to the nearest 5 kg as entered on the design form.
+            combined_reported = _round_to_5(combined)
+            if max_cement is not None and combined_reported > max_cement:
+                # clause 5.3 / Example 4: the specification cannot be met — stop.
                 raise ValueError(
-                    f"Calculated cementitious content (C+F) {combined:.0f} kg/m³ "
+                    f"Calculated cementitious content (C+F) {combined_reported:.0f} kg/m³ "
                     f"exceeds the specified maximum {max_cement:.0f} kg/m³ — it "
                     f"is not possible to proceed with these requirements "
-                    f"(BRE 331:1997 §5.3). Consider a different cement strength "
+                    f"(BRE 331:1997 clause 5.3). Consider a different cement strength "
                     f"class, aggregate type or maximum size, lower workability, "
                     f"or a water-reducing admixture"
                 )
@@ -601,7 +647,7 @@ class DOEMixDesign(MixDesignCode):
                     f"combined (C+F) increased to {combined:.0f} kg/m³"
                 )
             # The (C+F) total is carried forward to the nearest 5 kg —
-            # the §9.4 example reports C 280 + F 120 = 400 kg/m³ — and
+            # the clause 9.4 example reports C 280 + F 120 = 400 kg/m³ — and
             # split back proportionally; Item 3.7's Figure 6 entry ratio
             # uses the rounded total.
             combined = _clamp_round5(combined, min_cement, max_cement)
@@ -632,10 +678,14 @@ class DOEMixDesign(MixDesignCode):
             ))
 
             # Min cement durability limit (compared on the C3 total,
-            # which for ggbs equals the combined (C+G) per §10.3).
+            # which for ggbs equals the combined (C+G) per clause 10.3).
             cement_content = cement_calc
-            if max_cement is not None and cement_calc > max_cement:
-                # §5.3 / Example 4 (§7.4: 580 kg/m³ > 550 maximum): when C3
+            # Item 3.1 is reported to the nearest 5 kg (clause 7.4:
+            # 215 ÷ 0.37 = 581 → 580) and the Item 3.2 maximum comparison
+            # uses that reported value on the design form.
+            cement_reported = _round_to_5(cement_calc)
+            if max_cement is not None and cement_reported > max_cement:
+                # clause 5.3 / Example 4 (clause 7.4: 580 kg/m³ > 550 maximum): when C3
                 # exceeds a specified maximum "it is probable that the
                 # specification cannot be met simultaneously on strength
                 # and workability requirements with the selected
@@ -644,10 +694,10 @@ class DOEMixDesign(MixDesignCode):
                 # above the Figure 4 value and silently miss the target
                 # mean strength.
                 raise ValueError(
-                    f"Calculated cement content {cement_calc:.0f} kg/m³ exceeds "
+                    f"Calculated cement content {cement_reported:.0f} kg/m³ exceeds "
                     f"the specified maximum {max_cement:.0f} kg/m³ — it is not "
                     f"possible to proceed with these requirements "
-                    f"(BRE 331:1997 §5.3, Example 4). Consider a different "
+                    f"(BRE 331:1997 clause 5.3, Example 4). Consider a different "
                     f"cement strength class, aggregate type or maximum size, "
                     f"lower workability, or a water-reducing admixture"
                 )
@@ -658,7 +708,7 @@ class DOEMixDesign(MixDesignCode):
                     f"increased to {cement_content:.0f} kg/m³"
                 )
             # C3 is reported and carried forward to the nearest 5 kg
-            # (§7.4: 215 ÷ 0.37 = 581 → 580), and Item 3.4's modified
+            # (clause 7.4: 215 ÷ 0.37 = 581 → 580), and Item 3.4's modified
             # W/C is derived from the rounded content.
             cement_content = _clamp_round5(
                 cement_content, min_cement, max_cement)
@@ -666,7 +716,7 @@ class DOEMixDesign(MixDesignCode):
             fig6_ratio = wc_final
 
             if scm_mode == "ggbs":
-                # Mass-for-mass split of the C3 total (§10.3, ≤ 40% path);
+                # Mass-for-mass split of the C3 total (clause 10.3, ≤ 40% path);
                 # 28-day strength comparable, limits compare on the combined
                 # total (unchanged by the split).
                 scm_content = cement_content * p_pct / 100.0
@@ -679,7 +729,7 @@ class DOEMixDesign(MixDesignCode):
                             "ggbs_pct": p_pct},
                     result=scm_content,
                     unit="kg/m³",
-                    clause_ref="BRE 331:1997 §10.3",
+                    clause_ref="BRE 331:1997 clause 10.3",
                 ))
 
             steps.append(self._make_step(
@@ -711,14 +761,14 @@ class DOEMixDesign(MixDesignCode):
                 inputs={"cementitious": _dose_base, "dosage_pct": inp.admixture.dosage_percent},
                 result=admixture_mass_kg,
                 unit="kg/m³",
-                clause_ref="BRE 331:1997 §5.3",
+                clause_ref="BRE 331:1997 clause 5.3",
             ))
 
         # ==================================================================
         # STAGE 4 — Wet density and total aggregate (Figure 5, C4)
         # ==================================================================
 
-        # BRE 331:1997 §5.4 / Item 4.1: Figure 5 reads the relative density
+        # BRE 331:1997 clause 5.4 / Item 4.1: Figure 5 reads the relative density
         # of the COMBINED aggregate (SSD, "known/assumed") — not the coarse
         # fraction alone. A tested Item 4.1 value wins; otherwise the
         # unweighted mean of the fine/coarse SSD specific gravities is
@@ -737,7 +787,7 @@ class DOEMixDesign(MixDesignCode):
             rd_basis = "assumed (mean of FA/CA SSD SG)"
         _fig5_density = get_wet_density(water, agg_rd)
         # Item 4.2: the wet density of fully compacted concrete is
-        # "expressed to the nearest 5 kg" (§4.3) — the standard's examples
+        # "expressed to the nearest 5 kg" (clause 4.3) — the standard's examples
         # read 2400 / 2325 / 2375 kg/m³ off the 5-kg chart grid.
         wet_density = float(_round_to_5(_fig5_density))
         steps.append(self._make_step(
@@ -754,7 +804,7 @@ class DOEMixDesign(MixDesignCode):
             clause_ref="Figure 5, Item 4.1–4.2",
         ))
 
-        # §8.3: air-entrained density = Figure 5 value minus 10·a·RDA,
+        # clause 8.3: air-entrained density = Figure 5 value minus 10·a·RDA,
         # then expressed to the nearest 5 kg like any Item 4.2 density.
         if air_pct > 0:
             _air_deduction = 10.0 * air_pct * agg_rd
@@ -770,12 +820,12 @@ class DOEMixDesign(MixDesignCode):
                         "deduction": _air_deduction},
                 result=wet_density,
                 unit="kg/m³",
-                clause_ref="BRE 331:1997 §8.3, Item 4.2",
+                clause_ref="BRE 331:1997 clause 8.3, Item 4.2",
             ))
             warnings.append(
                 "Air-entrained trial mix: measure air content first (BS 1881 "
                 "Part 106) — workability and strength readings depend on it "
-                "(BRE 331:1997 §8.5)"
+                "(BRE 331:1997 clause 8.5)"
             )
 
         # Calculation C4 (C9 for pfa/ggbs): total = D − cementitious − W.
@@ -789,7 +839,7 @@ class DOEMixDesign(MixDesignCode):
             inputs={"wet_density": wet_density, "cementitious": _cementitious, "water": water},
             result=total_agg,
             unit="kg/m³",
-            clause_ref="Calculation C4, Item 4.2" + (" / C9 (§9.3.4)" if scm_mode else ""),
+            clause_ref="Calculation C4, Item 4.2" + (" / C9 (clause 9.3.4)" if scm_mode else ""),
         ))
 
         # ==================================================================
@@ -797,8 +847,8 @@ class DOEMixDesign(MixDesignCode):
         # ==================================================================
 
         pct_passing = self._get_pct_passing_600um(inp)
-        # Figure 6 entry ratio: W/C normally, W/(C+F) for pfa (§9.3.5);
-        # for ggbs the unchanged combined total keeps W/C (§10.3).
+        # Figure 6 entry ratio: W/C normally, W/(C+F) for pfa (clause 9.3.5);
+        # for ggbs the unchanged combined total keeps W/C (clause 10.3).
         # The panel column is the workability class (not the raw slump),
         # read by bilinear interpolation over the digitised chart panel.
         fine_agg_prop = get_fine_aggregate_proportion(
@@ -817,22 +867,22 @@ class DOEMixDesign(MixDesignCode):
                     "figure6_panel": _panel, "ratio": fig6_ratio, "pct_passing_600um": pct_passing},
             result=fine_agg_prop,
             unit="%",
-            clause_ref="Figure 6, Item 5.1–5.3" + (" + §9.3.5" if scm_mode == "pfa" else ""),
+            clause_ref="Figure 6, Item 5.1–5.3" + (" + clause 9.3.5" if scm_mode == "pfa" else ""),
         ))
 
-        # §8.2: entrained air makes concrete more cohesive — the fine
+        # clause 8.2: entrained air makes concrete more cohesive — the fine
         # proportion may sometimes be cut by up to 5% of total aggregate.
         # Permissive ("may sometimes"), so guidance, never automatic.
         if air_pct > 0:
             warnings.append(
                 "Air entrainment improves cohesiveness: it may be possible to "
                 "reduce fine aggregate by up to 5% of total aggregate with a "
-                "further small water saving (BRE 331:1997 §8.2) — decide at "
+                "further small water saving (BRE 331:1997 clause 8.2) — decide at "
                 "the trial mix, not here"
             )
 
         # Calculation C5: Fine aggregate = total × proportion / 100,
-        # reported to the nearest 5 kg (§7.1: 1900 × 27% = 513 → 515).
+        # reported to the nearest 5 kg (clause 7.1: 1900 × 27% = 513 → 515).
         _fine_raw = total_agg * (fine_agg_prop / 100.0)
         fine_agg = float(_round_to_5(_fine_raw))
         steps.append(self._make_step(
@@ -862,7 +912,7 @@ class DOEMixDesign(MixDesignCode):
         # carried through C3/C4/C5 above, so the step values equal the
         # result panel exactly.
 
-        # §5.5: subdivide total coarse aggregate into single sizes when
+        # clause 5.5: subdivide total coarse aggregate into single sizes when
         # requested. Parts round to 5 kg with the remainder on the largest
         # fraction so the split always sums to the total.
         ca_split = getattr(inp, "ca_split", None)
@@ -871,12 +921,12 @@ class DOEMixDesign(MixDesignCode):
             if ca_split == "10+20" and nmsa != 20:
                 raise ValueError(
                     f"CA split '10+20' requires 20 mm NMSA, got {nmsa} mm "
-                    f"(BRE 331:1997 §5.5)"
+                    f"(BRE 331:1997 clause 5.5)"
                 )
             if ca_split == "10+20+40" and nmsa != 40:
                 raise ValueError(
                     f"CA split '10+20+40' requires 40 mm NMSA, got {nmsa} mm "
-                    f"(BRE 331:1997 §5.5)"
+                    f"(BRE 331:1997 clause 5.5)"
                 )
             ratios = {"10+20": (("10 mm", 1.0), ("20 mm", 2.0)),
                       "10+20+40": (("10 mm", 1.0), ("20 mm", 1.5), ("40 mm", 3.0))}[ca_split]
@@ -898,10 +948,10 @@ class DOEMixDesign(MixDesignCode):
                 inputs={"total_ca": coarse_agg, "split": ca_split, "parts": _parts},
                 result=coarse_agg,
                 unit="kg/m³",
-                clause_ref="BRE 331:1997 §5.5",
+                clause_ref="BRE 331:1997 clause 5.5",
             ))
 
-        # §6.1: reference 0.05 m³ trial batch — enough for six 150 mm cubes
+        # clause 6.1: reference 0.05 m³ trial batch — enough for six 150 mm cubes
         # plus slump/Vebe and density tests. SSD batch masses scale directly;
         # oven-dry equivalents (×100/(100+A)) plus absorption water cover
         # dry-batched aggregates, which must pre-soak with about half the
@@ -933,7 +983,7 @@ class DOEMixDesign(MixDesignCode):
             inputs=_trial_inputs,
             result=_trial_vol,
             unit="m³",
-            clause_ref="BRE 331:1997 §6.1 / BS 1881 Part 125",
+            clause_ref="BRE 331:1997 clause 6.1 / BS 1881 Part 125",
         ))
 
         return MixDesignResult(
@@ -972,7 +1022,7 @@ class DOEMixDesign(MixDesignCode):
         """
         raw = inp.coarse_aggregate.shape
         shape = raw.value.lower() if hasattr(raw, "value") else str(raw).lower()
-        # BRE 331:1997 §1.2.4 recognises only two classes: uncrushed
+        # BRE 331:1997 clause 1.2.4 recognises only two classes: uncrushed
         # (rounded/irregular particles, including sub-angular and gravel) and
         # crushed (angular, rough-textured, produced by crushing). Crushed
         # fragments stay crushed; everything else is uncrushed. NOTE: the
@@ -993,7 +1043,7 @@ class DOEMixDesign(MixDesignCode):
         if hasattr(inp.fine_aggregate, 'shape') and inp.fine_aggregate.shape is not None:
             raw = inp.fine_aggregate.shape
             shape = raw.value.lower() if hasattr(raw, "value") else str(raw).lower()
-            # Same two-class rule as _map_agg_type (BRE 331:1997 §1.2.4);
+            # Same two-class rule as _map_agg_type (BRE 331:1997 clause 1.2.4);
             # no bare "angular" substring test — see note above.
             crushed_names = {"crushed", "angular", "crushed_fragments"}
             if shape in crushed_names or "crushed" in shape:
@@ -1006,7 +1056,7 @@ class DOEMixDesign(MixDesignCode):
     def _map_cement_class(inp: MixDesignInput) -> str:
         """Explicit Table 2 mapping; non-BRE equivalents are app policy.
 
-        BRE §3.2 supplies only classes 42.5/52.5. Legacy national/blended
+        BRE clause 3.2 supplies only classes 42.5/52.5. Legacy national/blended
         types retain their supported approximation, qualified in warnings.
         """
         cement_type = inp.cement.type.value
@@ -1025,7 +1075,7 @@ class DOEMixDesign(MixDesignCode):
     def _get_pct_passing_600um(inp: MixDesignInput) -> float:
         """Extract % passing 600 µm sieve from fine aggregate.
 
-        Required input: BRE 331:1997 Figure 6 (§5.5, Item 5.1) cannot be
+        Required input: BRE 331:1997 Figure 6 (clause 5.5, Item 5.1) cannot be
         read without it. The dedicated pct_passing_600um field on
         FineAggregate is the source; missing values fail loudly rather
         than silently assuming a sand grading.

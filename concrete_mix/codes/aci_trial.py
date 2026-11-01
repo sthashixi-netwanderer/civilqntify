@@ -3,20 +3,20 @@
 Source: "Selecting Proportions for Normal-Density and High-Density
 Concrete — Guide" (ACI PRC-211.1-22):
 
-- §5.3.9 Step 9 / Table 5.3.9.1 — batch weight summary with the moisture
+- clause 5.3.9 Step 9 / Table 5.3.9.1 — batch weight summary with the moisture
   adjustment  w_batched = w_SSD × (1 + MC%) / (1 + A%)  and the water to
   batch (mixing water minus the free water on the aggregates); the total
   batch weight equals the total mixture weight.
-- §5.3.10 Step 10 — post-trial batch adjustments from measurements per
+- clause 5.3.10 Step 10 — post-trial batch adjustments from measurements per
   ASTM C192/C143/C138/C173/C231: Adjustment 1 re-estimates the mixing
   water from the net water of the trial and the slump difference;
   Adjustment 2 corrects for air content; Adjustment 3 uses cement
-  efficiency (psi per lb/yd³) for strength; §5.3.10.4 recalculates the
+  efficiency (psi per lb/yd³) for strength; clause 5.3.10.4 recalculates the
   next-trial proportions from Step 5.
 - Chapter 8 / Appendix A.5 — the trial batch series (three-point curve):
   mixtures above and below the design cement content at constant water
   establish the material-specific w/cm–strength relationship.
-- §9.2.9 (Example 1) — the fully worked post-trial computation used as
+- clause 9.2.9 (Example 1) — the fully worked post-trial computation used as
   the test ground truth.
 
 Units follow the app convention: all internal quantities are per cubic
@@ -26,19 +26,19 @@ metre in kg (the standard's lb/yd³ values convert at 1 lb = 0.45359237 kg,
 App-policy notes (documented per AGENTS.md — the standard is silent or
 the example simplifies):
   - Relative yield is reported per ASTM C138 as Ry = theoretical density
-    ÷ measured density (§5.3.10 working tolerance 0.98–1.02). §9.2.9.2
+    ÷ measured density (clause 5.3.10 working tolerance 0.98–1.02). clause 9.2.9.2
     prints the reciprocal convention ("yield 26.75 ft³" = 27 × measured
     ÷ theoretical); both give the same Ry = 1.0095 for the example.
   - Adjustment 1 divides the net trial water by the measured yield;
-    §9.2.9 treats the 1 ft³ trial as exactly 1 ft³ (yield ≈ 1), so the
+    clause 9.2.9 treats the 1 ft³ trial as exactly 1 ft³ (yield ≈ 1), so the
     workbook's re-estimated water differs from the printed 342 lb/yd³ by
     the ~0.9 % yield correction.
   - When both slump and strength adjustments fire, the next-trial
     cementitious content is the Step-5 value (water ÷ w/cm) plus the
     Adjustment-3 cement delta, with its corresponding water delta to
-    maintain w/cm per §5.3.10.3; the standard gives no combination rule.
-    This follows §5.3.10.3's constant-w/cm text rather than Example 3
-    (§9.4), which instead holds water constant and reduces w/cm.
+    maintain w/cm per clause 5.3.10.3; the standard gives no combination rule.
+    This follows clause 5.3.10.3's constant-w/cm text rather than Example 3
+    (clause 9.4), which instead holds water constant and reduces w/cm.
 """
 
 from __future__ import annotations
@@ -52,22 +52,22 @@ from concrete_mix.engine.moisture_correction import (
 from concrete_mix.models.mix_input import MixDesignInput
 from concrete_mix.models.mix_result import MixDesignResult
 
-# §5.3.10.1: ±10 lb/yd³ (5.93 kg/m³) per 1 in. (25.4 mm) of slump change.
+# clause 5.3.10.1: ±10 lb/yd³ (5.93 kg/m³) per 1 in. (25.4 mm) of slump change.
 SLUMP_WATER_KG_M3_PER_IN = 5.93
 SLUMP_WATER_KG_M3_PER_MM = SLUMP_WATER_KG_M3_PER_IN / 25.4
-# §5.3.10.2: ∓5 lb/yd³ (2.97 kg/m³) per 1 % air change.
+# clause 5.3.10.2: ∓5 lb/yd³ (2.97 kg/m³) per 1 % air change.
 AIR_WATER_KG_M3_PER_PCT = 2.97
-# §4.7.9.3 / §5.3.10 working tolerance on relative yield.
+# clause 4.7.9.3 / clause 5.3.10 working tolerance on relative yield.
 RELATIVE_YIELD_TOLERANCE = (0.98, 1.02)
 
-# §5.3.10 tests on trial batches (ASTM standards cited by the guide).
+# clause 5.3.10 tests on trial batches (ASTM standards cited by the guide).
 TEST_CHECKLIST = [
-    ("Preparation of trial batches", "ASTM C192/C192M (ACI PRC-211.1-22 Ch. 8, §5.3.10)"),
+    ("Preparation of trial batches", "ASTM C192/C192M (ACI PRC-211.1-22 Ch. 8, clause 5.3.10)"),
     ("Temperature of fresh concrete", "ASTM C1064/C1064M (Ch. 8)"),
-    ("Slump", "ASTM C143/C143M (Ch. 8, §5.3.10)"),
-    ("Density (yield) of fresh concrete", "ASTM C138/C138M (§5.3.10, §4.7.9)"),
-    ("Air content — volumetric", "ASTM C173/C173M (§5.3.10)"),
-    ("Air content — pressure method", "ASTM C231/C231M (§5.3.10)"),
+    ("Slump", "ASTM C143/C143M (Ch. 8, clause 5.3.10)"),
+    ("Density (yield) of fresh concrete", "ASTM C138/C138M (clause 5.3.10, clause 4.7.9)"),
+    ("Air content — volumetric", "ASTM C173/C173M (clause 5.3.10)"),
+    ("Air content — pressure method", "ASTM C231/C231M (clause 5.3.10)"),
     ("Making and curing specimens", "ASTM C31/C31M (Ch. 8 curing guidance)"),
 ]
 
@@ -123,7 +123,7 @@ def _moisture_params(inp: MixDesignInput) -> dict[str, float]:
 def _free_water(fa_ssd: float, ca_ssd: float, mp: dict[str, float]) -> dict[str, float]:
     """Free water carried by each aggregate at the stockpile moisture.
 
-    free = w_SSD × [(1 + MC%) / (1 + A%) − 1]  (§5.3.9.1); negative when
+    free = w_SSD × [(1 + MC%) / (1 + A%) − 1]  (clause 5.3.9.1); negative when
     the aggregate is drier than SSD (absorption deficit).
     """
     free_fa = fa_ssd * ((1.0 + mp["fa_moisture"] / 100.0) / (1.0 + mp["fa_absorption"] / 100.0) - 1.0)
@@ -147,13 +147,13 @@ def _fine_fill(
 ) -> tuple[float, float, float]:
     """Fine aggregate (SSD) that fills the remaining absolute volume.
 
-    Absolute-volume method (§5.3.7 Step 7; §9.2.9.5 reapplies it for the
+    Absolute-volume method (clause 5.3.7 Step 7; clause 9.2.9.5 reapplies it for the
     next trial).
 
     Returns:
         ``(fine mass kg/m³, fine absolute volume m³, overshoot m³)``.
 
-    The non-coarse constituents can already exceed 1 m³ when §5.3.10.3
+    The non-coarse constituents can already exceed 1 m³ when clause 5.3.10.3
     extrapolates cement content hard — a trial cube well below target is
     exactly that case, and refusing to compute there would block the
     adjustment the user needs. Fine aggregate is therefore clamped at zero
@@ -163,7 +163,7 @@ def _fine_fill(
     sg_c = inp.cement.specific_gravity
     sg_f = inp.fine_aggregate.specific_gravity
     sg_ca = inp.coarse_aggregate.specific_gravity
-    # §4.7.7.3: distribute the SCM mass using the input blend and sum
+    # clause 4.7.7.3: distribute the SCM mass using the input blend and sum
     # each absolute volume; never assign the first SCM's SG to the blend.
     replacement = inp.total_scm_replacement_percent
     scm_volume = sum(
@@ -190,7 +190,7 @@ def _fine_fill(
 
 
 # ----------------------------------------------------------------------
-# §5.3.9 — batch weight summary (Table 5.3.9.1)
+# clause 5.3.9 — batch weight summary (Table 5.3.9.1)
 # ----------------------------------------------------------------------
 
 def calculate_aci_trial_batches(
@@ -207,7 +207,7 @@ def calculate_aci_trial_batches(
             is omitted).
         inp: The design input record (aggregate moisture/absorption,
             specific gravities). Required.
-        volume_m3: Trial batch volume; §9.2.9's reference trial is 1 ft³
+        volume_m3: Trial batch volume; clause 9.2.9's reference trial is 1 ft³
             (0.0283 m³), DOE-style 0.05 m³ also works.
         include_series: Append the Appendix A.5 trial-series mixtures
             (cement contents above and below the design value at
@@ -216,7 +216,7 @@ def calculate_aci_trial_batches(
 
     Returns:
         Dict with the ``batches`` list (design vs batched weights per
-        §5.3.9.1), the optional A.5 ``series``, the ``test_checklist``
+        clause 5.3.9.1), the optional A.5 ``series``, the ``test_checklist``
         and ``warnings``.
     """
     if inp is None:
@@ -234,7 +234,7 @@ def calculate_aci_trial_batches(
     mp = _moisture_params(inp)
     c = _constituents(result)
 
-    # §5.3.9.1 — batched weights and the water to batch at the mixer.
+    # clause 5.3.9.1 — batched weights and the water to batch at the mixer.
     fa_batched = correct_for_moisture(c["fine_agg_ssd"], mp["fa_absorption"], mp["fa_moisture"])
     ca_batched = correct_for_moisture(c["coarse_agg_ssd"], mp["ca_absorption"], mp["ca_moisture"])
     free = _free_water(c["fine_agg_ssd"], c["coarse_agg_ssd"], mp)
@@ -268,18 +268,18 @@ def calculate_aci_trial_batches(
         "batch": _scale(per_m3, volume_m3),
         "notes": [
             "Batch weight summary per Table 5.3.9.1: w_batched = "
-            "w_SSD × (1 + MC%) / (1 + A%) (§5.3.9.1)",
+            "w_SSD × (1 + MC%) / (1 + A%) (clause 5.3.9.1)",
             "Water to batch = mixing water − free water on the "
             "aggregates; total batch weight equals total mixture weight",
         ],
     }]
 
     warnings: list[str] = []
-    # §5.3.9.1: the moisture adjustment is not a mixture redesign.
+    # clause 5.3.9.1: the moisture adjustment is not a mixture redesign.
     if abs(batch_total - design_total) > 0.01 * design_total:
         warnings.append(
             "Batched total deviates from the mixture total by more than "
-            "1% — check the moisture and absorption entries (§5.3.9.1)"
+            "1% — check the moisture and absorption entries (clause 5.3.9.1)"
         )
 
     # Appendix A.5 / three-point curve — cement variants at constant
@@ -341,7 +341,7 @@ def calculate_aci_trial_batches(
 
 
 # ----------------------------------------------------------------------
-# §5.3.10 — post-trial batch adjustments
+# clause 5.3.10 — post-trial batch adjustments
 # ----------------------------------------------------------------------
 
 def evaluate_aci_trial(
@@ -349,7 +349,7 @@ def evaluate_aci_trial(
     inp: MixDesignInput | None = None,
     measurements: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Apply the §5.3.10 post-trial adjustments to measured results.
+    """Apply the clause 5.3.10 post-trial adjustments to measured results.
 
     Args:
         result: ACI MixDesignResult.
@@ -358,14 +358,14 @@ def evaluate_aci_trial(
             ``volume_m3`` (trial batch volume), ``actual_water_kg``
             (water actually added to the batch), ``batched_fine_kg`` /
             ``batched_coarse_kg`` (moist aggregate masses actually
-            batched — defaults to the §5.3.9.1 schedule),
+            batched — defaults to the clause 5.3.9.1 schedule),
             ``measured_slump_mm``, ``measured_density_kg_m3``,
             ``measured_air_pct``, ``cube_strength_mpa``,
             ``test_age_days``.
 
     Returns:
         Dict with the free-water reversal, yield/air section, the three
-        §5.3.10 adjustments, the §5.3.10.4 next-trial proportions, and
+        clause 5.3.10 adjustments, the clause 5.3.10.4 next-trial proportions, and
         warnings.
     """
     measurements = dict(measurements or {})
@@ -387,7 +387,7 @@ def evaluate_aci_trial(
     warnings: list[str] = []
 
     # ------------------------------------------------------------------
-    # Free-water reversal (§9.2.9.1) — the net mixing water of the trial.
+    # Free-water reversal (clause 9.2.9.1) — the net mixing water of the trial.
     # ------------------------------------------------------------------
     fa_batched = float(measurements.get("batched_fine_kg") or 0.0) or \
         correct_for_moisture(c["fine_agg_ssd"], mp["fa_absorption"], mp["fa_moisture"]) * volume_m3
@@ -418,7 +418,7 @@ def evaluate_aci_trial(
     }
 
     # ------------------------------------------------------------------
-    # Yield and gravimetric air (§5.3.10 / ASTM C138; §9.2.9.2)
+    # Yield and gravimetric air (clause 5.3.10 / ASTM C138; clause 9.2.9.2)
     # ------------------------------------------------------------------
     design_total = sum(c[k] for k in ("water", "cementitious", "fine_agg_ssd",
                                       "coarse_agg_ssd", "admixture"))
@@ -448,12 +448,12 @@ def evaluate_aci_trial(
         if not yield_section["in_tolerance"]:
             warnings.append(
                 f"Relative yield {ry:.3f} is outside the 0.98–1.02 working "
-                f"tolerance (§4.7.9.3) — check batch weights, specific "
+                f"tolerance (clause 4.7.9.3) — check batch weights, specific "
                 f"gravities, moisture and air before adjusting proportions"
             )
 
     # ------------------------------------------------------------------
-    # Adjustment 1 (§5.3.10.1) — re-estimate the mixing water.
+    # Adjustment 1 (clause 5.3.10.1) — re-estimate the mixing water.
     # ------------------------------------------------------------------
     adj1: dict[str, Any] = {
         "provided": True,
@@ -463,7 +463,7 @@ def evaluate_aci_trial(
         "re_estimated_water_kg_m3": round(net_water_m3, 1),
     }
     if yield_m3 is not None:
-        # §5.3.10.1 text: net water × design volume ÷ yield. (§9.2.9
+        # clause 5.3.10.1 text: net water × design volume ÷ yield. (clause 9.2.9
         # skips the 0.9 % division for its 1 ft³ trial — see module doc.)
         re_water = net_water_m3 / yield_m3
         adj1["yield_corrected_kg_m3"] = round(re_water, 1)
@@ -478,12 +478,12 @@ def evaluate_aci_trial(
         if slump_corr > 0:
             adj1.setdefault("notes", []).append(
                 "If adding water is undesirable, consider a "
-                "water-reducing admixture (§5.3.10.1)"
+                "water-reducing admixture (clause 5.3.10.1)"
             )
     adj1["re_estimated_water_kg_m3"] = round(re_water, 1)
 
     # ------------------------------------------------------------------
-    # Adjustment 2 (§5.3.10.2) — air content.
+    # Adjustment 2 (clause 5.3.10.2) — air content.
     # ------------------------------------------------------------------
     adj2: dict[str, Any] = {
         "provided": measurements.get("measured_air_pct") is not None,
@@ -498,11 +498,11 @@ def evaluate_aci_trial(
         adj2["water_correction_kg_m3"] = round(air_corr, 1)
         adj2["note"] = (
             "Re-estimate the air-entrainer dosage for the required air "
-            "content (§5.3.10.2)"
+            "content (clause 5.3.10.2)"
         )
 
     # ------------------------------------------------------------------
-    # Adjustment 3 (§5.3.10.3) — strength via cement efficiency.
+    # Adjustment 3 (clause 5.3.10.3) — strength via cement efficiency.
     # ------------------------------------------------------------------
     adj3: dict[str, Any] = {
         "provided": measurements.get("cube_strength_mpa") is not None,
@@ -521,13 +521,13 @@ def evaluate_aci_trial(
             delta_cem = (result.target_mean_strength_mpa - strength) / eff if eff > 0 else 0.0
             adj3["efficiency_mpa_per_kg"] = round(eff, 4)
             adj3["delta_cement_kg_m3"] = round(delta_cem, 1)
-            # Follow §5.3.10.3's constant-w/cm procedure, not the
-            # alternative constant-water procedure in Example 3 (§9.4).
+            # Follow clause 5.3.10.3's constant-w/cm procedure, not the
+            # alternative constant-water procedure in Example 3 (clause 9.4).
             delta_water = delta_cem * result.w_c_ratio
             adj3["delta_water_kg_m3"] = round(delta_water, 1)
 
     # ------------------------------------------------------------------
-    # §5.3.10.4 — next-trial proportions (recalculate from Step 5).
+    # clause 5.3.10.4 — next-trial proportions (recalculate from Step 5).
     # ------------------------------------------------------------------
     water_next = re_water + air_corr
     cementitious_next = water_next / result.w_c_ratio if result.w_c_ratio > 0 else c["cementitious"]
@@ -560,7 +560,7 @@ def evaluate_aci_trial(
         warnings.append(
             f"Non-coarse constituents already exceed 1 m³ by "
             f"{fine_overshoot:.3f} m³, so the next-trial fine aggregate is "
-            f"zero. §5.3.10.3 extrapolates cement linearly from a single "
+            f"zero. clause 5.3.10.3 extrapolates cement linearly from a single "
             f"cube result; re-run the trial series rather than accepting "
             f"this batch as buildable."
         )
@@ -578,7 +578,7 @@ def evaluate_aci_trial(
         "air_basis_pct": air_next,
         "batch": _scale(next_per_m3, volume_m3),
         "note": (
-            "§5.3.10.4: new batch weights calculated from Step 5; coarse "
+            "clause 5.3.10.4: new batch weights calculated from Step 5; coarse "
             "aggregate held unless workability requires a Table 5.3.6 "
             "adjustment; air uses the target when entrained-air dosage is "
             "corrected, otherwise the measured content where available"

@@ -414,7 +414,7 @@ def test_history_tab_load_selected_and_double_click(qt, db):
 def test_history_tab_export_selected_imports_back(qt, db, tmp_path, monkeypatch):
     from app.widgets import history_tab as ht
     from app.widgets.history_tab import HistoryTab
-    from PyQt6.QtWidgets import QFileDialog, QMessageBox
+    from PyQt6.QtWidgets import QFileDialog
 
     psd_id = _make_psd_record(db, "exp")
     rec = db.get_calculation(psd_id)
@@ -428,7 +428,7 @@ def test_history_tab_export_selected_imports_back(qt, db, tmp_path, monkeypatch)
         QFileDialog, "getSaveFileName", staticmethod(lambda *a, **k: (path, ""))
     )
     monkeypatch.setattr(
-        QMessageBox, "information",
+        ht.QMessageBox, "information",
         staticmethod(lambda *a, **k: None),
     )
     tab._on_export_selected()
