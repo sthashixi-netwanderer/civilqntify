@@ -1065,7 +1065,11 @@ class ConcreteMixTab(QWidget):
         # Step 1 — Design Parameters
         # IS 10262 Step 1: Grade, exposure, workability, placement
         # ════════════════════════════════════════════════════════════════
-        grp1 = self._group("Step 1 — Design Parameters")
+        # Title kept short on purpose: the bold group title drives the
+        # sidebar's minimumSizeHint, and long titles (plus CI's wider
+        # DejaVu fonts) wedge Step 1 past the 280 px sidebar floor
+        # (test_input_sidebars_fit_their_360px_pane_floor).
+        grp1 = self._group("Step 1 — Parameters")
         f1 = QFormLayout()
         f1.setSpacing(8)
         f1.setContentsMargins(12, 16, 12, 12)
@@ -1439,7 +1443,7 @@ class ConcreteMixTab(QWidget):
         # Short label: the table reference stays in the tooltip because a
         # QCheckBox's text is an unshrinkable row minimum (see the
         # Production Data checkbox above).
-        self.aci_rounded_check = QCheckBox("Rounded aggregate −8% water")
+        self.aci_rounded_check = QCheckBox("Rounded CA (−8% water)")
         self.aci_rounded_check.setToolTip(
             "Apply the Table 5.3.3.1 −8% mixing-water cut for rounded coarse\n"
             "aggregate (ACI only, off by default).\n\n"
@@ -2470,7 +2474,15 @@ class ConcreteMixTab(QWidget):
         # Trial Check (optional) — measured trial-batch observations for
         # ACI 211.1 clause 5.3.10 post-trial adjustments. 0 = not measured.
         # ════════════════════════════════════════════════════════════════
-        grp_trial = self._group("Trial Check (optional) — clause 5.3.10")
+        # Short title: the clause citation lives in the tooltip (bold
+        # group titles drive the sidebar's minimumSizeHint — see the
+        # Step 1 note above).
+        grp_trial = self._group("Trial Check (optional)")
+        grp_trial.setToolTip(
+            "Optional trial-batch check per ACI PRC-211.1-22 clause 5.3.10 —\n"
+            "measured trial-batch observations for post-trial adjustments.\n"
+            "0 = not measured."
+        )
         ft = QFormLayout()
         ft.setSpacing(8)
         ft.setContentsMargins(12, 16, 12, 12)

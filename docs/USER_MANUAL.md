@@ -162,7 +162,7 @@ Typical PSD workflow:
 
 ---
 
-## 4. `Mix Design → Concrete Mix Design` — Step 1 `Step 1 — Design Parameters`
+## 4. `Mix Design → Concrete Mix Design` — Step 1 `Step 1 — Parameters`
 
 ### 4.1 `Standard` and `Calculation`
 
@@ -215,12 +215,12 @@ Checkboxes are bare boxes with the visible label beside them.
 | `Has Production Data (≥30 tests)` | checked checkbox (ACI-only; hidden otherwise) | On = sample s used (engine default 4.0 MPa unless `Std Deviation s` is set); off = Table 4.7.4.3 no-data overdesign. |
 | `Strength Tests (n)` | spin 15–1000, default 30 | Number of prior tests for overdesign. |
 | `Std Deviation s (MPa)` | spin 0–10, default 0.0 | 0 = engine default 4.0 MPa. |
-| `Rounded aggregate −8% water (Table 5.3.3.1)` | unchecked checkbox | −8 % water cut for rounded CA. Off unless the trial verifies it (Example 2 vs Example 1). |
+| `Rounded CA (−8% water)` (Table 5.3.3.1 — see tooltip) | unchecked checkbox | −8 % water cut for rounded CA. Off unless the trial verifies it (Example 2 vs Example 1). |
 | `Target Paste Volume (%)` | spin 0–45, default 0.0 | 0 = off. Example 4 route; AASHTO PP 84 cites 25 %. |
 | `Concrete Temp (°C)` | spin −10–60, default 22.5 | 22.5 = baseline; hot/cold shifts water. |
 | `Form Width (narrowest)`, `Slab Depth`, `Clear Bar Spacing (min)` | spins, default 0.0 | 0 = skip the NMSA-limit check. Otherwise NMSA must satisfy 1/5 / 1/3 / 3/4 rules. |
 | `Fineness Modulus`, `Manufactured Sand`, `Dry-Rodded Bulk Density` | Step 2, ACI-gated — see clause 5.1 | |
-| `Trial Check (optional) — ACI clause 5.3.10` group | Step-3-adjacent, ACI-gated — see clause 6.1 | |
+| `Trial Check (optional)` group (ACI clause 5.3.10 — see tooltip) | Step-3-adjacent, ACI-gated — see clause 6.1 | |
 
 
 ![Mix form — DOE (BRE 331:1997) variant](user_manual_images/fresh_2026-09-20/01c_mix_doe.png)
@@ -300,7 +300,7 @@ Checkboxes are bare boxes with the visible label beside them.
 
 Changing admixture type/dosage auto-recomputes `Reduced Water`.
 
-### 6.2 Group: `Trial Check (optional) — ACI clause 5.3.10` (ACI only)
+### 6.2 Group: `Trial Check (optional)` (ACI only, clause 5.3.10)
 
 All 0 = not measured. Enter measured values to get clause 5.3.10 post-trial adjustments at design scale.
 
@@ -676,7 +676,7 @@ The result pane also raises the Clause 5.8 warning and the `ACTIVE - IS 10262:20
 
 Source: `31-ACI 211.1-22.md`, clause 9.2 Example 1 (Table 9.2.7.2 SSD proportions: water 300, cement 484, CA 1927, FA 1308 lb/yd³ at w/cm 0.62; Table 9.2.8 batched with 2 % / 6 % moisture).
 
-GUI inputs: `Standard = ACI PRC-211.1:2022`, `Characteristic Strength fck = 17.24 MPa` (= 2500 psi), `Slump = 100 mm` (4 in., covers the 3–4 in. Table 5.3.3 row), `NMSA = 40 mm` (≈ 1½ in.), `Cement Type = 42.5N (Type I)`, `Fineness Modulus = 2.80`, FA SG 2.64 / absorption 0.7 / moisture 0.0, CA SG 2.68 / absorption 0.5 / moisture 0.0, `Dry-Rodded Bulk Density = 1602 kg/m³` (= 100 lb/ft³), `Air Entrainment` off, `S0` / `F0` / `W0` / `C0`, `Has Production Data` off (no prior tests → Table 4.7.4.1: f'c < 3000 psi ⇒ f'cr = f'c + 1000 psi = 3500 psi). `Rounded aggregate −8% water` left off, matching the example (300 lb unadjusted).
+GUI inputs: `Standard = ACI PRC-211.1:2022`, `Characteristic Strength fck = 17.24 MPa` (= 2500 psi), `Slump = 100 mm` (4 in., covers the 3–4 in. Table 5.3.3 row), `NMSA = 40 mm` (≈ 1½ in.), `Cement Type = 42.5N (Type I)`, `Fineness Modulus = 2.80`, FA SG 2.64 / absorption 0.7 / moisture 0.0, CA SG 2.68 / absorption 0.5 / moisture 0.0, `Dry-Rodded Bulk Density = 1602 kg/m³` (= 100 lb/ft³), `Air Entrainment` off, `S0` / `F0` / `W0` / `C0`, `Has Production Data` off (no prior tests → Table 4.7.4.1: f'c < 3000 psi ⇒ f'cr = f'c + 1000 psi = 3500 psi). `Rounded CA (−8% water)` left off, matching the example (300 lb unadjusted).
 
 ![ACI PRC-211.1-22 clause 9.2 Example 1 run in the GUI — current 0.1 MPa policy gives 285.2 / 178.0 / 780.0 / 1141.7 kg/m³, w/cm 0.624, target 24.2 MPa](user_manual_images/fresh_2026-09-20/09_aci_ex1.png)
 
@@ -718,7 +718,7 @@ Leave `Number of Test Cubes` at its default 20 and the same inputs give the Line
 
 Main: `CivilQntify`, `Mix Design`, `Material Quantification`, `Cost Estimation`, `History`, `Weather`, `Unit Settings`, `Ready`, `Weather Data`, `Settings`, `Transfer Error`, `Load Error`.
 
-Mix form groups: `Step 1 — Design Parameters`, `Step 2 — Material Properties`, `Step 3 — Admixtures & SCM`, `Trial Check (optional) — ACI clause 5.3.10`, `SCC Checks (optional, IS)`, `Report Details`. Buttons: `  Calculate Mix Design`, `  Calculate Target Strength`, `  Calculating...`, `  Clear`, `Export CSV`, `Export PDF`, `Send to Quantification`, `📋 View 4-Trial Batches Protocol & Reporting Guide (Clause 5.8)`, `🧪 Open Trial Mixes Workbook (clause 6)`, `🧪 Open Trial Batching Workbook (clause 5.3.9–5.3.10)`.
+Mix form groups: `Step 1 — Parameters`, `Step 2 — Material Properties`, `Step 3 — Admixtures & SCM`, `Trial Check (optional)`, `SCC Checks (optional, IS)`, `Report Details`. Buttons: `  Calculate Mix Design`, `  Calculate Target Strength`, `  Calculating...`, `  Clear`, `Export CSV`, `Export PDF`, `Send to Quantification`, `📋 View 4-Trial Batches Protocol & Reporting Guide (Clause 5.8)`, `🧪 Open Trial Mixes Workbook (clause 6)`, `🧪 Open Trial Batching Workbook (clause 5.3.9–5.3.10)`.
 
 PSD: `Sieve Analysis — Setup`, `Standard`, `Aggregate Type`, `Reference Band`, `Input — Mass Retained on Each Sieve`, `Sieve Size`, `Mass Retained (g)`, `% Retained`, `Cumulative % Retained`, `% Passing`, `Standard % Passing`, `Export Table CSV`, `  Compute & Plot`, `  Clear`, `Quality Requirements`, `Results Summary`, `Gradation Curve (Semi-Log)`, `Gradation Analysis`, `Fineness Modulus — from Sieve Analysis (ACI 211.1-22 clause 4.3.5)`, `Use in Mix Design`, `Export CSV`, `Export Image`, `OK`.
 
